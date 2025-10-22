@@ -112,8 +112,7 @@ def triton_scaled_mm(a: torch.Tensor,
     BLOCK_SIZE_M = 128
     BLOCK_SIZE_N = 256
     EVEN = K % BLOCK_SIZE_K == 0
-    grid = lambda META: (
-    M // META["BLOCK_SIZE_M"], N // META["BLOCK_SIZE_N"])  # noqa
+    grid = (M // BLOCK_SIZE_M, N // BLOCK_SIZE_N)  # noqa
     scaled_mm_kernel[grid](a, b, c,
                            a_scale,
                            b_scale,

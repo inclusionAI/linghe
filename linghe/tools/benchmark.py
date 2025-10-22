@@ -9,7 +9,7 @@ import torch
 from torch.profiler import profile, ProfilerActivity
 
 
-def benchmark_func(fn, *args, n_warmup=10, n_repeat=100, ref_linghe=None,
+def benchmark_func(fn, *args, n_warmup=10, n_repeat=100, ref_flops=None,
                    ref_bytes=None, ref_time=None,
                    n_profile=0, trace_dir=None,
                    name='', **kwargs):
@@ -52,8 +52,8 @@ def benchmark_func(fn, *args, n_warmup=10, n_repeat=100, ref_linghe=None,
     average_event_time = times * 1000 / (n_repeat - 2 * clip)
 
     fs = ''
-    if ref_linghe is not None:
-        linghe = ref_linghe / 1e12 / (average_event_time / 1e6)
+    if ref_flops is not None:
+        linghe = ref_flops / 1e12 / (average_event_time / 1e6)
         fs = f'FLOPS:{linghe:.2f}T'
     bs = ''
     if ref_bytes is not None:

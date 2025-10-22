@@ -451,7 +451,7 @@ def qk_norm_and_half_rope_forward_kernel(qkv_ptr,
 
 def triton_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weight,
                                          freqs, H=32, h=4, eps=1e-6,
-                                         interleaved=True, transposed=False):
+                                         interleaved=True, transposed=True):
 
     """
     split qkv to q/k/v, apply qk norm and half rope to q/k,
@@ -470,7 +470,6 @@ def triton_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weight,
         transposed: whether qkv is tranposed
             transposed: [S, B, dim]
             non-transposed: [B, S, dim]
-            only support transpose format currently
     Returns:
         - qo: shape [B, S, H, head_dim]
         - ko: shape [B, S, h, head_dim]
@@ -730,7 +729,7 @@ def qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
 
 def triton_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
                                           k_norm_weight, freqs, eps=1e-6,
-                                          interleaved=True, transposed=False):
+                                          interleaved=True, transposed=True):
     """
     backward kernel of triton_qk_norm_and_half_rope_forward
     Args:
@@ -738,12 +737,16 @@ def triton_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
         gk: gradient of ko, [len, bs, q_head, head_dim]
         gv: gradient of vo, [len, bs, q_head, head_dim]
         qkv: input qkv
-        q_norm_weight:
-        k_norm_weight:
-        freqs:
-        eps:
-        interleaved:
-        transposed:
+        q_norm_weight: rms norm weight for query
+        k_norm_weight: rms norm weight for key
+        freqs: Freqs tensor based on half dim.
+        eps: epsilon value for L2 normalization.
+        interleaved: whether head of qkv is interleaved,
+            interleaved: [q...qkvq...qkv]
+            non-interleaved: [q...qk...kv...v]
+        transposed: whether qkv is tranposed
+            transposed: [S, B, dim]
+            non-transposed: [B, S, dim]
 
     Returns:
         - dqkv: gradient of qkv

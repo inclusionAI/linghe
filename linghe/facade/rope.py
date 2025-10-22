@@ -22,8 +22,8 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                           H=H,
                                                           h=h,
                                                           eps=eps,
-                                                          interleave=True,
-                                                          transpose=True)
+                                                          interleaved=True,
+                                                          transposed=True)
 
         ctx.save_for_backward(qkv, q_norm_weight.data, k_norm_weight.data,
                               freqs)
@@ -45,8 +45,8 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                                k_norm_weight,
                                                                freqs,
                                                                eps=ctx.eps,
-                                                               transpose=True,
-                                                               interleave=True)
+                                                               transposed=True,
+                                                               interleaved=True)
         return dqkv, dqw, dkw, None, None, None, None
 
 
