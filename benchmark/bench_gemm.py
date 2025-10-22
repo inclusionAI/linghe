@@ -7,7 +7,64 @@ import torch
 
 
 from linghe.tools.benchmark import benchmark_func
+from linghe.tools.util import fp16_forward
+from linghe.utils.add import triton_inplace_add
 
+
+
+def triton_accum_weight(x, w, out, x_scale, w_scale):
+    output = torch._scaled_mm(
+        x,
+        w,
+        scale_a=x_scale,
+        scale_b=w_scale,
+        out_dtype=torch.bfloat16,
+        use_fast_accum=True
+    )
+    triton_inplace_add(out, output)
+    return out
+
+
+def torch_accum_weight(x, w, out, x_scale, w_scale):
+    output = torch._scaled_mm(
+        x,
+        w,
+        scale_a=x_scale,
+        scale_b=w_scale,
+        out_dtype=torch.bfloat16,
+        use_fast_accum=True
+    )
+    out.add_(output)
+    return out
+
+
+def test_cublas_blockwise_gemm(M=4096, N=4096, K=4096):
+
+    dtype = torch.bfloat16
+    device = 'cuda:0'
+    n_repeat = 100
+
+    x = torch.randn(M, K, dtype=dtype, device=device)
+    w = torch.randn(N, K, dtype=dtype, device=device)
+
+    xrs = x.abs().float().amax(dim=1, keepdim=True)
+    wcs = w.abs().float().amax(dim=1, keepdim=True)
+    x_q = (448 * x / xrs).to(torch.float8_e4m3fn)
+    w_q = (448 * w / wcs).to(torch.float8_e4m3fn)
+    ref_flops = M * N * K * 2
+    ones = torch.ones((1,), dtype=torch.float32, device=device)
+
+    out = torch.zeros((M, N), dtype=torch.float32, device=device)
+    o = torch.empty((M, N), dtype=dtype, device=device)
+
+    ref_time = benchmark_func(fp16_forward, x, w.t(), n_repeat=n_repeat,
+                            ref_flops=ref_flops, name=f'M:{M}')
+    benchmark_func(torch_accum_weight, x_q, w_q.t(), out, xrs, wcs.view(1, -1),
+                n_repeat=n_repeat, ref_flops=ref_flops, ref_time=ref_time,
+                name=f'M:{M}')
+    benchmark_func(triton_accum_weight, x_q, w_q.t(), out, xrs, wcs.view(1, -1),
+                n_repeat=n_repeat, ref_flops=ref_flops, ref_time=ref_time,
+                name=f'M:{M}')
 
 
 def test_te_blockwise_gemm(M=4096, N=4096, K=4096):
@@ -94,5 +151,6 @@ def test_te_blockwise_gemm(M=4096, N=4096, K=4096):
 
 
 if __name__ == '__main__':
+    test_cublas_blockwise_gemm(M=4096, N=4096, K=4096)
     test_te_blockwise_gemm(M=4096, N=4096, K=4096)
 
