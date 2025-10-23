@@ -79,6 +79,31 @@ def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     return wq, scale
 
 
+def torch_mxfp8_quant(x):
+    x = x.float()
+    m, N = x.shape 
+    assert N%128 == 0
+    if m % 128 != 0:
+        M = (m + 127) // 128 * 128
+        x = torch.cat([x, torch.zeros((M-m,N), dtype=x.dtype, device=x.device)], 0)
+    else:
+        M = m
+    xs = x.view(M, N//32, 32)
+    xm = xs.abs().amax(2)
+    scale = torch.maximum(xm/448, 1e-30*torch.ones_like(xm)) 
+    scale = torch.exp2(torch.ceil(torch.log2(scale)))
+    x_q = (xs/scale[:,:,None]).to(torch.float8_e4m3fn).view(M,N)
+    x_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
+
+    xs = x.view(M//32, 32, N)
+    xm = xs.abs().amax(1)
+    scale = torch.maximum(xm/448, 1e-30*torch.ones_like(xm)) 
+    scale = torch.exp2(torch.ceil(torch.log2(scale)))
+    xt_q = (xs/scale[:,None,:]).to(torch.float8_e4m3fn).view(M,N)
+    xt_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
+
+    return x_q, x_scale, xt_q, xt_scale
+
 def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
     x = x.float()
     x_maxs = x.abs().amax(0)
@@ -273,7 +298,7 @@ def torch_channel_quant_f_and_b(x, w, y):
 
 
 # smooth and token-wise/channel-wise
-def torch_reuse_smooth_quant_f_and_b(x, w, y):
+def torch_smooth_quant_f_and_b(x, w, y):
     x = x.clone()
     w = w.clone()
     y = y.clone()
