@@ -134,7 +134,6 @@ def triton_rms_norm_backward(grad_output, x, w, eps=1e-6):
     )
     return dx, tmp_dw.sum(dim=0).to(w.dtype)
 
-
 # output non-transposed and transposed together
 # should used with batchsize >= 16384
 @triton.jit
@@ -650,3 +649,254 @@ def triton_rms_norm_and_smooth_quant_forward(x, weight, smooth_scale=None,
         maxs = maxs.amax(0)
 
     return out, scale, maxs, rms
+
+
+
+@triton.jit
+def rms_norm_and_mxfp8_quant_forward_n_kernel(x_ptr, 
+                                      weight_ptr,
+                                      out_ptr, 
+                                      scale_ptr, 
+                                      rms_ptr, 
+                                      eps,
+                                      n, 
+                                      M: tl.constexpr, 
+                                      T: tl.constexpr,
+                                      N: tl.constexpr,
+                                      nb: tl.constexpr,
+                                      W: tl.constexpr):
+    pid = tl.program_id(axis=0)
+
+    # row-wise read, row-wise write
+    weight_mask = tl.arange(0, N) < n
+    weight = tl.load(weight_ptr + tl.arange(0, N),  mask=weight_mask).to(tl.float32)[None, :]
+    offs_m = tl.arange(0, W)
+    offs_n = tl.arange(0, N)
+    offs = pid * W * T * n + offs_m[:, None] * n + offs_n[None, :]
+    # offs = pid * W * T * N + tl.arange(0, W)[:, None] * N + tl.arange(0, N)[None, :]
+    
+    for i in range(T):
+        indices = pid * W * T + i * W + tl.arange(0, W)
+        mask = (indices[:, None] < M) & (offs_n < n)
+        x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+        # x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
+        rms = tl.rsqrt(tl.sum(x * x, axis=1) / n + eps)
+        tl.store(rms_ptr + indices, rms, mask=indices < M)
+
+        x = x * rms[:, None] * weight
+        x = tl.reshape(x, [W, nb, 32])
+        scale = tl.maximum(tl.max(tl.abs(x), 2) / 448.0, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+
+        # x = (x / scale[:,:, None]).to(out_ptr.dtype.element_ty)
+        # x = tl.reshape(x, [W, N])
+        x = x / scale[:,:, None]
+        x = tl.reshape(x, [W, N])
+
+        # tl.store(scale_ptr + indices[:, None] * nb + tl.arange(0, nb)[None, :], scale, mask=indices[:, None] < M)
+        # tl.store(out_ptr + offs, x, mask=indices[:, None] < M)
+        scale_mask = (indices[:, None] < M) & (tl.arange(0, nb)[None, :] < (n//32))
+        tl.store(scale_ptr + indices[:, None] * (n//32) + tl.arange(0, nb)[None, :], log_scale+127, mask=scale_mask)
+        tl.store(out_ptr + offs, x, mask=mask)
+        offs += n * W
+
+@triton.jit
+def rms_norm_and_mxfp8_quant_forward_t_kernel(x_ptr, 
+                                      weight_ptr,
+                                      transpose_output_ptr, 
+                                      transpose_scale_ptr,
+                                      rms_ptr, 
+                                      n,
+                                      M, 
+                                      N,
+                                      W: tl.constexpr):
+    rid = tl.program_id(axis=0)
+    cid = tl.program_id(axis=1)
+
+    offs = rid * 32 * n + cid * W + tl.arange(0, 32)[:, None] * n + tl.arange(0, W)[
+                                                            None, :]
+    # toffs = rid * 32 + cid * M * W + tl.arange(0, W)[:, None] * M + tl.arange(0, 32)[
+    #                                                         None, :]
+
+    weight = tl.load(weight_ptr + cid * W + tl.arange(0, W)).to(tl.float32)
+    indices = rid * 32 + tl.arange(0, 32)
+    rms = tl.load(rms_ptr + indices, mask=indices < M)[:, None]
+    x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32) 
+    x = x * rms * weight
+    scale = tl.maximum(tl.max(x.abs(), 0) / 448.0, 1e-30)
+    log_scale = tl.ceil(tl.log2(scale))
+    scale = tl.exp2(log_scale)
+
+    tl.store(transpose_scale_ptr + rid * n + cid * W + tl.arange(0, W), log_scale+127)
+
+    # x = (tl.trans(x/scale)).to(transpose_output_ptr.dtype.element_ty)
+    x = (x/scale).to(transpose_output_ptr.dtype.element_ty)
+    # tl.store(transpose_output_ptr + toffs, x, mask=indices[None, :] < M)
+    tl.store(transpose_output_ptr + offs, x)
+
+@triton.jit
+def rms_norm_and_mxfp8_quant_forward_kernel(x_ptr, 
+                                      weight_ptr,
+                                      out_ptr, 
+                                      scale_ptr, 
+                                      transpose_output_ptr, 
+                                      transpose_scale_ptr,
+                                      rms_ptr, 
+                                      eps,
+                                      n,
+                                      M, 
+                                      T: tl.constexpr,
+                                      N: tl.constexpr,
+                                      nb: tl.constexpr,
+                                      W: tl.constexpr, 
+                                      H : tl.constexpr):
+    pid = tl.program_id(axis=0)
+
+    # row-wise read, row-wise write
+    weight_mask = tl.arange(0, N) < n
+    weight = tl.load(weight_ptr + tl.arange(0, N),  mask=weight_mask).to(tl.float32)[None, :]
+    offs_m = tl.arange(0, W)
+    offs_n = tl.arange(0, N)
+    offs = pid * W * T * n + offs_m[:, None] * n + offs_n[None, :]
+    # offs = pid * W * T * N + tl.arange(0, W)[:, None] * N + tl.arange(0, N)[None, :]
+
+    for i in range(T):
+        indices = pid * W * T + i * W + tl.arange(0, W)
+        mask = (indices[:, None] < M) & (offs_n < n)
+        x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+        # x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
+        rms = tl.rsqrt(tl.sum(x * x, axis=1) / n + eps)
+        tl.store(rms_ptr + indices, rms, mask=indices < M)
+
+        x = x * rms[:, None] * weight
+        x = tl.reshape(x, [W, nb, 32])
+        scale = tl.maximum(tl.max(tl.abs(x), 2) / 448.0, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+
+        # x = (x / scale[:,:, None]).to(out_ptr.dtype.element_ty)
+        # x = tl.reshape(x, [W, N])
+        x = x / scale[:,:, None]
+        x = tl.reshape(x, [W, N])
+
+        # tl.store(scale_ptr + indices[:, None] * nb + tl.arange(0, nb)[None, :], scale, mask=indices[:, None] < M)
+        # tl.store(out_ptr + offs, x, mask=indices[:, None] < M)
+        scale_mask = (indices[:, None] < M) & (tl.arange(0, nb)[None, :] < (n//32))
+        tl.store(scale_ptr + indices[:, None] * (n//32) + tl.arange(0, nb)[None, :], log_scale+127, mask=scale_mask)
+        tl.store(out_ptr + offs, x, mask=mask)
+        offs += n * W
+
+
+    offs = pid * 32 * n + tl.arange(0, 32)[:, None] * n + tl.arange(0, H)[
+                                                            None, :]
+    # toffs = pid * 32 + tl.arange(0, H)[:, None] * M + tl.arange(0, 32)[
+    #                                                         None, :]
+    indices = pid * 32 + tl.arange(0, 32)
+    tl.debug_barrier()
+    rms = tl.load(rms_ptr + indices, mask=indices < M)[:, None]
+    for i in range(n//H):
+        x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32) 
+        wgt = tl.load(weight_ptr + i * H +  tl.arange(0, H)).to(tl.float32)
+        x = x * rms * wgt
+        scale = tl.maximum(tl.max(x.abs(), 0) / 448.0, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+        
+        tl.store(transpose_scale_ptr + pid * n + i * H + tl.arange(0, H), log_scale+127)
+        x = (x/scale).to(transpose_output_ptr.dtype.element_ty)
+        # tl.store(transpose_output_ptr + toffs, tl.trans(x), mask=indices[None, :] < M)
+        tl.store(transpose_output_ptr + offs, x)
+        offs += H
+        # toffs += M * H
+
+
+
+def triton_rms_norm_and_mxfp8_quant_forward(x, weight, eps=1e-6,
+                                            out=None, scale=None, rms=None,
+                                            output_mode=2):
+    # row-wise read, row-wise write
+    M, n = x.shape
+    N = triton.next_power_of_2(n)
+    # assert N <= 8192 and 8192 % N == 0
+    assert n % 32 == 0 
+    device = x.device
+
+    if out is None and  output_mode in (0, 2):
+        out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
+
+    if scale is None and output_mode in (0, 2):
+        # scale = torch.empty((M, n//32), device=device, dtype=torch.float32)
+        scale = torch.empty((M, n//32), device=device, dtype=torch.uint8)
+    if rms is None:
+        rms = torch.empty((M,), dtype=torch.float32, device=device)
+    # transpose_output should be initialized, or else can not make splitted tensors
+    transpose_output = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
+    # transpose_scale = torch.empty(((M+31)//32, n), device=device, dtype=torch.float32)
+    transpose_scale = torch.empty(((M+31)//32, n), device=device, dtype=torch.uint8)
+    if output_mode == 0: # only output non-transpose tensor
+        W = 8192 // N
+        T = 16 // W  
+        grid = (triton.cdiv(M, 16),)
+        rms_norm_and_mxfp8_quant_forward_n_kernel[grid](
+            x,
+            weight,
+            out,
+            scale,
+            rms,
+            eps,
+            n, 
+            M,
+            T,
+            N,#N
+            N//32,#N//32
+            W,
+            num_stages=3,
+            num_warps=4
+        )
+        scale = scale.t().contiguous()
+
+    elif output_mode == 1:  # only output transposed tensor
+        # W = N//512
+        # grid = (512,)
+        W = 64
+        grid = (triton.cdiv(M, 32), n//W)
+        rms_norm_and_mxfp8_quant_forward_t_kernel[grid](x, 
+                                    weight,
+                                    transpose_output, 
+                                    transpose_scale,
+                                    rms, 
+                                    n,
+                                    M, 
+                                    N,
+                                    W, 
+                                    num_stages=3,
+                                    num_warps=4)
+    
+    elif output_mode == 2:  # output non-transposed and transposed tensor together
+        W = 8192 // N  
+        T = 32 // W  
+        H = 64
+        grid = (triton.cdiv(M, 32),)
+        rms_norm_and_mxfp8_quant_forward_kernel[grid](
+            x,
+            weight,
+            out,
+            scale,
+            transpose_output,
+            transpose_scale,
+            rms,
+            eps,
+            n,
+            M,
+            T,
+            N,
+            N//32,
+            W,
+            H,
+            num_stages=3,
+            num_warps=16
+        )
+        scale = scale.t().contiguous()
+
+    return out, scale, rms, transpose_output, transpose_scale
