@@ -292,8 +292,9 @@ def silu_and_mxfp8_quant_forward_kernel(x_ptr,
         scale = tl.maximum(tl.max(x.abs(), 1) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
+        b = n // 32
 
-        tl.store(scale_ptr + rid * 32 + cid * M + tl.arange(0, 32), log_scale+127,
+        tl.store(scale_ptr + rid * 32 * b + cid + tl.arange(0, 32) * b, log_scale+127,
                  mask=indices < M)
         xq = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
         tl.store(out_ptr + rid * 32 * n + cid * 32 + \
@@ -307,10 +308,10 @@ def silu_and_mxfp8_quant_forward_kernel(x_ptr,
         tl.store(transpose_scale_ptr + rid * n + cid * 32 + tl.arange(0, 32),
                  log_scale + 127)
         xq = (x / scale).to(out_ptr.dtype.element_ty)
-        tl.store(transpose_output_ptr + rid * 32 + \
-             cid * 32 * M + tl.arange(0, 32)[:, None] * M + \
+        tl.store(transpose_output_ptr + rid * 32 * n + \
+             cid * 32 + tl.arange(0, 32)[:, None] * n + \
                  tl.arange(0, 32)[None, :],
-                 tl.trans(xq), mask=indices[None, :] < M)
+                 xq, mask=mask)
 
 
 def triton_silu_and_mxfp8_quant_forward(x,
@@ -346,7 +347,7 @@ def triton_silu_and_mxfp8_quant_forward(x,
 
     transpose_output = torch.empty((m, n), device=device,
                                    dtype=torch.float8_e4m3fn)
-    transpose_scale = torch.empty((M // 128, n), device=device,
+    transpose_scale = torch.empty((M // 32, n), device=device,
                                   dtype=torch.uint8)
 
     grid = (M // 32, n // 32)

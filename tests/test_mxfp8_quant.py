@@ -13,6 +13,7 @@ from linghe.tools.util import output_check
 
 
 def torch_mxfp8_quant(x):
+    x = x.float()
     m, N = x.shape 
     if m % 128 != 0:
         M = (m + 127) // 128 * 128

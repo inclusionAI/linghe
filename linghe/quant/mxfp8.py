@@ -51,7 +51,7 @@ def mxfp8_quant_kernel(x_ptr,
         tl.store(transpose_output_ptr + rid * 32 * N + \
              cid * 32 + tl.arange(0, 32)[:, None] * N + \
                  tl.arange(0, 32)[None, :],
-                 xq, mask=indices[None, :] < M)
+                 xq, mask=mask)
 
 
 def triton_mxfp8_quant(x,
