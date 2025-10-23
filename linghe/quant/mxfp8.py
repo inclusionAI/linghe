@@ -45,7 +45,7 @@ def mxfp8_quant_kernel(x_ptr,
         scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        tl.store(transpose_scale_ptr + rid * N + cid * 32 + tl.arange(0, 32) * N,
+        tl.store(transpose_scale_ptr + rid * N + cid * 32 + tl.arange(0, 32),
                  log_scale + 127)
         xq = (x / scale).to(out_ptr.dtype.element_ty)
         tl.store(transpose_output_ptr + rid * 32 * N + \
