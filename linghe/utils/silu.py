@@ -711,12 +711,15 @@ def silu_and_mxfp8_quant_forward_kernel(x_ptr,
                                         M,
                                         m,
                                         n: tl.constexpr,
+                                        B: tl.constexpr,
                                         OUTPUT_MODE: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
-
-    offs = rid * 32 * n * 2 + cid * 32 + tl.arange(0, 32)[:,
-                                           None] * n * 2 + tl.arange(0, 32)[
+    N: tl.constexpr = n * 2
+    sb: tl.constexpr = B // 32
+    nb: tl.constexpr = n // 32
+    offs = rid * 32 * N + cid * B + tl.arange(0, 32)[:,
+                                           None] * N + tl.arange(0, B)[
                                                            None, :]
     indices = rid * 32 + tl.arange(0, 32)
     mask = indices[:, None] < m
@@ -726,28 +729,28 @@ def silu_and_mxfp8_quant_forward_kernel(x_ptr,
     x = x1 * tl.sigmoid(x1) * x2
 
     if OUTPUT_MODE % 2 == 0:
-        scale = tl.maximum(tl.max(x.abs(), 1) / 448, 1e-30)
+        xr = tl.reshape(x, [32, sb, 32])
+        scale = tl.maximum(tl.max(xr.abs(), 2) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        b = n // 32
 
-        tl.store(scale_ptr + rid * 32 * b + cid + tl.arange(0, 32) * b, log_scale+127,
-                 mask=indices < M)
-        xq = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
-        tl.store(out_ptr + rid * 32 * n + cid * 32 + \
-             tl.arange(0, 32)[:,None] * n + tl.arange(0,32)[None, :], xq,
+        tl.store(scale_ptr + rid * n + cid * sb + tl.arange(0, 32)[:, None] * nb + tl.arange(0, sb), 
+                 log_scale+127)
+        xq = tl.reshape(xr / scale[:, :, None], [32, B]).to(out_ptr.dtype.element_ty)
+        tl.store(out_ptr + rid * 32 * n + cid * B + \
+             tl.arange(0, 32)[:,None] * n + tl.arange(0,B)[None, :], xq,
              mask=mask)
 
     if OUTPUT_MODE > 0:
         scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        tl.store(transpose_scale_ptr + rid * n + cid * 32 + tl.arange(0, 32),
+        tl.store(transpose_scale_ptr + rid * n + cid * B + tl.arange(0, B),
                  log_scale + 127)
         xq = (x / scale).to(out_ptr.dtype.element_ty)
         tl.store(transpose_output_ptr + rid * 32 * n + \
-             cid * 32 + tl.arange(0, 32)[:, None] * n + \
-                 tl.arange(0, 32)[None, :],
+             cid * B + tl.arange(0, 32)[:, None] * n + \
+                 tl.arange(0, B)[None, :],
                  xq, mask=mask)
 
 
@@ -786,8 +789,8 @@ def triton_silu_and_mxfp8_quant_forward(x,
                                    dtype=torch.float8_e4m3fn)
     transpose_scale = torch.empty((M // 32, n), device=device,
                                   dtype=torch.uint8)
-
-    grid = (M // 32, n // 32)
+    B = 32  # larger B does not perform better, so we use fixed 32 in other kernels
+    grid = (M // 32, n // B)
     silu_and_mxfp8_quant_forward_kernel[grid](
         x,
         out,
@@ -797,8 +800,9 @@ def triton_silu_and_mxfp8_quant_forward(x,
         M,
         m,
         n,
+        B,
         output_mode,
-        num_stages=5,
+        num_stages=2,
         num_warps=1
     )
 

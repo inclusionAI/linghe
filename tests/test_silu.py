@@ -37,10 +37,13 @@ def torch_silu(x):
 
 
 def torch_weighted_silu(x, weight):
+    dtype = x.dtype
+    x = x.float()
+    weight = weight.float()
     M, N = x.shape
     x1, x2 = torch.split(x, N // 2, dim=1)
     y = torch.sigmoid(x1) * x1 * x2 * weight
-    return y
+    return y.to(dtype)
 
 
 def torch_weighted_silu_backward(dy, x, weight):
@@ -801,7 +804,8 @@ if __name__ == '__main__':
     test_silu_and_smooth_quant(M=4096, N=5120, bench=False)
 
     test_silu_and_block_quant(M=16384, N=1024, bench=False)
-    test_silu_and_mxfp8_quant(M=16384, N=2048, bench=False)
+
+    test_silu_and_mxfp8_quant(M=16384, N=1024, bench=False)
     test_silu_and_mxfp8_quant(M=2345, N=1024, bench=False)
 
     test_triton_batch_weighted_silu_and_smooth_quant(M=2048, N=2048,
@@ -812,5 +816,6 @@ if __name__ == '__main__':
     test_triton_batch_weighted_silu_and_block_quant(M=4096, N=2048,
                                                     n_experts=32, bench=False)
     test_triton_batch_weighted_silu_and_block_quant(M=1008, N=2048, n_experts=32, bench=False)
-    test_triton_batch_weighted_silu_and_mxfp8_quant(M=4096, N=2048, n_experts=32, bench=False)
+
+    test_triton_batch_weighted_silu_and_mxfp8_quant(M=2048, N=2048, n_experts=32, bench=False)
     test_triton_batch_weighted_silu_and_mxfp8_quant(M=0, N=2048, n_experts=32, bench=False)

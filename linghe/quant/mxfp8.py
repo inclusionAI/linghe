@@ -17,39 +17,42 @@ def mxfp8_quant_kernel(x_ptr,
                                         M,
                                         m,
                                         N: tl.constexpr,
+                                        B: tl.constexpr,
                                         OUTPUT_MODE: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
 
-    offs = rid * 32 * N + cid * 32 + tl.arange(0, 32)[:,
-                                           None] * N + tl.arange(0, 32)[
+    offs = rid * 32 * N + cid * B + tl.arange(0, 32)[:,
+                                           None] * N + tl.arange(0, B)[
                                                            None, :]
     indices = rid * 32 + tl.arange(0, 32)
     mask = indices[:, None] < m
     b = N // 32
+    sb: tl.constexpr = B // 32
 
     x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
     
     if OUTPUT_MODE % 2 == 0:
-        scale = tl.maximum(tl.max(x.abs(), 1) / 448, 1e-30)
+        xr = tl.reshape(x, [32, sb, 32])
+        scale = tl.maximum(tl.max(xr.abs(), 2) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        tl.store(scale_ptr + rid * 32 * b + cid + tl.arange(0, 32) * b, log_scale+127)
-        xq = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
-        tl.store(out_ptr + rid * 32 * N + cid * 32 + \
-             tl.arange(0, 32)[:,None] * N + tl.arange(0,32)[None, :], xq,
+        tl.store(scale_ptr + rid * 32 * b + cid * B // 32 + tl.arange(0, 32)[:, None] * b + tl.arange(0, sb), log_scale+127)
+        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(out_ptr.dtype.element_ty)
+        tl.store(out_ptr + rid * 32 * N + cid * B + \
+             tl.arange(0, 32)[:,None] * N + tl.arange(0,B)[None, :], xq,
              mask=mask)
 
     if OUTPUT_MODE > 0:
         scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        tl.store(transpose_scale_ptr + rid * N + cid * 32 + tl.arange(0, 32),
+        tl.store(transpose_scale_ptr + rid * N + cid * B + tl.arange(0, B),
                  log_scale + 127)
         xq = (x / scale).to(out_ptr.dtype.element_ty)
         tl.store(transpose_output_ptr + rid * 32 * N + \
-             cid * 32 + tl.arange(0, 32)[:, None] * N + \
-                 tl.arange(0, 32)[None, :],
+             cid * B + tl.arange(0, 32)[:, None] * N + \
+                 tl.arange(0, B)[None, :],
                  xq, mask=mask)
 
 
@@ -86,8 +89,8 @@ def triton_mxfp8_quant(x,
                                    dtype=torch.float8_e4m3fn)
     transpose_scale = torch.empty((M // 32, N), device=device,
                                   dtype=torch.uint8)
-
-    grid = (M // 32, N // 32)
+    B = 128
+    grid = (M // 32, N // B)
     mxfp8_quant_kernel[grid](
         x,
         out,
@@ -97,8 +100,9 @@ def triton_mxfp8_quant(x,
         M,
         m,
         N,
+        B,
         output_mode,
-        num_stages=2,
+        num_stages=3,
         num_warps=2
     )
 

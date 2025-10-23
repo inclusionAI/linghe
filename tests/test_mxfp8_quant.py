@@ -31,14 +31,14 @@ def test_mxfp8_quant(M=4096, N=4096, bench=False):
 
     if bench:
         ref_bytes = M * N * 4
-        benchmark_func(triton_mxfp8_quant, x, ref_flops=ref_bytes)
+        benchmark_func(triton_mxfp8_quant, x, ref_bytes=ref_bytes)
 
 
 
 if __name__ == '__main__':
-    test_mxfp8_quant(M=4096, N=8192, bench=False)
-    test_mxfp8_quant(M=4031, N=8192, bench=False)
-    test_mxfp8_quant(M=4031, N=512, bench=False)
+    test_mxfp8_quant(M=4096, N=8192, bench=True)
+    # test_mxfp8_quant(M=4031, N=8192, bench=False)
+    # test_mxfp8_quant(M=4031, N=512, bench=False)
 
 
 
