@@ -7,23 +7,26 @@ from typing import Optional
 
 @triton.jit
 def rms_norm_forward_kernel(x_ptr, weight_ptr, out_ptr, eps, M, T,
+                            n,
                             N: tl.constexpr, W: tl.constexpr):
     pid = tl.program_id(axis=0)
-    weight = tl.load(weight_ptr + tl.arange(0, N)).to(tl.float32)[None, :]
+    weight = tl.load(weight_ptr + tl.arange(0, N),
+                     mask=tl.arange(0, N) < n).to(tl.float32)[None, :]
 
-    offs = pid * W * T * N + tl.arange(0, W)[:, None] * N + tl.arange(0, N)[
+    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[
                                                             None, :]
     for i in range(T):
+        mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (tl.arange(0, N) < n)
         x = tl.load(x_ptr + offs,
-                    mask=pid * W * T + i * W + tl.arange(0, W)[:, None] < M).to(
+                    mask=mask).to(
             tl.float32)
-        rms = tl.sqrt(tl.sum(x * x, axis=1) / N + eps)
+        rms = tl.sqrt(tl.sum(x * x, axis=1) / n + eps)
 
         x = (x / rms[:, None]) * weight
 
         tl.store(out_ptr + offs, x,
-                 mask=pid * W * T + i * W + tl.arange(0, W)[:, None] < M)
-        offs += N * W
+                 mask=mask)
+        offs += n * W
 
 
 def triton_rms_norm_forward(x, weight, eps=1e-6, out=None):
@@ -36,16 +39,16 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None):
     Returns:
         out: output tensor
     """
-    # row-wise read, row-wise write
-    M, N = x.shape
+    M, n = x.shape
+    N = triton.next_power_of_2(n)
     W = 8192 // N
     T = 4
-    assert N <= 8192 and M % (W*T) == 0
+    assert N <= 8192
     device = x.device
     if out is None:
-        out = torch.empty((M, N), device=device, dtype=x.dtype)
+        out = torch.empty((M, n), device=device, dtype=x.dtype)
 
-    grid = (M//(T*W),)
+    grid = (triton.cdiv(M, T*W),)
     rms_norm_forward_kernel[grid](
         x,
         weight,
@@ -53,6 +56,7 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None):
         eps,
         M,
         T,
+        n,
         N,
         W,
         num_stages=3,
@@ -71,43 +75,47 @@ def rms_norm_backward_kernel(
         eps,
         M,
         T,
+        n,
         N: tl.constexpr,
         W: tl.constexpr
 ):
     pid = tl.program_id(0)
 
-    w = tl.load(w_ptr + tl.arange(0, N)).to(tl.float32)
+    w = tl.load(w_ptr + tl.arange(0, N), mask=tl.arange(0, N)<n).to(tl.float32)
 
-    offs = pid * W * T * N + tl.arange(0, W)[:, None] * N + tl.arange(0, N)[
+    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[
                                                             None, :]
     w_grads = tl.zeros((N,), dtype=tl.float32)
     for i in range(T):
-        mask = pid * T + i < M
+        mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (tl.arange(0, N) < n)
+
         x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
         g = tl.load(grad_output_ptr + offs, mask=mask).to(tl.float32)
-        rms = tl.sqrt(tl.sum(x * x, 1) / N + eps)
+        rms = tl.sqrt(tl.sum(x * x, 1) / n + eps)
         r = 1.0 / rms[:, None]
         w_grad = x * g * r
         w_grads += tl.sum(w_grad, 0)
 
-        dx = r * g * w - r * r * r * x * tl.sum(x * g * w, 1, keep_dims=True) / N
+        dx = r * g * w - r * r * r * x * tl.sum(x * g * w, 1, keep_dims=True) / n
 
         tl.store(dx_ptr + offs, dx, mask=mask)
 
-        offs += N * W
+        offs += n * W
 
-    tl.store(dw_ptr + pid * N + tl.arange(0, N), w_grads)
+    tl.store(dw_ptr + pid * n + tl.arange(0, N), w_grads, mask=tl.arange(0, N)<n)
 
 
 def triton_rms_norm_backward(grad_output, x, w, eps=1e-6):
-    M, N = x.shape
-    dx = torch.empty(M, N, dtype=x.dtype, device=x.device)
+    M, n = x.shape
+    N = triton.next_power_of_2(n)
+
+    dx = torch.empty(M, n, dtype=x.dtype, device=x.device)
 
     W = 8192 // N
     T = 16
-    assert 8192 % N ==0 and M % (T*W) == 0
-    g = M//(T*W)
-    tmp_dw = torch.empty(g, N, dtype=torch.float32, device=w.device)
+    assert N <= 8192
+    g = triton.cdiv(M, T*W)
+    tmp_dw = torch.empty(g, n, dtype=torch.float32, device=w.device)
     grid = (g,)
     rms_norm_backward_kernel[grid](
         grad_output,
@@ -118,6 +126,7 @@ def triton_rms_norm_backward(grad_output, x, w, eps=1e-6):
         eps,
         M,
         T,
+        n,
         N,
         W,
         num_stages=3,

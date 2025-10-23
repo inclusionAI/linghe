@@ -49,7 +49,7 @@ def triton_weighted_silu_forward(x, weight=None, out=None):
     """
     # row-wise read, row-wise write
     M, N = x.shape
-    assert N <= 8192
+    assert N <= 8192 and triton.next_power_of_2(N) == N
     device = x.device
     if out is None:
         out = torch.empty((M, N // 2), device=device, dtype=x.dtype)
@@ -127,7 +127,7 @@ def triton_weighted_silu_backward(g: torch.Tensor,
     """
     # row-wise read, row-wise write
     M, N = x.shape
-    assert N <= 8192
+    assert N <= 8192 and triton.next_power_of_2(N) == N
     device = x.device
     if weight is not None:
         dw = torch.empty(weight.shape, device=device, dtype=x.dtype)
@@ -263,6 +263,109 @@ def triton_silu_and_block_quant_forward(x,
     )
 
     return out, scale, transpose_output, transpose_scale
+
+
+
+@triton.jit
+def silu_and_mxfp8_quant_forward_kernel(x_ptr,
+                                        out_ptr, scale_ptr,
+                                        transpose_output_ptr,
+                                        transpose_scale_ptr,
+                                        M,
+                                        m,
+                                        n: tl.constexpr,
+                                        OUTPUT_MODE: tl.constexpr):
+    rid = tl.program_id(axis=0)
+    cid = tl.program_id(axis=1)
+
+    offs = rid * 32 * n * 2 + cid * 32 + tl.arange(0, 32)[:,
+                                           None] * n * 2 + tl.arange(0, 32)[
+                                                           None, :]
+    indices = rid * 32 + tl.arange(0, 32)
+    mask = indices[:, None] < m
+
+    x1 = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+    x2 = tl.load(x_ptr + n + offs, mask=mask).to(tl.float32)
+    x = x1 * tl.sigmoid(x1) * x2
+
+    if OUTPUT_MODE % 2 == 0:
+        scale = tl.maximum(tl.max(x.abs(), 1) / 448, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+
+        tl.store(scale_ptr + rid * 32 + cid * M + tl.arange(0, 32), log_scale+127,
+                 mask=indices < M)
+        xq = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
+        tl.store(out_ptr + rid * 32 * n + cid * 32 + \
+             tl.arange(0, 32)[:,None] * n + tl.arange(0,32)[None, :], xq,
+             mask=mask)
+
+    if OUTPUT_MODE > 0:
+        scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+        tl.store(transpose_scale_ptr + rid * n + cid * 32 + tl.arange(0, 32),
+                 log_scale + 127)
+        xq = (x / scale).to(out_ptr.dtype.element_ty)
+        tl.store(transpose_output_ptr + rid * 32 + \
+             cid * 32 * M + tl.arange(0, 32)[:, None] * M + \
+                 tl.arange(0, 32)[None, :],
+                 tl.trans(xq), mask=indices[None, :] < M)
+
+
+def triton_silu_and_mxfp8_quant_forward(x,
+                                        out=None,
+                                        scale=None,
+                                        output_mode=2):
+    """
+    fused silu and mxfp8 quantization, used in shared expert
+    Args:
+        x: input tensor
+        round_scale: whether round scale to power of 2
+        output_mode: one of {0, 1, 2}
+            0: only output non-transposed quantized tensor
+            1: only output transposed quantized tensor
+            2: output both
+
+    Returns:
+        - out: quantized tensor
+        - scale: quantization scale
+        - transpose_output: quantized tensor of transposed output
+        - transpose_scale: quantization scale of transposed output
+    """
+    m, N = x.shape
+    M = (m + 127) // 128 * 128
+    n = N // 2
+    assert n // 128 == 0  # transposed scaled should be multiplier of 128
+    device = x.device
+    if out is None:
+        out = torch.empty((m, n), device=device, dtype=torch.float8_e4m3fn)
+    if scale is None:
+        scale = torch.empty((M, n // 32), device=device,
+                            dtype=torch.uint8)
+
+    transpose_output = torch.empty((m, n), device=device,
+                                   dtype=torch.float8_e4m3fn)
+    transpose_scale = torch.empty((M // 128, n), device=device,
+                                  dtype=torch.uint8)
+
+    grid = (M // 32, n // 32)
+    silu_and_mxfp8_quant_forward_kernel[grid](
+        x,
+        out,
+        scale,
+        transpose_output,
+        transpose_scale,
+        M,
+        m,
+        n,
+        output_mode,
+        num_stages=2,
+        num_warps=2
+    )
+
+    return out, scale, transpose_output, transpose_scale
+
 
 
 @triton.jit

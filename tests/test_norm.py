@@ -291,20 +291,23 @@ def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
 
 if __name__ == '__main__':
     test_rmsnorm(M=16384, N=2048, bench=False)
-    test_rmsnorm(M=8192, N=4096, bench=False)
-    test_rmsnorm(M=4096, N=8192, bench=False)
-    test_rmsnorm_and_smooth_quant(M=16384, N=2048, bench=False)
-    test_rmsnorm_and_smooth_quant(M=8192, N=4096, bench=False)
-    test_rmsnorm_and_smooth_quant(M=4096, N=8192, bench=False)
-    test_rmsnorm_and_block_quant(M=128, N=2048, bench=False)
-    test_rmsnorm_and_block_quant(M=8192, N=4096, bench=False)
-    test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
-                            transpose=True,
-                               bench=False)
-    test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
-                            transpose=False,
-                               bench=False)
-    test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
-                               bench=False)
+    test_rmsnorm(M=16384, N=1664, bench=False)
+    test_rmsnorm(M=1664, N=1664, bench=False)
+
+    # test_rmsnorm(M=8192, N=4096, bench=False)
+    # test_rmsnorm(M=4096, N=8192, bench=False)
+    # test_rmsnorm_and_smooth_quant(M=16384, N=2048, bench=False)
+    # test_rmsnorm_and_smooth_quant(M=8192, N=4096, bench=False)
+    # test_rmsnorm_and_smooth_quant(M=4096, N=8192, bench=False)
+    # test_rmsnorm_and_block_quant(M=128, N=2048, bench=False)
+    # test_rmsnorm_and_block_quant(M=8192, N=4096, bench=False)
+    # test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
+    #                         transpose=True,
+    #                            bench=False)
+    # test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
+    #                         transpose=False,
+    #                            bench=False)
+    # test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
+    #                            bench=False)
 
 
