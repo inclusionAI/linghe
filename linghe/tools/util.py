@@ -92,14 +92,14 @@ def torch_mxfp8_quant(x):
     xm = xs.abs().amax(2)
     scale = torch.maximum(xm/448, 1e-30*torch.ones_like(xm)) 
     scale = torch.exp2(torch.ceil(torch.log2(scale)))
-    x_q = (xs/scale[:,:,None]).to(torch.float8_e4m3fn).view(M,N)
+    x_q = (xs/scale[:,:,None]).to(torch.float8_e4m3fn).view(M,N)[:m]
     x_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
 
     xs = x.view(M//32, 32, N)
     xm = xs.abs().amax(1)
     scale = torch.maximum(xm/448, 1e-30*torch.ones_like(xm)) 
     scale = torch.exp2(torch.ceil(torch.log2(scale)))
-    xt_q = (xs/scale[:,None,:]).to(torch.float8_e4m3fn).view(M,N)
+    xt_q = (xs/scale[:,None,:]).to(torch.float8_e4m3fn).view(M,N)[:m]
     xt_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
 
     return x_q, x_scale, xt_q, xt_scale

@@ -26,6 +26,7 @@ def mxfp8_quant_kernel(x_ptr,
                                                            None, :]
     indices = rid * 32 + tl.arange(0, 32)
     mask = indices[:, None] < m
+    b = N // 32
 
     x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
     
@@ -33,9 +34,7 @@ def mxfp8_quant_kernel(x_ptr,
         scale = tl.maximum(tl.max(x.abs(), 1) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        b = N // 32
-        tl.store(scale_ptr + rid * 32 * b + cid + tl.arange(0, 32) * b, log_scale+127,
-                 mask=indices < M)
+        tl.store(scale_ptr + rid * 32 * b + cid + tl.arange(0, 32) * b, log_scale+127)
         xq = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
         tl.store(out_ptr + rid * 32 * N + cid * 32 + \
              tl.arange(0, 32)[:,None] * N + tl.arange(0,32)[None, :], xq,

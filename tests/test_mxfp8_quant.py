@@ -36,6 +36,10 @@ def test_mxfp8_quant(M=4096, N=4096, bench=False):
 
 
 if __name__ == '__main__':
-    test_mxfp8_quant(M=4096, N=8192, bench=True)
+    test_mxfp8_quant(M=4096, N=8192, bench=False)
+    test_mxfp8_quant(M=4031, N=8192, bench=False)
+    test_mxfp8_quant(M=4031, N=512, bench=False)
+
+
 
 

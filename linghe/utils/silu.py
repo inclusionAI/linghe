@@ -267,109 +267,6 @@ def triton_silu_and_block_quant_forward(x,
 
 
 @triton.jit
-def silu_and_mxfp8_quant_forward_kernel(x_ptr,
-                                        out_ptr, scale_ptr,
-                                        transpose_output_ptr,
-                                        transpose_scale_ptr,
-                                        M,
-                                        m,
-                                        n: tl.constexpr,
-                                        OUTPUT_MODE: tl.constexpr):
-    rid = tl.program_id(axis=0)
-    cid = tl.program_id(axis=1)
-
-    offs = rid * 32 * n * 2 + cid * 32 + tl.arange(0, 32)[:,
-                                           None] * n * 2 + tl.arange(0, 32)[
-                                                           None, :]
-    indices = rid * 32 + tl.arange(0, 32)
-    mask = indices[:, None] < m
-
-    x1 = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
-    x2 = tl.load(x_ptr + n + offs, mask=mask).to(tl.float32)
-    x = x1 * tl.sigmoid(x1) * x2
-
-    if OUTPUT_MODE % 2 == 0:
-        scale = tl.maximum(tl.max(x.abs(), 1) / 448, 1e-30)
-        log_scale = tl.ceil(tl.log2(scale))
-        scale = tl.exp2(log_scale)
-        b = n // 32
-
-        tl.store(scale_ptr + rid * 32 * b + cid + tl.arange(0, 32) * b, log_scale+127,
-                 mask=indices < M)
-        xq = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
-        tl.store(out_ptr + rid * 32 * n + cid * 32 + \
-             tl.arange(0, 32)[:,None] * n + tl.arange(0,32)[None, :], xq,
-             mask=mask)
-
-    if OUTPUT_MODE > 0:
-        scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
-        log_scale = tl.ceil(tl.log2(scale))
-        scale = tl.exp2(log_scale)
-        tl.store(transpose_scale_ptr + rid * n + cid * 32 + tl.arange(0, 32),
-                 log_scale + 127)
-        xq = (x / scale).to(out_ptr.dtype.element_ty)
-        tl.store(transpose_output_ptr + rid * 32 * n + \
-             cid * 32 + tl.arange(0, 32)[:, None] * n + \
-                 tl.arange(0, 32)[None, :],
-                 xq, mask=mask)
-
-
-def triton_silu_and_mxfp8_quant_forward(x,
-                                        out=None,
-                                        scale=None,
-                                        output_mode=2):
-    """
-    fused silu and mxfp8 quantization, used in shared expert
-    Args:
-        x: input tensor
-        round_scale: whether round scale to power of 2
-        output_mode: one of {0, 1, 2}
-            0: only output non-transposed quantized tensor
-            1: only output transposed quantized tensor
-            2: output both
-
-    Returns:
-        - out: quantized tensor
-        - scale: quantization scale
-        - transpose_output: quantized tensor of transposed output
-        - transpose_scale: quantization scale of transposed output
-    """
-    m, N = x.shape
-    M = (m + 127) // 128 * 128
-    n = N // 2
-    assert n // 128 == 0  # transposed scaled should be multiplier of 128
-    device = x.device
-    if out is None:
-        out = torch.empty((m, n), device=device, dtype=torch.float8_e4m3fn)
-    if scale is None:
-        scale = torch.empty((M, n // 32), device=device,
-                            dtype=torch.uint8)
-
-    transpose_output = torch.empty((m, n), device=device,
-                                   dtype=torch.float8_e4m3fn)
-    transpose_scale = torch.empty((M // 32, n), device=device,
-                                  dtype=torch.uint8)
-
-    grid = (M // 32, n // 32)
-    silu_and_mxfp8_quant_forward_kernel[grid](
-        x,
-        out,
-        scale,
-        transpose_output,
-        transpose_scale,
-        M,
-        m,
-        n,
-        output_mode,
-        num_stages=2,
-        num_warps=2
-    )
-
-    return out, scale, transpose_output, transpose_scale
-
-
-
-@triton.jit
 def silu_and_block_quant_backward_kernel(g_ptr, x_ptr,
                                          dx_ptr,
                                          dx_scale_ptr,
@@ -485,6 +382,7 @@ def triton_silu_and_block_quant_backward(g, x,
         num_warps=8
     )
     return dx, dx_scale, transpose_dx, transpose_dx_scale
+
 
 
 @triton.jit
@@ -632,6 +530,8 @@ def triton_batch_weighted_silu_and_block_quant_forward(x,
     )
 
     return out, scale, transpose_output, transpose_scale
+
+
 
 
 @triton.jit
@@ -797,6 +697,532 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
         round_scale,
         num_stages=3,
         num_warps=16
+    )
+    dw = dws.sum(1, keepdim=True).to(weight.dtype)
+    return dx, dx_scale, dw, transpose_dx, transpose_dx_scale
+
+
+
+@triton.jit
+def silu_and_mxfp8_quant_forward_kernel(x_ptr,
+                                        out_ptr, scale_ptr,
+                                        transpose_output_ptr,
+                                        transpose_scale_ptr,
+                                        M,
+                                        m,
+                                        n: tl.constexpr,
+                                        OUTPUT_MODE: tl.constexpr):
+    rid = tl.program_id(axis=0)
+    cid = tl.program_id(axis=1)
+
+    offs = rid * 32 * n * 2 + cid * 32 + tl.arange(0, 32)[:,
+                                           None] * n * 2 + tl.arange(0, 32)[
+                                                           None, :]
+    indices = rid * 32 + tl.arange(0, 32)
+    mask = indices[:, None] < m
+
+    x1 = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+    x2 = tl.load(x_ptr + n + offs, mask=mask).to(tl.float32)
+    x = x1 * tl.sigmoid(x1) * x2
+
+    if OUTPUT_MODE % 2 == 0:
+        scale = tl.maximum(tl.max(x.abs(), 1) / 448, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+        b = n // 32
+
+        tl.store(scale_ptr + rid * 32 * b + cid + tl.arange(0, 32) * b, log_scale+127,
+                 mask=indices < M)
+        xq = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
+        tl.store(out_ptr + rid * 32 * n + cid * 32 + \
+             tl.arange(0, 32)[:,None] * n + tl.arange(0,32)[None, :], xq,
+             mask=mask)
+
+    if OUTPUT_MODE > 0:
+        scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+        tl.store(transpose_scale_ptr + rid * n + cid * 32 + tl.arange(0, 32),
+                 log_scale + 127)
+        xq = (x / scale).to(out_ptr.dtype.element_ty)
+        tl.store(transpose_output_ptr + rid * 32 * n + \
+             cid * 32 + tl.arange(0, 32)[:, None] * n + \
+                 tl.arange(0, 32)[None, :],
+                 xq, mask=mask)
+
+
+def triton_silu_and_mxfp8_quant_forward(x,
+                                        out=None,
+                                        scale=None,
+                                        output_mode=2):
+    """
+    fused silu and mxfp8 quantization, used in shared expert
+    Args:
+        x: input tensor
+        round_scale: whether round scale to power of 2
+        output_mode: one of {0, 1, 2}
+            0: only output non-transposed quantized tensor
+            1: only output transposed quantized tensor
+            2: output both
+
+    Returns:
+        - out: quantized tensor
+        - scale: quantization scale
+        - transpose_output: quantized tensor of transposed output
+        - transpose_scale: quantization scale of transposed output
+    """
+    m, N = x.shape
+    M = (m + 127) // 128 * 128
+    n = N // 2
+    assert n % 128 == 0  # transposed scaled should be multiplier of 128
+    device = x.device
+    if out is None:
+        out = torch.empty((m, n), device=device, dtype=torch.float8_e4m3fn)
+    if scale is None:
+        scale = torch.empty((M, n // 32), device=device,
+                            dtype=torch.uint8)
+
+    transpose_output = torch.empty((m, n), device=device,
+                                   dtype=torch.float8_e4m3fn)
+    transpose_scale = torch.empty((M // 32, n), device=device,
+                                  dtype=torch.uint8)
+
+    grid = (M // 32, n // 32)
+    silu_and_mxfp8_quant_forward_kernel[grid](
+        x,
+        out,
+        scale,
+        transpose_output,
+        transpose_scale,
+        M,
+        m,
+        n,
+        output_mode,
+        num_stages=5,
+        num_warps=1
+    )
+
+    return out, scale, transpose_output, transpose_scale
+
+
+
+@triton.jit
+def silu_and_mxfp8_quant_backward_kernel(g_ptr, 
+                                         x_ptr,
+                                         dx_ptr,
+                                         dx_scale_ptr,
+                                         transpose_dx_ptr,
+                                         transpose_dx_scale_ptr,
+                                         M,
+                                         m,
+                                         n: tl.constexpr):
+    rid = tl.program_id(axis=0)
+    cid = tl.program_id(axis=1)
+    nb = n // 32
+    offs = rid * 32 * n * 2 + cid * 32 + tl.arange(0, 32)[:,
+                                           None] * n * 2 + tl.arange(0, 32)[
+                                                           None, :]
+    idx = rid * 32 + tl.arange(0, 32)
+    mask = idx[:, None] < m
+    x1 = tl.load(x_ptr + offs, mask=mask)  # .to(tl.float32)
+    x2 = tl.load(x_ptr + n + offs, mask=mask)  # .to(tl.float32)
+    g = tl.load(g_ptr + rid * 32 * n + cid * 32 +
+                tl.arange(0, 32)[:, None] * n +
+                tl.arange(0, 32)[None, :], mask=mask)  # .to(tl.float32)
+    sigmoid = tl.sigmoid(x1.to(tl.float32))
+    dx1 = sigmoid * g * x2 * (
+                1 + x1 * (1 - sigmoid))  # change order to trigger autocast
+    scale1 = tl.maximum(
+        tl.max(dx1.abs(), 1) / 448, 1e-30)
+
+    log_scale1 = tl.ceil(tl.log2(scale1))
+    scale1 = tl.exp2(log_scale1)
+
+    # rid * nb * 32 = rid * n
+    # write padding zeros to scale tensor
+    tl.store(dx_scale_ptr + rid * n * 2 + cid + tl.arange(0, 32) * nb * 2, log_scale1 + 127)
+
+    qdx1 = (dx1 / scale1[:, None]).to(dx_ptr.dtype.element_ty)
+    tl.store(dx_ptr + offs, qdx1, mask=mask)
+
+    scale1 = tl.maximum(
+        tl.max(dx1.abs(), 0) / 448, 1e-30)
+
+    log_scale1 = tl.ceil(tl.log2(scale1))
+    scale1 = tl.exp2(log_scale1)
+
+    tl.store(
+        transpose_dx_scale_ptr + rid * n * 2 + cid * 32 + tl.arange(0, 32),
+        log_scale1 + 127)
+
+    qdx1 = (dx1 / scale1[None, :]).to(dx_ptr.dtype.element_ty)
+    tl.store(transpose_dx_ptr + offs, qdx1, mask=mask)
+
+    dx2 = sigmoid * g * x1
+    scale2 = tl.maximum(
+        tl.max(dx2.abs(), 1) / 448, 1e-30)
+    log_scale2 = tl.ceil(tl.log2(scale2))
+    scale2 = tl.exp2(log_scale2)
+
+    tl.store(dx_scale_ptr + rid * n * 2 + cid + nb + tl.arange(0, 32) * nb * 2,
+             log_scale2 + 127)
+
+    qdx2 = (dx2 / scale2[:, None]).to(dx_ptr.dtype.element_ty)
+    tl.store(dx_ptr + offs + n, qdx2, mask=mask)
+
+    scale2 = tl.maximum(
+        tl.max(dx2.abs(), 0) / 448, 1e-30)
+    log_scale2 = tl.ceil(tl.log2(scale2))
+    scale2 = tl.exp2(log_scale2)
+    tl.store(transpose_dx_scale_ptr + rid * n * 2 + n + cid * 32 + tl.arange(0,
+                                                                              32),
+             log_scale2 + 127)
+
+    qdx2 = (dx2 / scale2[None, :]).to(dx_ptr.dtype.element_ty)
+    tl.store(transpose_dx_ptr + n + offs, qdx2,
+             mask=mask)
+
+
+# used in shared expert
+def triton_silu_and_mxfp8_quant_backward(g, x):
+    """
+    backward of triton_silu_and_block_quant_forward
+    Args:
+        g: gradient
+        x: input tensor
+
+    Returns:
+        - dx: rowwise quantized gradient
+        - dx_scale: scales of rowwise quantized gradient
+        - transpose_dx: columnwise quantized gradient
+        - transpose_dx_scale: scales of columnwise quantized gradient
+    """
+    m, N = x.shape
+    M = (m + 127) // 128 * 128
+    n = N // 2
+    assert N % 128 == 0
+    device = x.device
+    dx = torch.empty((m, N), device=device, dtype=torch.float8_e4m3fn)
+    dx_scale = torch.empty((M, N//32), device=device, dtype=torch.uint8)
+    transpose_dx = torch.empty((m, N), device=device, dtype=torch.float8_e4m3fn)
+    transpose_dx_scale = torch.empty((M//32, N), device=device,
+                                     dtype=torch.uint8)
+
+    grid = (M // 32, n // 32)
+    silu_and_mxfp8_quant_backward_kernel[grid](
+        g,
+        x,
+        dx,
+        dx_scale,
+        transpose_dx,
+        transpose_dx_scale,
+        M,
+        m,
+        n,
+        num_stages=3,
+        num_warps=4
+    )
+    return dx, dx_scale, transpose_dx, transpose_dx_scale
+
+
+
+
+@triton.jit
+def batch_weighted_silu_and_mxfp8_quant_forward_kernel(x_ptr, weight_ptr,
+                                                       out_ptr,
+                                                       scale_ptr,
+                                                       transpose_output_ptr,
+                                                       transpose_scale_ptr,
+                                                       count_ptr,
+                                                       accum_ptr,
+                                                       n: tl.constexpr,
+                                                       E: tl.constexpr,
+                                                       OUTPUT_MODE: tl.constexpr):
+    eid = tl.program_id(axis=0)
+    rid = tl.program_id(axis=1)
+    cid = tl.program_id(axis=2)
+
+    count = tl.load(count_ptr + eid)
+    ei = tl.load(accum_ptr + eid)
+    si = ei - count
+    c = tl.cdiv(count, 128)
+
+    if rid >= c * 4:
+        return
+
+    nb = n // 32
+
+    counts = tl.load(count_ptr + tl.arange(0, E))
+    n_blocks = tl.cdiv(counts, 128)
+    scale_off = tl.sum(tl.where(tl.arange(0, E) < eid, n_blocks, 0))
+
+    offs = si * n * 2 + rid * 32 * n * 2 + cid * 32 + tl.arange(0, 32)[:,
+                                                        None] * n * 2 + tl.arange(
+        0, 32)[None, :]
+    hoffs = si * n + rid * 32 * n + cid * 32 + tl.arange(0, 32)[:,
+                                                 None] * n + tl.arange(0, 32)[
+                                                             None, :]
+    indices = rid * 32 + tl.arange(0, 32)
+    mask = indices[:, None] < count
+    w = tl.load(weight_ptr + si + indices, mask=indices < count).to(
+        tl.float32)
+    x1 = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+    x2 = tl.load(x_ptr + n + offs, mask=mask).to(
+        tl.float32)
+
+    x = x1 * tl.sigmoid(x1) * x2 * w[:, None]
+
+    if OUTPUT_MODE % 2 == 0:
+        scale = tl.maximum(tl.max(tl.abs(x), 1) / 448, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+        # 4 = 128 // 32
+        tl.store(
+            scale_ptr + scale_off * 4 * n + rid * n + cid + tl.arange(0, 32) * nb,
+            log_scale + 127)
+
+        xq = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
+        tl.store(out_ptr + hoffs, xq, mask=mask)
+
+    if OUTPUT_MODE > 0:
+        scale = tl.maximum(tl.max(tl.abs(x), 0) / 448, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+        tl.store(
+            transpose_scale_ptr + scale_off * 4 * n + rid * n + cid * 32 + tl.arange(
+                0, 32), log_scale + 127)
+
+        xq = (x / scale).to(out_ptr.dtype.element_ty)
+        tl.store(transpose_output_ptr + hoffs, xq,
+                 mask=mask)
+
+
+
+def triton_batch_weighted_silu_and_mxfp8_quant_forward(x,
+                                                       weight,
+                                                       counts,
+                                                       splits=None,
+                                                       out=None,
+                                                       scale=None,
+                                                       output_mode=2):
+    """
+    silu and blockwise quantize activation in routed experts
+    Args:
+        x: activation tensor in routed experts
+        weight: router prob tensor
+        counts: cuda tensor of token count per expert
+        splits: python int list of token count per expert
+        output_mode: one of {0, 1, 2}
+            0: only output non-transposed quantized tensor
+            1: only output transposed quantized tensor
+            2: output both
+
+    Returns:
+        - out: quantized tensor
+        - scale: quantization scale
+        - transpose_output: quantized tensor of transposed output
+        - transpose_scale: quantization scale of transposed output
+    """
+    m, N = x.shape
+    n = N // 2
+    n_experts = counts.shape[0]
+    assert N <= 8192 and n % 128 == 0
+    assert splits is not None, 'batch mode need splits to launch kernels'
+    M = sum([(x + 127) // 128 for x in splits]) * 128
+
+    device = x.device
+    if out is None:
+        out = torch.empty((m, n), device=device, dtype=torch.float8_e4m3fn)
+
+    if scale is None:
+        scale = torch.empty((M,  n // 32), device=device, dtype=torch.uint8)
+
+    transpose_output = torch.empty((m, n), device=device,
+                                   dtype=torch.float8_e4m3fn)
+    transpose_scale = torch.empty((M // 32, n), device=device,
+                                  dtype=torch.uint8)
+
+    if M == 0:
+        return out, scale, transpose_output, transpose_scale
+
+    accums = torch.cumsum(counts, 0)
+
+    grid = (n_experts, triton.cdiv(max(splits), 128) * 4, n // 32)
+    batch_weighted_silu_and_mxfp8_quant_forward_kernel[grid](
+        x,
+        weight,
+        out,
+        scale,
+        transpose_output,
+        transpose_scale,
+        counts,
+        accums,
+        n,
+        len(splits),
+        output_mode,
+        num_stages=3,
+        num_warps=1
+    )
+
+    return out, scale, transpose_output, transpose_scale
+
+
+@triton.jit
+def batch_weighted_silu_and_mxfp8_quant_backward_kernel(g_ptr, x_ptr,
+                                                        weight_ptr,
+                                                        count_ptr,
+                                                        accum_ptr,
+                                                        dx_ptr,
+                                                        dx_scale_ptr,
+                                                        transpose_dx_ptr,
+                                                        transpose_dx_scale_ptr,
+                                                        dw_ptr,
+                                                        n: tl.constexpr,
+                                                        E: tl.constexpr):
+    eid = tl.program_id(axis=0)
+    rid = tl.program_id(axis=1)
+    cid = tl.program_id(axis=2)
+
+    count = tl.load(count_ptr + eid)
+    si = tl.load(accum_ptr + eid) - count
+
+    if rid >= tl.cdiv(count, 128) * 4:
+        return
+
+    nb = n // 32
+    scale_off = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(
+        tl.load(count_ptr + tl.arange(0, E)), 128), 0))
+
+    offs = si * n * 2 + rid * 32 * n * 2 + cid * 32 + tl.arange(0, 32)[:,
+                                                        None] * n * 2 + tl.arange(
+        0, 32)[None, :]
+    # hoffs = si * n + tid * 128 * n + tl.arange(0, 128)[:, None] * n + tl.arange(0, 128)[None, :]
+    # toffs = si * n * 2 + tid * 128 + tl.arange(0, 128)[:, None] * count + tl.arange(0, 128)[None, :]
+    idx = rid * 32 + tl.arange(0, 32)
+    w = tl.load(weight_ptr + si + idx, mask=idx < count).to(tl.float32)[:, None]
+
+    x1 = tl.load(x_ptr + offs, mask=idx[:, None] < count)  # .to(tl.float32)
+    x2 = tl.load(x_ptr + n + offs, mask=idx[:, None] < count)  # .to(tl.float32)
+    g = tl.load(g_ptr + si * n + rid * 32 * n + 32 * cid +
+                tl.arange(0, 32)[:, None] * n +
+                tl.arange(0, 32)[None, :],
+                mask=idx[:, None] < count)  # .to(tl.float32)
+    sigmoid = tl.sigmoid(x1.to(tl.float32))
+
+    dw = tl.sum(sigmoid * x1 * x2 * g, 1)
+    tl.store(dw_ptr + si * nb + cid + idx * nb, dw, mask=idx < count)
+
+    dx = sigmoid * g * x2 * w * (1 + x1 * (1 - sigmoid))
+    scale = tl.maximum(
+        tl.max(dx.abs(), 1) / 448, 1e-30)
+
+    log_scale = tl.ceil(tl.log2(scale))
+    scale = tl.exp2(log_scale)
+    tl.store(dx_scale_ptr + scale_off * n * 8 + rid * n * 2 + cid + tl.arange(0,
+                                                                              32) * nb * 2,
+             log_scale + 127)
+
+    tl.store(dx_ptr + offs, dx / scale[:, None], mask=idx[:, None] < count)
+
+    scale = tl.maximum(
+        tl.max(dx.abs(), 0) / 448, 1e-30)
+    log_scale = tl.ceil(tl.log2(scale))
+    scale = tl.exp2(log_scale)
+    tl.store(
+        transpose_dx_scale_ptr + scale_off * n * 8 + rid * n * 2 + cid * 32 + tl.arange(
+            0, 32), log_scale + 127)
+
+    qdx = (dx / scale[None, :]).to(dx_ptr.dtype.element_ty)
+    # tl.store(transpose_dx_ptr + toffs, qdx, mask=idx[None, :] < count)
+    tl.store(transpose_dx_ptr + si * n * 2 + rid * 32 * n * 2 + cid * 32 +
+             tl.arange(0, 32)[:, None] * n * 2 +
+             tl.arange(0, 32)[None, :],
+             qdx,
+             mask=idx[:, None] < count)
+
+    dx = sigmoid * g * x1 * w
+    scale = tl.maximum(
+        tl.max(dx.abs(), 1) / 448, 1e-30)
+    log_scale = tl.ceil(tl.log2(scale))
+    scale = tl.exp2(log_scale)
+    tl.store(
+        dx_scale_ptr + scale_off * n * 8 + rid * n * 2 + cid + nb + tl.arange(
+            0, 32) * nb * 2, log_scale + 127)
+    tl.store(dx_ptr + n + offs, dx / scale[:, None], mask=idx[:, None] < count)
+
+    scale = tl.maximum(
+        tl.max(dx.abs(), 0) / 448, 1e-30)
+    log_scale = tl.ceil(tl.log2(scale))
+    scale = tl.exp2(log_scale)
+    qdx = (dx / scale[None, :]).to(dx_ptr.dtype.element_ty)
+    tl.store(
+        transpose_dx_scale_ptr + scale_off * n * 8 + rid * n * 2 + n + cid * 32 + tl.arange(
+            0, 32), log_scale + 127)
+    tl.store(
+        transpose_dx_ptr + si * n * 2 + rid * 32 * n * 2 + cid * 32 + n + tl.arange(
+            0, 32)[:, None] * n * 2 + tl.arange(0, 32)[None, :], qdx,
+        mask=idx[:, None] < count)
+
+
+# used in routed experts
+def triton_batch_weighted_silu_and_mxfp8_quant_backward(g, x, weight,
+                                                        counts,
+                                                        splits=None):
+    """
+    backward of triton_batch_weighted_silu_and_mxfp8_quant_forward
+    Args:
+        g: gradient
+        x: input tensor
+        weight: router prob tensor
+        counts: cuda tensor of token count per expert
+        splits: python int list of token count per expert
+    Returns:
+        - dx: quantized non-transposed gradient
+        - dx_scale: scales of quantization non-transposed gradient
+        - dw: gradient of weight
+        - transpose_dx: quantized transposed gradient
+        - transpose_dx_scale: scales of quantization transposed gradient
+    """
+
+    m, N = x.shape
+    n = N // 2
+    n_experts = counts.shape[0]
+    assert N <= 8192 and N % 128 == 0
+    assert splits is not None, 'batch mode need splits to launch kernels'
+    M = sum([(x + 127) // 128 for x in splits]) * 128
+
+    device = x.device
+
+    accums = torch.cumsum(counts, 0)
+
+    dx = torch.empty((m, N), device=device, dtype=torch.float8_e4m3fn)
+    dx_scale = torch.empty((M, N // 32), device=device, dtype=torch.uint8)
+
+    transpose_dx = torch.empty((m, N), device=device,
+                               dtype=torch.float8_e4m3fn)
+    transpose_dx_scale = torch.empty((M // 32, N), device=device,
+                                     dtype=torch.uint8)
+    if M == 0:
+        dw = torch.empty_like(weight)
+        return dx, dx_scale, dw, transpose_dx, transpose_dx_scale
+
+    grid = (n_experts, triton.cdiv(max(splits), 128) * 4, N // 64)
+    dws = torch.empty((m, N // 64), device=device, dtype=torch.float32)
+    batch_weighted_silu_and_mxfp8_quant_backward_kernel[grid](
+        g,
+        x,
+        weight,
+        counts,
+        accums,
+        dx,
+        dx_scale,
+        transpose_dx,
+        transpose_dx_scale,
+        dws,
+        n,
+        n_experts,
+        num_stages=3,
+        num_warps=4
     )
     dw = dws.sum(1, keepdim=True).to(weight.dtype)
     return dx, dx_scale, dw, transpose_dx, transpose_dx_scale
