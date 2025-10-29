@@ -117,7 +117,7 @@ def test_rmsnorm(M=4096, N=4096, bench=False):
     dy = torch.randn(M, N, dtype=dtype, device=device)
 
     y_ref = torch_rms_forward(x, weight)
-    y = triton_rms_norm_forward(x, weight)
+    y, _ = triton_rms_norm_forward(x, weight)
     output_check(y_ref.float(), y.float(), 'y')
 
     dx_ref, dw_ref = torch_rms_backward(x, weight, dy)

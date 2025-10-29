@@ -44,7 +44,7 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
         weight: rms norm weight, [dim]
         eps: epsilon of rms norm
         group_size: group size of group rms norm
-        transpose: whether gate is transposed and output will be transposed
+        transpose: whether gate tensor has been transposed and output will be transposed
 
     Returns:
         output tensor, [length, bs, dim] if transpose=True else [bs, length, dim]

@@ -95,7 +95,7 @@ def weighted_silu_backward_kernel(g_ptr, x_ptr, weight_ptr, dx_ptr, dw_ptr, M,
             sigmoid = 1 / (1 + tl.exp(-x1))
             dw = tl.sum(x1 * sigmoid * x2 * g, 1)
             tl.store(dw_ptr + mask, dw, mask=mask < M)
-            dx1 = g * x2 * w * sigmoid * (1 + x1 * tl.exp(-x1) * sigmoid)
+            dx1 = g * x2 * w * sigmoid * (1 + x1 * (1 - sigmoid))
             tl.store(dx_ptr + offs, dx1, mask=mask[:, None] < M)
 
             dx2 = g * x1 * sigmoid * w

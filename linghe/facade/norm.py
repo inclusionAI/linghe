@@ -50,3 +50,5 @@ def rms_norm(x: torch.Tensor, weight: torch.Tensor, eps: float = 1e-6):
     assert x.contiguous()
     assert weight.contiguous()
     return RMSNormFunction.apply(x, weight, eps)
+
+

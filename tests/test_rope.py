@@ -70,7 +70,7 @@ def torch_qk_norm(q, k, qw, kw, eps=1e-6, transposed=True):
 
 
 def torch_qk_norm_and_half_rope(qkv, qw, kw, freqs, rope_theta=10000.0, H=32,
-                                h=4, eps=1e-6, interleaved=True, transposed=True):
+                                h=4, eps=1e-6, interleaved=True, transposed=True, silu=False):
     if transposed:
         length, bs, dim = qkv.shape
     else:
@@ -78,6 +78,10 @@ def torch_qk_norm_and_half_rope(qkv, qw, kw, freqs, rope_theta=10000.0, H=32,
     qkv = qkv.float()
     qw = qw.float()
     kw = kw.float()
+
+    if silu:
+        qkv = torch.nn.functional.silu(qkv)
+
     D = dim // (H + 2 * h)
     if interleaved:
         if transposed:
@@ -143,6 +147,7 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
                                rope_theta=10000.0, 
                                interleaved=True,
                                transposed=True,
+                               silu=False,
                                bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
@@ -158,11 +163,13 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
                                                       rope_theta, H=H, h=h,
                                                       eps=1e-6,
                                                       transposed=transposed,
-                                                      interleaved=interleaved)
+                                                      interleaved=interleaved,
+                                                      silu=silu)
     qo, ko, vo = triton_qk_norm_and_half_rope_forward(qkv, qw, kw, freqs, H=H,
                                                       h=h, eps=1e-6,
                                                       transposed=transposed,
-                                                      interleaved=interleaved)
+                                                      interleaved=interleaved,
+                                                      silu=silu)
     output_check(q_ref, qo, mode='q')
     output_check(k_ref, ko, mode='k')
     output_check(v_ref, vo, mode='v')
@@ -177,11 +184,12 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
                                                          kw_ref, freqs,
                                                          rope_theta=rope_theta,
                                                          H=H, h=h, eps=1e-6,
-                                                      transposed=transposed,
-                                                      interleaved=interleaved)
-    qo_ref.backward(gradient=q_grad)
-    ko_ref.backward(gradient=k_grad)
-    vo_ref.backward(gradient=v_grad)
+                                                         transposed=transposed,
+                                                         interleaved=interleaved,
+                                                         silu=silu)
+    qo_ref.backward(gradient=q_grad, retain_graph=True)
+    ko_ref.backward(gradient=k_grad, retain_graph=True)
+    vo_ref.backward(gradient=v_grad, retain_graph=True)
 
     dqkv_ref = qkv_ref.grad
     dqw_ref = qw_ref.grad
@@ -191,7 +199,8 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
                                                            v_grad, qkv, qw, kw,
                                                            freqs, eps=1e-6,
                                                            transposed=transposed,
-                                                           interleaved=interleaved)
+                                                           interleaved=interleaved,
+                                                           silu=silu)
     output_check(dqkv_ref, dqkv, mode='dqkv')
     output_check(dqw_ref, dqw, mode='dqw')
     output_check(dkw_ref, dkw, mode='dkw')
@@ -216,10 +225,10 @@ if __name__ == '__main__':
                                rope_theta=10000.0, interleaved=False, transposed=True, bench=False)
     test_qk_norm_and_half_rope(B=2, L=4096, H=16, h=4, D=128,
                                rope_theta=10000.0, interleaved=False, transposed=True, bench=False)
-
-
     test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
-                               rope_theta=10000.0, interleaved=True, transposed=True, bench=False)
+                               rope_theta=10000.0, interleaved=True, transposed=True, silu=True, bench=False)
+    test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
+                               rope_theta=10000.0, interleaved=True, transposed=True, silu=False, bench=False)
     test_qk_norm_and_half_rope(B=4, L=4096, H=32, h=8, D=128,
                                rope_theta=10000.0, interleaved=True, transposed=True, bench=False)
     test_qk_norm_and_half_rope(B=4, L=4096, H=32, h=8, D=128,

@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+"""
+Copyright (c) Ant Financial Service Group and its affiliates.
+"""
+
+
 import torch
 import triton
 import triton.language as tl
@@ -5,7 +11,7 @@ from typing import Optional
 
 
 @triton.jit
-def rms_norm_forward_kernel(x_ptr, weight_ptr, out_ptr, eps, M, T,
+def rms_norm_forward_kernel(x_ptr, weight_ptr, out_ptr, rms_ptr, eps, M, T,
                             n,
                             N: tl.constexpr, W: tl.constexpr):
     pid = tl.program_id(axis=0)
@@ -19,9 +25,11 @@ def rms_norm_forward_kernel(x_ptr, weight_ptr, out_ptr, eps, M, T,
         x = tl.load(x_ptr + offs,
                     mask=mask).to(
             tl.float32)
-        rms = tl.sqrt(tl.sum(x * x, axis=1) / n + eps)
+        rms = 1/tl.sqrt(tl.sum(x * x, axis=1) / n + eps)
 
-        x = (x / rms[:, None]) * weight
+        tl.store(rms_ptr + pid * W * T + i * W + tl.arange(0, W), rms, mask=pid * W * T + i * W + tl.arange(0, W)<M)
+
+        x = (x * rms[:, None]) * weight
 
         tl.store(out_ptr + offs, x,
                  mask=mask)
@@ -46,12 +54,14 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None):
     device = x.device
     if out is None:
         out = torch.empty((M, n), device=device, dtype=x.dtype)
+    rms = torch.empty((M, ), device=device, dtype=torch.float32)
 
     grid = (triton.cdiv(M, T*W),)
     rms_norm_forward_kernel[grid](
         x,
         weight,
         out,
+        rms,
         eps,
         M,
         T,
@@ -61,7 +71,7 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None):
         num_stages=3,
         num_warps=4
     )
-    return out
+    return out, rms
 
 
 @triton.jit
