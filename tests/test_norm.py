@@ -228,14 +228,14 @@ def test_rmsnorm_and_mxfp8_quant(M=4096, N=4096, bench=False):
                                                                           weight,
                                                                     output_mode=2)
     output_check(q_ref, q, mode="2.block.data")
-    output_check(scale_ref.t(), scale, mode='2.block.scale')
+    output_check(scale_ref, scale, mode='2.block.scale')
     output_check(qt_ref, q_t, mode='2.block.t_data')
     output_check(scale_t_ref, scale_t, mode="2.block.t_scale")
 
     q, scale, _, _, _ = triton_rms_norm_and_mxfp8_quant_forward(x, weight,
                                                                 output_mode=0)
     output_check(q_ref, q, mode="0.block.data")
-    output_check(scale_ref.t(), scale, mode='0.block.scale')
+    output_check(scale_ref, scale, mode='0.block.scale')
 
     _, _, _, q_t, scale_t = triton_rms_norm_and_mxfp8_quant_forward(x, weight,
                                                                     rms=rms,
