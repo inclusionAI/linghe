@@ -6,17 +6,21 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 
 from linghe.utils.gather import (triton_make_row_id_map,
-                                triton_make_row_id_map_and_indices,
+                                triton_make_row_id_map_and_index,
                                 triton_index_select,
                                 triton_permute_with_mask_map,
                                 triton_smooth_permute_with_indices,
                                 triton_smooth_permute_with_mask_map,
                                 triton_smooth_weighted_permute_with_indices,
-                                triton_batch_transpose_smooth_permute_with_indices)
+                                triton_batch_transpose_smooth_permute_with_indices,
+                                triton_batch_block_pad_permute_with_indices)
+from linghe.quant.block import triton_batch_blockwise_quant
 from linghe.tools.util import (output_check,
                               torch_batch_smooth_quant,
+                              torch_blockwise_quant,
                               torch_make_indices,
-                              torch_smooth_quant)
+                              torch_smooth_quant,
+                              torch_group_quant)
 from linghe.tools.benchmark import benchmark_func
 
 
@@ -127,6 +131,50 @@ def torch_batch_transpose_smooth_permute_with_indices(x_q, x_scale, org_smooth_s
     return q_ref, scale_ref
 
 
+
+
+def torch_batch_block_pad_permute_with_indices(x, 
+                                      indices,
+                                      probs,
+                                      token_count_per_expert_list,
+                                      round_scale=True):
+    M, DIM = x.shape
+    q_refs = []
+    s_refs = []
+    qt_refs = [] 
+    st_refs = []
+    probs_refs = []
+    s = 0
+    for i, c in enumerate(token_count_per_expert_list):
+        c = token_count_per_expert_list[i]
+        if c == 0:
+            continue
+        index = indices[s:s + c]
+        assert len(index) == c
+        y = x[index]
+        y = y.float()
+        p_slice = probs[:,i][index]
+
+        padding_size = (c + 15) // 16 * 16 - c
+        if padding_size > 0:
+            p_slice = torch.nn.functional.pad(p_slice, (0, padding_size))
+
+        y_q, y_scale, yt_q, yt_scale = torch_blockwise_quant(y, round_scale=round_scale, padding=True)
+        q_refs.append(y_q.view(-1))
+        s_refs.append(y_scale.view(-1))
+        qt_refs.append(yt_q.view(-1))
+        st_refs.append(yt_scale.view(-1))
+        probs_refs.append(p_slice)
+        s += c
+    q_ref = torch.cat(q_refs, 0)
+    s_ref = torch.cat(s_refs, 0)
+    qt_ref = torch.cat(qt_refs, 0)
+    st_ref = torch.cat(st_refs, 0)
+    probs_refs = torch.cat(probs_refs, 0)
+    return q_ref, s_ref,qt_ref,st_ref,probs_refs
+
+
+
 def test_make_id_map(M=4098, n_experts=32, topk=2, bias=0.0, bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
@@ -142,7 +190,7 @@ def test_make_id_map(M=4098, n_experts=32, topk=2, bias=0.0, bench=False):
     row_id_map_output = triton_make_row_id_map(mask_map)
     assert (row_id_map - row_id_map_output).abs().sum().item() == 0
 
-    _, row_id_indices = triton_make_row_id_map_and_indices(mask_map, out_tokens)
+    _, row_id_indices = triton_make_row_id_map_and_index(mask_map, out_tokens)
     assert (row_id_indices - indices).abs().sum().item() == 0
 
 
@@ -244,7 +292,7 @@ def test_triton_permute_with_mask_map(M=4096, N=4096, n_experts=256, topk=8,
                        ref_time=ref_time, ref_bytes=ref_bytes)
         benchmark_func(triton_permute_with_mask_map, x, scales, probs,
                        row_id_map, out_tokens, contiguous=False,
-                       token_per_expert=token_count_per_expert,
+                       tokens_per_expert=token_count_per_expert,
                        n_repeat=n_repeat,
                        ref_time=ref_time, ref_bytes=ref_bytes)
 
@@ -389,6 +437,58 @@ def test_triton_batch_transpose_smooth_permute_with_indices(M=1024, N=2048, n_ex
                                        ref_bytes=out_tokens * N * 2)
 
 
+def test_batch_block_pad_permute_with_indices(M=16384, N=2048, n_experts=32, topk=2, bench=False):
+    device = 'cuda:0'
+    logits = torch.randn((M, n_experts), dtype=torch.float32,
+                        device=device) ** 3
+    logits[:,0] -= 1000
+    logits[:,2] -= 100
+    probs, mask_map, token_count_per_expert, indices, row_id_map = torch_make_indices(
+        logits, topk=topk, bias=-0.01)
+    token_count_per_expert_list = token_count_per_expert.tolist()
+
+    num_out_tokens = sum([(x+15)//16*16 for x in token_count_per_expert_list])
+    row_id_map, pad_indices = triton_make_row_id_map_and_index(mask_map, num_out_tokens, multiple_of=16)
+
+
+    x = torch.randn((M, N), dtype=torch.bfloat16, device=device)
+
+    x_q_ref, x_s_ref, xt_q_ref, xt_s_ref, p_ref = torch_batch_block_pad_permute_with_indices(x, 
+                                      indices,
+                                      probs,
+                                      token_count_per_expert_list,
+                                      round_scale=True)
+
+    x_q, x_s, xt_q, xt_s, p = triton_batch_block_pad_permute_with_indices(x, 
+                                       token_count_per_expert,
+                                       pad_indices,
+                                       token_count_per_expert_list,
+                                       probs=probs,
+                                       round_scale=True)
+    output_check(x_q_ref.float(), x_q.view(-1).float(), 'data')
+    output_check(x_s_ref.float(), x_s.view(-1).float(), 'scale')
+    output_check(xt_q_ref.float(), xt_q.view(-1).float(), 't.data')
+    output_check(xt_s_ref.float(), xt_s.view(-1).float(), 't.scale')
+    output_check(p_ref.float(), p.view(-1).float(), 'prob')
+
+    if bench:
+        benchmark_func(triton_batch_block_pad_permute_with_indices, x, token_count_per_expert,
+                                       pad_indices,
+                                       token_count_per_expert_list,
+                                       probs=probs,
+                                       round_scale=True,
+                                       ref_bytes=num_out_tokens * N * 4)
+
+        benchmark_func(triton_permute_with_mask_map, x, None, probs,
+                       row_id_map, num_out_tokens, contiguous=False,
+                       tokens_per_expert=token_count_per_expert,
+                       ref_bytes=num_out_tokens * N * 4)
+        xs = x[indices]
+        benchmark_func(triton_batch_blockwise_quant, xs, token_count_per_expert,  token_count_per_expert_list,
+                       round_scale=True,
+                       ref_bytes=num_out_tokens * N * 4)
+
+
 if __name__ == '__main__':
     test_make_id_map(M=4098, n_experts=32, topk=2, bias=0.0, bench=False)
     test_triton_permute_with_mask_map(M=16384, N=2048, n_experts=32, topk=8, bench=False)
@@ -402,3 +502,4 @@ if __name__ == '__main__':
 
     test_triton_batch_transpose_smooth_permute_with_indices(M=16384, N=2048, n_experts=32, topk=2, bench=False)
     test_triton_batch_transpose_smooth_permute_with_indices(M=8192, N=4096, n_experts=32, topk=2, bench=False)
+    test_batch_block_pad_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=True)

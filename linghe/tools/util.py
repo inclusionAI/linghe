@@ -52,7 +52,7 @@ def torch_group_quant(x, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
 
     xp = torch.reshape(x.contiguous(), (M, P // B, B))
     scale = torch.amax(torch.abs(xp).float(), dim=2) / fmax
-    scaoe = torch.maximum(scale, 1e-30 * torch.ones((1,), dtype=torch.float32,
+    scale = torch.maximum(scale, 1e-30 * torch.ones((1,), dtype=torch.float32,
                                                     device=x.device))
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
@@ -62,19 +62,36 @@ def torch_group_quant(x, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     return xq, scale
 
 
+def torch_blockwise_quant(x, round_scale=True, padding=False):
+    m, N = x.shape
+    
+    if padding:
+        padding_size = (m + 15) // 16 * 16 - m
+        if padding_size > 0:
+            x = torch.nn.functional.pad(x, (0, 0, 0, padding_size))
+
+    x = x.float()
+
+    y_q, y_scale = torch_group_quant(x, round_scale=round_scale)
+    yt_q, yt_scale = torch_group_quant(x.t(), round_scale=round_scale)
+
+    return y_q, y_scale.t().contiguous(), yt_q, yt_scale.t().contiguous()
+
+
+
 def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     fmax = torch.finfo(dtype).max
     w = w.clone()
     N, K = w.shape
 
-    wp = torch.reshape(w.t().contiguous(), (K // B, B, N // B, B)).permute(0, 2,
+    wp = torch.reshape(w, (N // B, B, K // B, B)).permute(0, 2,
                                                                            1, 3)
     scale = torch.amax(torch.amax(torch.abs(wp).float(), dim=2), dim=2) / fmax
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
     wq = (wp / scale[:, :, None, None]).to(dtype)
     wq = wq.permute(0, 2, 1, 3)
-    wq = torch.reshape(wq, (K, N)).t().contiguous()
+    wq = torch.reshape(wq, (N, K)).contiguous()
 
     return wq, scale
 

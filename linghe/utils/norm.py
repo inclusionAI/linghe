@@ -11,9 +11,17 @@ from typing import Optional
 
 
 @triton.jit
-def rms_norm_forward_kernel(x_ptr, weight_ptr, out_ptr, rms_ptr, eps, M, T,
+def rms_norm_forward_kernel(x_ptr, 
+                            weight_ptr, 
+                            out_ptr, 
+                            rms_ptr, 
+                            eps, 
+                            M, 
+                            T,
                             n,
-                            N: tl.constexpr, W: tl.constexpr):
+                            N: tl.constexpr, 
+                            W: tl.constexpr,
+                            REUSE: tl.constexpr):
     pid = tl.program_id(axis=0)
     weight = tl.load(weight_ptr + tl.arange(0, N),
                      mask=tl.arange(0, N) < n).to(tl.float32)[None, :]
@@ -25,9 +33,11 @@ def rms_norm_forward_kernel(x_ptr, weight_ptr, out_ptr, rms_ptr, eps, M, T,
         x = tl.load(x_ptr + offs,
                     mask=mask).to(
             tl.float32)
-        rms = 1/tl.sqrt(tl.sum(x * x, axis=1) / n + eps)
-
-        tl.store(rms_ptr + pid * W * T + i * W + tl.arange(0, W), rms, mask=pid * W * T + i * W + tl.arange(0, W)<M)
+        if REUSE:
+            rms = tl.load(rms_ptr + pid * W * T + i * W + tl.arange(0, W), mask=pid * W * T + i * W + tl.arange(0, W)<M, other=1.0)
+        else:
+            rms = 1/tl.sqrt(tl.sum(x * x, axis=1) / n + eps)
+            tl.store(rms_ptr + pid * W * T + i * W + tl.arange(0, W), rms, mask=pid * W * T + i * W + tl.arange(0, W)<M)
 
         x = (x * rms[:, None]) * weight
 
@@ -36,15 +46,18 @@ def rms_norm_forward_kernel(x_ptr, weight_ptr, out_ptr, rms_ptr, eps, M, T,
         offs += n * W
 
 
-def triton_rms_norm_forward(x, weight, eps=1e-6, out=None):
+def triton_rms_norm_forward(x, weight, eps=1e-6, out=None, rms=None):
     """
     rms norm
     Args:
         x: input tensor
         weight: weight of rms norm
         eps: epsilon of rms norm
+        rms: use x*rms to calculate output if rms is not None, 
+            it will accelerate recompute of rms norm
     Returns:
         out: output tensor
+        rms: 1/rms of input tensor
     """
     M, n = x.shape
     N = triton.next_power_of_2(n)
@@ -54,7 +67,9 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None):
     device = x.device
     if out is None:
         out = torch.empty((M, n), device=device, dtype=x.dtype)
-    rms = torch.empty((M, ), device=device, dtype=torch.float32)
+    REUSE = rms is not None
+    if not REUSE:
+        rms = torch.empty((M, ), device=device, dtype=torch.float32)
 
     grid = (triton.cdiv(M, T*W),)
     rms_norm_forward_kernel[grid](
@@ -68,6 +83,7 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None):
         n,
         N,
         W,
+        REUSE,
         num_stages=3,
         num_warps=4
     )
@@ -79,6 +95,7 @@ def rms_norm_backward_kernel(
         grad_output_ptr,
         x_ptr,
         w_ptr,
+        rms_ptr,
         dx_ptr,
         dw_ptr,
         eps,
@@ -86,7 +103,8 @@ def rms_norm_backward_kernel(
         T,
         n,
         N: tl.constexpr,
-        W: tl.constexpr
+        W: tl.constexpr,
+        REUSE: tl.constexpr
 ):
     pid = tl.program_id(0)
 
@@ -100,8 +118,10 @@ def rms_norm_backward_kernel(
 
         x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
         g = tl.load(grad_output_ptr + offs, mask=mask).to(tl.float32)
-        rms = tl.sqrt(tl.sum(x * x, 1) / n + eps)
-        r = 1.0 / rms[:, None]
+        if REUSE:
+            r = tl.load(rms_ptr + pid * W * T + i * W + tl.arange(0, W), mask=pid * W * T + i * W + tl.arange(0, W)<M)[:, None]
+        else:
+            r = 1.0/tl.sqrt(tl.sum(x * x, 1) / n + eps)[:, None]
         w_grad = x * g * r
         w_grads += tl.sum(w_grad, 0)
 
@@ -114,15 +134,16 @@ def rms_norm_backward_kernel(
     tl.store(dw_ptr + pid * n + tl.arange(0, N), w_grads, mask=tl.arange(0, N)<n)
 
 
-def triton_rms_norm_backward(grad_output, x, w, eps=1e-6):
+def triton_rms_norm_backward(grad_output, x, w, eps=1e-6, rms=None):
     M, n = x.shape
     N = triton.next_power_of_2(n)
+    assert N <= 8192
 
     dx = torch.empty(M, n, dtype=x.dtype, device=x.device)
+    REUSE = rms is not None
 
     W = 8192 // N
     T = 16
-    assert N <= 8192
     g = triton.cdiv(M, T*W)
     tmp_dw = torch.empty(g, n, dtype=torch.float32, device=w.device)
     grid = (g,)
@@ -130,6 +151,7 @@ def triton_rms_norm_backward(grad_output, x, w, eps=1e-6):
         grad_output,
         x,
         w,
+        rms,
         dx,
         tmp_dw,
         eps,
@@ -138,6 +160,7 @@ def triton_rms_norm_backward(grad_output, x, w, eps=1e-6):
         n,
         N,
         W,
+        REUSE,
         num_stages=3,
         num_warps=4
     )
@@ -910,3 +933,163 @@ def triton_rms_norm_and_mxfp8_quant_forward(x, weight, eps=1e-6,
         # scale = scale.t().contiguous()
 
     return out, scale, rms, transpose_output, transpose_scale
+
+
+
+
+
+@triton.jit
+def rms_norm_fp32_gemm_block_quant_forward_n_kernel(
+        x_ptr,
+        norm_weight_ptr, 
+        route_weight_ptr,
+        y_ptr,
+        rms_ptr,
+        logit_ptr,
+        xq_ptr,
+        xs_ptr, 
+        eps,
+        M,
+        N: tl.constexpr,
+        K: tl.constexpr,
+        BLOCK_SIZE_K: tl.constexpr,
+        BLOCK_SIZE_M: tl.constexpr,
+        BLOCK_SIZE_N: tl.constexpr,
+        ROUND: tl.constexpr
+):
+    pid_m = tl.program_id(axis=0)
+    pid_n = tl.program_id(axis=1)
+    k = tl.cdiv(K, BLOCK_SIZE_K)
+    offs_m = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    offs_n = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    offs_k = tl.arange(0, BLOCK_SIZE_K)
+    x_offs = offs_m[:, None] * K + offs_k[None, :]
+
+    rms = tl.zeros((BLOCK_SIZE_M, ), dtype=tl.float32)
+    for i in range(k):
+        x = tl.load(x_ptr + x_offs).to(tl.float32)
+        rms += tl.sum(x * x, axis=1)
+        x_offs += BLOCK_SIZE_K
+
+    rms = tl.rsqrt(rms / K + eps)
+
+    tl.store(rms_ptr + pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M), rms)
+
+    x_offs = offs_m[:, None] * K + offs_k[None, :]
+    w_ptrs = route_weight_ptr + offs_n[None, :] * K + offs_k[:, None]
+    c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+    for i in range(k):
+        norm_weight = tl.load(norm_weight_ptr + i * BLOCK_SIZE_K + offs_k).to(tl.float32)
+        x = tl.load(x_ptr + x_offs).to(tl.float32)
+        w = tl.load(w_ptrs).to(tl.float32)
+
+        x = x * rms[:, None] * norm_weight
+        tl.store(y_ptr + x_offs, x)
+
+        c = tl.dot(x, w, c)
+
+        scale = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
+        if ROUND:
+            scale = tl.exp2(tl.ceil(tl.log2(scale)))
+ 
+        x = x / scale[:, None]
+
+        tl.store(xs_ptr + M * i + pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M), scale)
+        tl.store(xq_ptr + x_offs, x)
+
+        x_offs += BLOCK_SIZE_K
+        w_ptrs += BLOCK_SIZE_K
+
+    offs_m = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    offs_n = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    c_ptrs = logit_ptr + offs_m[:, None] * N + offs_n[None, :]
+    tl.store(c_ptrs, c)
+
+
+def triton_rms_norm_fp32_gemm_block_quant_forward(x: torch.Tensor,
+                            norm_weight: torch.Tensor,
+                            route_weight: torch.Tensor,
+                            rms: Optional[torch.Tensor] = None,
+                            eps: float = 1e-6,
+                            output_mode: int = 0,
+                            round_scale=False
+                            ):
+    """
+    y = rms_norm(x)
+    logits = y@w_route
+    x_q, x_s, xt_q, xt_s = quantization(y)
+    Args:
+        x: input tensor
+        norm weight: weight tensor of rms norm
+        route_weight: moe router weight
+        eps: epsilon of rms norm
+        output_mode: 0 or 1
+            0: only output non-transpose quantizatino tensor
+            1: only output transposed quantizatino tensor
+
+    Returns:
+        - y: rms normed tensor
+        - rms: 1/rms
+        - logits: router logit
+        - x_q: 
+        - x_s: 
+        - xt_q:
+        - xt_s:
+    """
+    assert output_mode in (0, 1)
+    M, K = x.size()
+    N, K = route_weight.size()
+    assert M % 128 == 0 and K % 128 == 0 and N % 128 == 0
+    device = x.device
+    y = torch.empty(M, K, dtype=x.dtype, device=device)
+    if rms is None:
+        assert output_mode == 0
+        rms = torch.empty(M, dtype=torch.float32, device=device)
+    logits = torch.empty(M, N, dtype=torch.float32, device=device)
+
+    x_q = torch.empty((M, K), device=device, dtype=torch.float8_e4m3fn)
+    x_s = torch.empty((K//128, M), device=device, dtype=torch.float32)
+    xt_q = torch.empty((K, M), device=device, dtype=torch.float8_e4m3fn)
+    xt_s = torch.empty((M//128, K), device=device, dtype=torch.float32)
+
+    if output_mode == 0:
+        BLOCK_SIZE_K = 128  # MUST BE 128 (quantization block size)
+        BLOCK_SIZE_M = 32
+        BLOCK_SIZE_N = N
+        num_warps = 4
+        num_stages = 2
+        grid = (M//BLOCK_SIZE_M, N//BLOCK_SIZE_N)
+        rms_norm_fp32_gemm_block_quant_forward_n_kernel[grid](x, 
+                                    norm_weight, 
+                                    route_weight,
+                                    y,
+                                    rms,
+                                    logits, 
+                                    x_q,
+                                    x_s,
+                                    eps,
+                                    M, N, K,
+                                    BLOCK_SIZE_K,
+                                    BLOCK_SIZE_M,
+                                    BLOCK_SIZE_N,
+                                    round_scale,
+                                    num_warps=num_warps,
+                                    num_stages=num_stages
+                                    )
+    else: 
+        W = 32 
+        grid = (triton.cdiv(M, 128), K//W)
+        rms_norm_and_block_quant_forward_t_kernel[grid](x, 
+                                    norm_weight,
+                                    xt_q, 
+                                    xt_s,
+                                    rms, 
+                                    M, 
+                                    K,
+                                    W, 
+                                    round_scale,
+                                    num_stages=3,
+                                    num_warps=4)
+    
+    return y, rms, logits, x_q, x_s, xt_q, xt_s 
+

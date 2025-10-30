@@ -9,12 +9,15 @@ import torch.nn.functional as F
 from linghe.utils.norm import (triton_rms_norm_and_smooth_quant_forward,
                                triton_rms_norm_and_block_quant_forward,
                                triton_rms_norm_and_mxfp8_quant_forward,
+                               triton_rms_norm_fp32_gemm_block_quant_forward,
                                triton_rms_norm_backward,
                                triton_rms_norm_forward)
 from linghe.tools.util import (output_check,
                                torch_smooth_quant,
                                torch_group_quant,
                                torch_mxfp8_quant)
+from linghe.gemm.fp32_gemm import triton_fp32_gemm
+from linghe.quant.group import triton_group_quant
 from linghe.tools.benchmark import benchmark_func
 
 
@@ -91,6 +94,35 @@ def torch_rms_and_block_quant_forward(x, weight, round_scale=False):
     yt_q, yt_scale = torch_group_quant(y.t(), round_scale=round_scale)
     return y_q, y_scale, yt_q, yt_scale
 
+
+def torch_rms_gemm_block_quant_forward(x, norm_weight, route_weight, round_scale=False):
+    x = x.float()
+    norm_weight = norm_weight.float()
+    route_weight = route_weight.float()
+    N = x.shape[-1]
+    rmsnorm = torch.nn.RMSNorm(
+        normalized_shape=N,
+        eps=1e-6,
+        dtype=torch.float32,
+        device=x.device
+    )
+    with torch.no_grad():
+        rmsnorm.weight.copy_(norm_weight)
+    y = rmsnorm(x)
+    logits = y@route_weight.t()
+    # blockwise
+    y_q, y_scale = torch_group_quant(y, round_scale=round_scale)
+    yt_q, yt_scale = torch_group_quant(y.t(), round_scale=round_scale)
+
+    return y,logits, y_q, y_scale, yt_q, yt_scale
+
+
+def split_rms_gemm_block_quant_forward(x, norm_weight, route_weight, round_scale=False):
+    y, _ = triton_rms_norm_forward(x, norm_weight)
+    logit = triton_fp32_gemm(y, route_weight)
+    q, s = triton_group_quant(y, round_scale=round_scale)
+    return y, logit, q, s
+
 def torch_rms_and_mxfp8_quant_forward(x, weight):
     x = x.float()
     weight = weight.float()
@@ -117,19 +149,28 @@ def test_rmsnorm(M=4096, N=4096, bench=False):
     dy = torch.randn(M, N, dtype=dtype, device=device)
 
     y_ref = torch_rms_forward(x, weight)
-    y, _ = triton_rms_norm_forward(x, weight)
+    y, rms = triton_rms_norm_forward(x, weight)
     output_check(y_ref.float(), y.float(), 'y')
+
+    y_with_rms, _ = triton_rms_norm_forward(x, weight, rms=rms)
+    output_check(y_ref.float(), y_with_rms.float(), 'y_with_rms')
 
     dx_ref, dw_ref = torch_rms_backward(x, weight, dy)
     dx, dw = triton_rms_norm_backward(dy, x, weight)
     output_check(dx_ref, dx, mode="dx")
     output_check(dw_ref, dw, mode='dw')
 
+    dx_with_rms, dw_with_rms = triton_rms_norm_backward(dy, x, weight, rms=rms)
+    output_check(dx_ref, dx_with_rms, mode="dx_with_rms")
+    output_check(dw_ref, dw_with_rms, mode='dw_with_rms')
+
     if bench:
         benchmark_func(triton_rms_norm_forward, x, weight, ref_bytes=M * N * 3)
+        benchmark_func(triton_rms_norm_forward, x, weight, rms=rms, ref_bytes=M * N * 3)
         benchmark_func(triton_rms_norm_backward, dy, x, weight,
                        ref_bytes=M * N * 3)
-
+        benchmark_func(triton_rms_norm_backward, dy, x, weight, rms=rms,
+                       ref_bytes=M * N * 3)
 
 def test_rmsnorm_and_smooth_quant(M=4096, N=4096, bench=False):
     dtype = torch.bfloat16
@@ -256,6 +297,57 @@ def test_rmsnorm_and_mxfp8_quant(M=4096, N=4096, bench=False):
                        output_mode=2,
                        ref_bytes=M * N * 4)
 
+def test_rms_norm_fp32_gemm_block_quant_forward(M=8192, N=256, K=2048, bench=False):
+    dtype = torch.bfloat16
+    device = 'cuda:0'
+
+    x = torch.randn(M, K, dtype=dtype, requires_grad=True, device=device) ** 2
+    norm_weight = torch.randn(K, dtype=dtype, requires_grad=True, device=device) 
+    route_weight = torch.randn(N, K, dtype=dtype, requires_grad=True, device=device) 
+
+    # blockwise
+    y_ref, logit_ref, q_ref, scale_ref, qt_ref, scale_t_ref = torch_rms_gemm_block_quant_forward(x,
+                                                                              norm_weight,
+                                                                              route_weight,
+                                                                              round_scale=True)
+    y, rms, logit, q, scale, q_t, scale_t = triton_rms_norm_fp32_gemm_block_quant_forward(x,
+                                                                          norm_weight,
+                                                                          route_weight,
+                                                                          round_scale=True,
+                                                                          output_mode=0)
+    output_check(y_ref, y, mode="0.y")
+    output_check(logit_ref, logit, mode='0.logit')
+    output_check(q_ref, q, mode="0.block.data")
+    output_check(scale_ref.t(), scale, mode='0.block.scale')
+
+    y, rms, logit, q, scale, q_t, scale_t = triton_rms_norm_fp32_gemm_block_quant_forward(x, 
+                                                                norm_weight,
+                                                                route_weight,
+                                                                rms=rms,
+                                                                round_scale=True,
+                                                                output_mode=1)
+    output_check(qt_ref, q_t, mode="1.block.data")
+    output_check(scale_t_ref.t(), scale_t, mode='1.block.scale')
+
+
+    if bench:
+        benchmark_func(triton_rms_norm_fp32_gemm_block_quant_forward, x, norm_weight, route_weight,
+                       round_scale=True,
+                       output_mode=0,
+                       ref_bytes=M * K * 5,
+                       ref_flops=M*K*N*2)
+
+        benchmark_func(triton_rms_norm_fp32_gemm_block_quant_forward, x, norm_weight, route_weight,
+                       rms=rms,
+                       round_scale=True,
+                       output_mode=1,
+                       ref_bytes=M * K * 3)
+
+        benchmark_func(split_rms_gemm_block_quant_forward, x, norm_weight, route_weight,
+                       round_scale=True,
+                       ref_bytes=M * K * 9)
+
+
 if __name__ == '__main__':
     test_rmsnorm(M=16384, N=2048, bench=False)
     test_rmsnorm(M=16384, N=1664, bench=False)
@@ -270,5 +362,5 @@ if __name__ == '__main__':
     test_rmsnorm_and_smooth_quant(M=4096, N=8192, bench=False)
     test_rmsnorm_and_block_quant(M=128, N=2048, bench=False)
     test_rmsnorm_and_block_quant(M=8192, N=4096, bench=False)
-
+    test_rms_norm_fp32_gemm_block_quant_forward(M=8192*2, N=256, K=2048, bench=False)
 
