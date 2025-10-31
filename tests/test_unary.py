@@ -10,11 +10,12 @@ from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
 
 
-def torch_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5):
+def torch_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5, round_scale=False):
     one = torch.ones([1], dtype=torch.float32, device=x.device)
     input_smooth_scales = torch.pow(torch.maximum(x, min_value*one), smooth_coef)
     weight_smooth_scales = 1/input_smooth_scales
-    weight_smooth_scales = torch.exp2(torch.ceil(torch.log2(weight_smooth_scales)))
+    if round_scale:
+        weight_smooth_scales = torch.exp2(torch.ceil(torch.log2(weight_smooth_scales)))
     return weight_smooth_scales
 
 
@@ -23,9 +24,9 @@ def test_calculate_smooth_scale(N=4096, bench=False):
     x = torch.randn(N, dtype=torch.float32, device='cuda:0').abs()**3+0.1
 
     min_value = 0.0
-    smooth_coef = 0.7
-    out_ref = torch_calculate_smooth_scale(x, min_value=min_value, smooth_coef=smooth_coef)
-    out = triton_calculate_smooth_scale(x, min_value=min_value, smooth_coef=smooth_coef)
+    smooth_coef = 0.5
+    out_ref = torch_calculate_smooth_scale(x, min_value=min_value, smooth_coef=smooth_coef, round_scale=True)
+    out = triton_calculate_smooth_scale(x, min_value=min_value, smooth_coef=smooth_coef, round_scale=True)
     output_check(out_ref, out, 'torch_calculate_smooth_scale')
 
     n_repeat = 100

@@ -7,9 +7,7 @@ import torch
 
 from linghe.gemm.fp32_gemm import (triton_fp32_gemm,
                                   triton_fp32_gemm_for_backward,
-                                  triton_fp32_gemm_for_update,
-                                  triton_scaled_fp32_gemm,
-                                  triton_scaled_fp32_gemm_for_update)
+                                  triton_fp32_gemm_for_update)
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
 
@@ -40,10 +38,6 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     y = triton_fp32_gemm(x, w)
     output_check(y_ref, y.float(), mode='fp32_gemm')
 
-    y_ref = torch_fp32_matmul(x * scale[:, None], w)
-    y = triton_scaled_fp32_gemm(x, w, scale)
-    output_check(y_ref, y.float(), mode='scaled_fp32_gemm')
-
     dx = torch.zeros(M, K, dtype=dtype, device=device)
     dx = triton_fp32_gemm_for_backward(dy, w)
     dx_ref = dy @ w.float()
@@ -52,10 +46,6 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     main_grad = triton_fp32_gemm_for_update(y, x)
     main_grad_ref = y.t() @ (x.float())
     output_check(main_grad_ref, main_grad.float(), mode='update')
-
-    main_grad = triton_scaled_fp32_gemm_for_update(y, x, scale)
-    main_grad_ref = y.t() @ (x.float() * scale[:, None])
-    output_check(main_grad_ref, main_grad.float(), mode='scaled_update')
 
     if bench:
         print('\nbenchmark\n')
