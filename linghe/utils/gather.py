@@ -898,13 +898,11 @@ def batch_block_pad_permute_with_indices_kernel(x_ptr,
                                         prob_ptr, 
                                         indices_ptr,
                                         count_ptr,
-                                        accum_ptr, 
                                         xq_ptr,
                                         xs_ptr, 
                                         xtq_ptr,
                                         xts_ptr, 
                                         output_prob_ptr,
-                                        m,
                                         N: tl.constexpr,
                                         E: tl.constexpr,
                                         ROUND: tl.constexpr,
@@ -1008,27 +1006,169 @@ def triton_batch_block_pad_permute_with_indices(xs,
     if m == 0:
         return x_q, x_scale, xt_q, xt_scale, prob_output
 
-    accums = torch.cumsum(token_count_per_expert, 0)
-
     grid = (n_experts, triton.cdiv(max(splits), 128), N // 128)
     batch_block_pad_permute_with_indices_kernel[grid](
         xs,
         probs,
         indices,
         token_count_per_expert,
-        accums,
         x_q,
         x_scale,
         xt_q,
         xt_scale,
         prob_output,
-        m,
         N,
         n_experts,
         round_scale,
         PROB,
         num_stages=2,
         num_warps=4
+    )
+
+    return x_q, x_scale, xt_q, xt_scale, prob_output
+
+
+
+@triton.jit
+def batch_mxfp8_permute_with_indices_kernel(x_ptr,
+                                        prob_ptr, 
+                                        indices_ptr,
+                                        count_ptr,
+                                        xq_ptr,
+                                        xs_ptr, 
+                                        xtq_ptr,
+                                        xts_ptr, 
+                                        output_prob_ptr,
+                                        N: tl.constexpr,
+                                        E: tl.constexpr,
+                                        B: tl.constexpr,
+                                        PROB: tl.constexpr,
+                                        OUTPUT_MODE: tl.constexpr
+                                        ):
+
+    eid = tl.program_id(axis=0)
+    rid = tl.program_id(axis=1)
+    cid = tl.program_id(axis=2)
+
+    count = tl.load(count_ptr + eid)
+    counts = tl.load(count_ptr + tl.arange(0, E))
+
+    if rid >= tl.cdiv(count, 128) * 4:
+        return
+
+    m_block = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 128), 0)) * 4
+    si = tl.sum(tl.where(tl.arange(0, E) < eid, counts, 0))
+
+    offs = si * N + rid * 32 * N + cid * B + tl.arange(0, 32)[:,
+                                           None] * N + tl.arange(0, B)[
+                                                           None, :]
+    rids = rid * 32 + tl.arange(0, 32)
+    mask = rids[:, None] < count
+    b = N // 32
+    sb: tl.constexpr = B // 32
+
+    indices = tl.load(indices_ptr + si + rid * 32 + tl.arange(0, 32), mask=rids<count)
+    x = tl.load(x_ptr + cid * B + indices[:, None] * N + tl.arange(0, B)[
+                                                           None, :], mask=mask).to(tl.float32)
+    
+    if OUTPUT_MODE % 2 == 0:
+        xr = tl.reshape(x, [32, sb, 32])
+        scale = tl.maximum(tl.max(xr.abs(), 2) / 448, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+        tl.store(xs_ptr + m_block * N + rid * 32 * b + cid * B // 32 + tl.arange(0, 32)[:, None] * b + tl.arange(0, sb), log_scale+127)
+        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(xq_ptr.dtype.element_ty)
+        tl.store(xq_ptr + offs, xq,
+             mask=mask)
+
+    if OUTPUT_MODE > 0:
+        scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
+        log_scale = tl.ceil(tl.log2(scale))
+        scale = tl.exp2(log_scale)
+        tl.store(xts_ptr + m_block * N + rid * N + cid * B + tl.arange(0, B),
+                 log_scale + 127)
+        xq = (x / scale).to(xtq_ptr.dtype.element_ty)
+        tl.store(xtq_ptr + offs,
+                 xq, mask=mask)
+
+
+    if PROB:
+        prob = tl.load(prob_ptr + eid + indices * E, mask=rid * 32 + tl.arange(0, 32)<count)
+        tl.store(output_prob_ptr + si + rid * 32 + tl.arange(0, 32), prob, mask=rid * 32 + tl.arange(0, 32)<count)
+
+
+
+def triton_batch_mxfp8_permute_with_indices(xs,
+                                        token_count_per_expert,
+                                        indices,
+                                        splits,
+                                        probs=None,
+                                        output_mode=2):
+    """
+    select and quant, used in megatron 0.12 flex moe
+    Args:
+        xs: [bs, dim]
+        token_count_per_expert: [n_experts]
+        indices: [n_experts*topk]
+        splits: python int list of token_count_per_expert
+        probs: route weights, [bs, n_experts]
+        output_mode: one of {0, 1, 2}
+            0: only output non-transposed quantized tensor
+            1: only output transposed quantized tensor
+            2: output both
+
+    Returns:
+        x_q: 
+        x_scale: 
+        xt_q: 
+        xt_scale: 
+        prob_output: 
+
+    """
+    bs, N = xs.shape
+    n_experts = token_count_per_expert.size(0)
+    m = indices.shape[0]
+    device = xs.device
+
+    assert N % 128 == 0
+    M = sum([(x + 127) // 128 for x in splits]) * 128
+
+    x_q = torch.empty((m, N), device=device, dtype=torch.float8_e4m3fn)
+    x_scale = torch.empty((M, N // 32), device=device, dtype=torch.uint8)
+    xt_q = torch.empty((m, N), device=device,
+                                   dtype=torch.float8_e4m3fn)
+    xt_scale = torch.empty((M // 32, N), device=device,
+                                  dtype=torch.uint8)
+
+    PROB = probs is not None
+    if PROB:
+        prob_output = torch.empty((m, ), device=device, dtype=probs.dtype)
+        
+    else:
+        prob_output = None
+
+    if bs == 0:
+        return x_q, x_scale, xt_q, xt_scale, prob_output
+
+    B = 256 if N % 256 ==0 else 128
+    grid = (n_experts, triton.cdiv(max(splits), 128) * 4, N // B)
+    batch_mxfp8_permute_with_indices_kernel[grid](
+        xs,
+        probs,
+        indices,
+        token_count_per_expert,
+        x_q,
+        x_scale,
+        xt_q,
+        xt_scale,
+        prob_output,
+        N,
+        n_experts,
+        B,
+        PROB,
+        output_mode,
+        num_stages=2,
+        num_warps=2
     )
 
     return x_q, x_scale, xt_q, xt_scale, prob_output

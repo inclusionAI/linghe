@@ -58,7 +58,8 @@ def rms_norm_and_smooth_quant_forward_kernel(x_ptr, weight_ptr, smooth_scale_ptr
 # rms is used for moe routing, it is stored as 1/rms
 def triton_rms_norm_and_quant_forward(x, weight, smooth_scale, eps=1e-6,
                                       calibrate=False,
-                                      round_scale=False):
+                                      round_scale=False,
+                                      num_warps=4):
     # row-wise read, row-wise write
     M, N = x.shape
     assert N <= 8192 and 8192 % N == 0
@@ -93,7 +94,7 @@ def triton_rms_norm_and_quant_forward(x, weight, smooth_scale, eps=1e-6,
         calibrate,
         round_scale,
         num_stages=3,
-        num_warps=4
+        num_warps=num_warps
     )
     if calibrate:
         maxs = maxs.amax(0)
@@ -107,15 +108,24 @@ if __name__ == '__main__':
     dtype = torch.bfloat16
     device = 'cuda:0'
     calibrate = True 
-    # bug condition: triton=3.3.1 N=2048 calibrate=True num_warps=4
 
     x = torch.randn(M, N, dtype=dtype, requires_grad=True, device=device)
     weight = torch.randn(N, dtype=dtype, requires_grad=True, device=device)
     smooth_scale = torch.rand(N, dtype=torch.float32, requires_grad=False,
                               device=device) + 0.1
 
+    # bug condition: triton=3.3.1 N=2048 calibrate=True num_warps=4
     q, scale, maxs, rms = triton_rms_norm_and_quant_forward(x, weight,
                                                             smooth_scale=smooth_scale,
                                                             calibrate=calibrate,
-                                                            round_scale=True)
-    print(f'{q=}\n{scale=}')
+                                                            round_scale=True,
+                                                            num_warps=4)
+    print(f'bug_result: {q=}\n{scale=}')
+
+    # no bug condition: triton=3.3.1 N=2048 calibrate=True num_warps=2
+    q, scale, maxs, rms = triton_rms_norm_and_quant_forward(x, weight,
+                                                            smooth_scale=smooth_scale,
+                                                            calibrate=calibrate,
+                                                            round_scale=True,
+                                                            num_warps=2)
+    print(f'correct_result: {q=}\n{scale=}')
