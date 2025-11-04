@@ -345,12 +345,13 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
 
     if scale is None and output_mode in (0, 2):
         scale = torch.empty((M, N//128), device=device, dtype=torch.float32)
-    if rms is None:
-        rms = torch.empty((M,), dtype=torch.float32, device=device)
+
     # transpose_output should be initialized, or else can not make splitted tensors
     transpose_output = torch.empty((N, M), device=device, dtype=torch.float8_e4m3fn)
     transpose_scale = torch.empty(((M+127)//128, N), device=device, dtype=torch.float32)
     if output_mode == 0: # only output non-transpose tensor
+        assert rms is None
+        rms = torch.empty((M,), dtype=torch.float32, device=device)
         W = 8192 // N
         T = 16 // W  
         grid = (triton.cdiv(M, 16),)
@@ -375,6 +376,7 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
     elif output_mode == 1:  # only output transposed tensor
         # W = N//512
         # grid = (512,)
+        assert rms is not None
         W = 32 
         grid = (triton.cdiv(M, 128), N//W)
         rms_norm_and_block_quant_forward_t_kernel[grid](x, 
@@ -390,6 +392,8 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
                                     num_warps=4)
     
     elif output_mode == 2:  # output non-transposed and transposed tensor together
+        assert rms is None
+        rms = torch.empty((M,), dtype=torch.float32, device=device)
         W = 8192 // N
         T = 128 // W  # BLOCK SIZE
         H = 64

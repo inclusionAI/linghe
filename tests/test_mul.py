@@ -3,16 +3,19 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import random
 import torch
 
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
-from linghe.utils.dot import triton_dot
+from linghe.utils.mul import triton_dot, triton_batch_scale
 
 
 def torch_fp16_dot(x, y):
     return (x * y).sum(1)
 
+def torch_batch_scale(xs, scale):
+    return [x*scale for x in xs]
 
 def test_dot(M=4096, N=4096, bench=False):
     dtype = torch.bfloat16
@@ -26,9 +29,9 @@ def test_dot(M=4096, N=4096, bench=False):
     quant_scale = torch.randn(M, dtype=torch.float32, device=device).abs()
     smooth_scale = torch.randn(N, dtype=torch.float32, device=device).abs()
 
-    sums = triton_dot(x, q)
     sums_ref = torch_fp16_dot(x, q.float().to(dtype))
-    output_check(sums_ref, sums, 'sum')
+    sums = triton_dot(x, q)
+    output_check(sums_ref, sums, 'dot')
 
     sums_ref = (x.float() * (
             q.to(torch.float32) * quant_scale[:, None] * smooth_scale[None,
@@ -36,7 +39,27 @@ def test_dot(M=4096, N=4096, bench=False):
 
     if bench:
         ref_time = benchmark_func(torch_fp16_dot, x, y, n_repeat=n_repeat)
+        ref_time = benchmark_func(triton_dot, x, q, n_repeat=n_repeat, ref_time=ref_time)
+
+
+
+def test_batch_scale(M=4096, N=2048, k=1024, bench=False):
+    xs = [torch.randn(random.randint(M//10,M), N, dtype=torch.float32, device='cuda:0') for i in range(k)]
+
+    scale = 7.86
+    sum_ref = torch_batch_scale(xs, scale)
+    sums = triton_batch_scale(xs, scale)
+    output_check(torch.cat(sum_ref,0), torch.cat(sums,0), 'batch_scale')
+
+    ref_bytes = sum([x.numel() for x in xs]) * 8
+
+    if bench:
+        ref_time = benchmark_func(torch_batch_scale, xs, scale, 
+                                  ref_bytes=ref_bytes)
+        benchmark_func(triton_batch_scale, xs, scale,
+                       ref_bytes=ref_bytes, ref_time=ref_time)
 
 
 if __name__ == '__main__':
-    test_dot(M=4096, N=4096)
+    test_dot(M=4096, N=4096, bench=False)
+    test_batch_scale(M=2048, N=1024, k=1024, bench=False)

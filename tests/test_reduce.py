@@ -3,18 +3,26 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import random
 import torch
 
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
 from linghe.utils.reduce import (triton_abs_max,
                                 triton_batch_count_zero,
-                                triton_batch_sum_with_ord)
+                                triton_batch_norm)
 
 
-def torch_sum(xs):
-    return sum([x.square().sum() for x in xs])
-
+def torch_sum(xs, ord=2, norm=True):
+    if ord == 2:
+        output = sum([x.square().sum() for x in xs])
+        if norm:
+            output = torch.sqrt(output)
+        return output
+    elif ord == 1:
+        return sum([x.abs().sum() for x in xs])
+    elif ord == -1:
+        return max([x.abs().max() for x in xs])
 
 def torch_count_zero(xs):
     count = torch.tensor([0], dtype=torch.int64, device='cuda')
@@ -47,10 +55,6 @@ def test_count_zero(M=4096, N=8192, k=32, bench=False):
     # print(f'{count_ref=} {count=}')
     assert count_ref.item() - count.item() == 0
 
-    sum_ref = torch_sum(xs)
-    sums = triton_batch_sum_with_ord(xs)
-    output_check(sum_ref, sums, 'count_zero')
-
     if bench:
         n_repeat = 100
         ref_time = benchmark_func(torch_count_zero, xs, n_repeat=n_repeat,
@@ -59,25 +63,32 @@ def test_count_zero(M=4096, N=8192, k=32, bench=False):
                        ref_bytes=ref_bytes, ref_time=ref_time)
 
 
-def test_ord_sum(M=4096, N=8192, k=32, bench=False):
-    xs = [torch.randn(M, N, dtype=torch.float32, device='cuda:0').to(
-        torch.float8_e4m3fn).to(torch.float32) for i in range(k)]
+def test_batch_norm(M=4096, N=8192, k=32, bench=False):
+    xs = [torch.randn(random.randint(M//10,M), N, dtype=torch.float32, device='cuda:0') for i in range(k)]
 
-    ref_bytes = sum([x.numel() for x in xs]) * 4
+    sum_ref = torch_sum(xs, ord=2, norm=False)
+    sums = triton_batch_norm(xs, ord=2, norm=False)
+    output_check(sum_ref, sums, 'l2_norm')
 
-    sum_ref = torch_sum(xs)
-    sums = triton_batch_sum_with_ord(xs)
-    output_check(sum_ref, sums, 'norm')
+    sum_ref = torch_sum(xs, ord=1, norm=False)
+    sums = triton_batch_norm(xs, ord=1, norm=False)
+    output_check(sum_ref, sums, 'l1_norm')
+
+    sum_ref = torch_sum(xs, ord=-1, norm=False)
+    sums = triton_batch_norm(xs, ord=-1, norm=False)
+    output_check(sum_ref, sums, 'inf_norm')
 
     if bench:
+        ref_bytes = sum([x.numel() for x in xs]) * 4
         n_repeat = 100
         ref_time = benchmark_func(torch_sum, xs, n_repeat=n_repeat,
                                   ref_bytes=ref_bytes)
-        benchmark_func(triton_batch_sum_with_ord, xs, n_repeat=n_repeat,
+        benchmark_func(triton_batch_norm, xs, n_repeat=n_repeat,
                        ref_bytes=ref_bytes, ref_time=ref_time)
 
 
+
 if __name__ == '__main__':
-    test_triton_abs_max(M=4096, N=4096)
-    test_count_zero(M=4096, N=8192, k=32)
-    test_ord_sum(M=4096, N=8192, k=32)
+    test_triton_abs_max(M=4096, N=4096, bench=False)
+    test_count_zero(M=4096, N=8192, k=32, bench=False)
+    test_batch_norm(M=4096, N=1024, k=256, bench=False)

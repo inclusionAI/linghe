@@ -3,11 +3,14 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import random
 import torch
 
-from linghe.utils.unary import triton_calculate_smooth_scale
+from linghe.utils.unary import triton_calculate_smooth_scale, triton_batch_clip
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
+
+
 
 
 def torch_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5, round_scale=False):
@@ -17,6 +20,12 @@ def torch_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5, round_scale=
     if round_scale:
         weight_smooth_scales = torch.exp2(torch.ceil(torch.log2(weight_smooth_scales)))
     return weight_smooth_scales
+
+
+def torch_batch_clip(xs, clip_value):
+    torch._foreach_clamp_min_(xs, -clip_value)
+    torch._foreach_clamp_max_(xs, clip_value)
+    return xs
 
 
 def test_calculate_smooth_scale(N=4096, bench=False):
@@ -37,6 +46,31 @@ def test_calculate_smooth_scale(N=4096, bench=False):
         benchmark_func(torch_calculate_smooth_scale, x,  n_repeat=n_repeat,
                        ref_time=ref_time, ref_bytes=N * 8)
 
+
+
+
+def test_batch_clip(M=2048, N=1024, k=1024, bench=False):
+    xs = [torch.randn(random.randint(M//10,M), N, dtype=torch.float32, device='cuda:0') for i in range(k)]
+    xsc = [x.clone().detach() for x in xs]
+
+    clip_value = 0.1
+    sum_ref = torch_batch_clip(xs, clip_value)
+    sums = triton_batch_clip(xsc, clip_value)
+    output_check(torch.cat(sum_ref,0), torch.cat(sums,0), 'batch_clip')
+
+
+    if bench:
+        xs = [torch.randn(random.randint(M//10,M), N, dtype=torch.float32, device='cuda:0') for i in range(k)]
+        ref_bytes = sum([x.numel() for x in xs]) * 8
+        n_repeat = 1  # inplace update will speedup our triton op 
+        ref_time = benchmark_func(torch_batch_clip, xs, clip_value, 
+                                  ref_bytes=ref_bytes, n_repeat=n_repeat)
+        benchmark_func(triton_batch_clip, xs, clip_value,
+                       ref_bytes=ref_bytes, ref_time=ref_time, n_repeat=n_repeat)
+
+
+
 if __name__ == '__main__':
     test_calculate_smooth_scale(N=4096*32)
     test_calculate_smooth_scale(N=4096*32-1897)
+    test_batch_clip(M=2048, N=1024, k=1024, bench=False)

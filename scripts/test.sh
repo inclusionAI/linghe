@@ -5,7 +5,7 @@ echo "test_blockwise_fp8_gemm.py" && python test_blockwise_fp8_gemm.py
 echo "test_blockwise_quant.py" && python test_blockwise_quant.py
 echo "test_channel_quant.py" && python test_channel_quant.py
 echo "test_channelwise_fp8_gemm.py" && python test_channelwise_fp8_gemm.py
-echo "test_dot.py" && python test_dot.py 
+echo "test_mul.py" && python test_dot.py 
 echo "test_fp32_gemm.py" && python test_fp32_gemm.py
 echo "test_gate.py" && python test_gate.py
 echo "test_gather.py" && python test_gather.py 
