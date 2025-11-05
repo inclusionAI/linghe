@@ -64,7 +64,7 @@ def test_count_zero(M=4096, N=8192, k=32, bench=False):
 
 
 def test_batch_norm(M=4096, N=8192, k=32, bench=False):
-    xs = [torch.randn(random.randint(M//10,M), N, dtype=torch.float32, device='cuda:0') for i in range(k)]
+    xs = [torch.randn(random.randint(1,int(M**0.5))**2, N, dtype=torch.float32, device='cuda:0') for i in range(k)]
 
     sum_ref = torch_sum(xs, ord=2, norm=False)
     sums = triton_batch_norm(xs, ord=2, norm=False)
@@ -91,4 +91,6 @@ def test_batch_norm(M=4096, N=8192, k=32, bench=False):
 if __name__ == '__main__':
     test_triton_abs_max(M=4096, N=4096, bench=False)
     test_count_zero(M=4096, N=8192, k=32, bench=False)
-    test_batch_norm(M=4096, N=1024, k=256, bench=False)
+    test_batch_norm(M=4096, N=1024, k=16, bench=False)
+    test_batch_norm(M=4096, N=1024, k=64, bench=False)
+    test_batch_norm(M=4096, N=1024, k=256, bench=True)

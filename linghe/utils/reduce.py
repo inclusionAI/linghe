@@ -138,7 +138,7 @@ def triton_batch_count_zero(xs):
 
 
 @triton.jit
-def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr, 
+def _batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr, 
                               B: tl.constexpr,
                               ORD: tl.constexpr):
     tid = tl.program_id(axis=0)
@@ -163,7 +163,38 @@ def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr,
     tl.store(tmp_ptr + tid * sm + bid, sums)
 
 
-def triton_batch_norm(xs, ord=2, norm=True):
+@triton.jit
+def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr, 
+                              B: tl.constexpr,
+                              ORD: tl.constexpr):
+    tid = tl.program_id(axis=0)
+    bid = tl.program_id(axis=1)
+    sm = tl.num_programs(axis=1)
+    sums = tl.zeros((B, ), dtype=tl.float32)
+
+    size = tl.load(size_ptr + tid)
+    input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
+    t = tl.cdiv(size, B * sm)
+    offs = bid * t * B + tl.arange(0, B)
+    for i in range(t):
+        x = tl.load(input_ptr + offs, mask=offs < size, other=0).to(tl.float32)
+        if ORD == 2:
+            sums += x * x
+        elif ORD == 1:
+            sums += tl.abs(x)
+        elif ORD == -1:
+            sums = tl.maximum(sums, tl.abs(x))
+        offs += B
+
+    if ORD == -1:
+        sums = tl.max(sums)
+    else:
+        sums = tl.sum(sums)
+    tl.store(tmp_ptr + tid * sm + bid, sums)
+
+
+
+def triton_batch_norm(xs, ord=2, norm=True, scalar=True):
     """
     tread multiple tensors as a single tensor and calculate norm.
     Args:
@@ -175,7 +206,7 @@ def triton_batch_norm(xs, ord=2, norm=True):
             False: sum(sum(abs(x)**ord) x for x in xs))
 
     Returns:
-        a single-value fp32 tensor
+        a scalar if scalar=True else a single-value fp32 tensor
     """
     assert ord in (1, 2, -1)
     assert all([x.is_contiguous() for x in xs])
@@ -185,10 +216,10 @@ def triton_batch_norm(xs, ord=2, norm=True):
     ptrs = torch.tensor([x.data_ptr() for x in xs], dtype=torch.int64,
                         device=device)
 
-    sm = 64
+    sm = 256
     tensor_count = len(xs)
     tmp = torch.empty((tensor_count, sm), device=device, dtype=torch.float32)
-    B = 512
+    B = 128
     grid = (tensor_count, sm)
     batch_norm_kernel[grid](
         ptrs,
@@ -205,4 +236,6 @@ def triton_batch_norm(xs, ord=2, norm=True):
         output = tmp.sum()
         if ord == 2 and norm:
             output = torch.sqrt(output)
+    if not scalar:
+        output = output.unsqueeze(0)
     return output

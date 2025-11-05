@@ -50,23 +50,29 @@ def test_calculate_smooth_scale(N=4096, bench=False):
 
 
 def test_batch_clip(M=2048, N=1024, k=1024, bench=False):
-    xs = [torch.randn(random.randint(M//10,M), N, dtype=torch.float32, device='cuda:0') for i in range(k)]
-    xsc = [x.clone().detach() for x in xs]
+    xs = [torch.randn(random.randint(1,int(M**0.5))**2, N, dtype=torch.float32, device='cuda:0') for i in range(k)]
+    xs1 = [x.clone().detach() for x in xs]
+    xs2 = [x.clone().detach() for x in xs]
 
-    clip_value = 0.1
-    sum_ref = torch_batch_clip(xs, clip_value)
-    sums = triton_batch_clip(xsc, clip_value)
+    clip_value = 100.0
+    sum_ref = torch_batch_clip(xs1, clip_value)
+    sums = triton_batch_clip(xs2, clip_value)
     output_check(torch.cat(sum_ref,0), torch.cat(sums,0), 'batch_clip')
 
 
     if bench:
-        xs = [torch.randn(random.randint(M//10,M), N, dtype=torch.float32, device='cuda:0') for i in range(k)]
         ref_bytes = sum([x.numel() for x in xs]) * 8
+        xs3 = [x.clone().detach() for x in xs]
         n_repeat = 1  # inplace update will speedup our triton op 
-        ref_time = benchmark_func(torch_batch_clip, xs, clip_value, 
-                                  ref_bytes=ref_bytes, n_repeat=n_repeat)
-        benchmark_func(triton_batch_clip, xs, clip_value,
-                       ref_bytes=ref_bytes, ref_time=ref_time, n_repeat=n_repeat)
+        ref_time = benchmark_func(torch_batch_clip, xs3, clip_value, 
+                                  ref_bytes=ref_bytes, 
+                                  n_repeat=n_repeat,
+                                  n_warmup=0)
+        xs4 = [x.clone().detach() for x in xs]
+        benchmark_func(triton_batch_clip, xs4, clip_value,
+                       ref_bytes=ref_bytes, ref_time=ref_time,
+                    n_repeat=n_repeat,
+                    n_warmup=0)
 
 
 

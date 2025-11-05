@@ -44,7 +44,7 @@ def test_dot(M=4096, N=4096, bench=False):
 
 
 def test_batch_scale(M=4096, N=2048, k=1024, bench=False):
-    xs = [torch.randn(random.randint(M//10,M), N, dtype=torch.float32, device='cuda:0') for i in range(k)]
+    xs = [torch.randn(random.randint(1,int(M**0.5))**2, N, dtype=torch.float32, device='cuda:0') for i in range(k)]
 
     scale = 7.86
     sum_ref = torch_batch_scale(xs, scale)

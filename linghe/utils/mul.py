@@ -93,7 +93,7 @@ def triton_batch_scale(xs, scale):
     ptrs = torch.tensor([x.data_ptr() for x in xs], dtype=torch.int64,
                         device=device)
 
-    T = 64
+    T = 256
     tensor_count = len(xs)
     B = 512
     grid = (tensor_count, T)

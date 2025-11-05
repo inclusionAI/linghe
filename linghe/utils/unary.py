@@ -73,9 +73,7 @@ def batch_clip_kernel(input_ptrs, size_ptr, clip_value,
     offs = bid * t * B + tl.arange(0, B)
     for i in range(t):
         x = tl.load(input_ptr + offs, mask=offs < size, other=0).to(tl.float32)
-        # x = tl.minimum(tl.maximum(x, -clip_value), clip_value)
-        # tl.store(input_ptr + offs, x, mask=offs < size)
-
+        # clip value is a large value, so we do not need to clip for most cause
         max_val = tl.max(tl.abs(x))
         if max_val > clip_value:
             x = tl.minimum(tl.maximum(x, -clip_value), clip_value)
@@ -100,7 +98,7 @@ def triton_batch_clip(xs, clip_value=100.0):
     ptrs = torch.tensor([x.data_ptr() for x in xs], dtype=torch.int64,
                         device=device)
 
-    sm = 64
+    sm = 256
     tensor_count = len(xs)
     B = 512
     grid = (tensor_count, sm)
