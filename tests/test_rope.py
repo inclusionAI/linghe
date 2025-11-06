@@ -8,8 +8,9 @@ import torch
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
 from linghe.utils.rope import triton_half_rope_forward, \
-    triton_half_rope_backward, triton_qk_norm_and_half_rope_forward, \
-    triton_qk_norm_and_half_rope_backward
+    triton_half_rope_backward, triton_mla_rope_forward, triton_qk_norm_and_half_rope_forward, \
+    triton_qk_norm_and_half_rope_backward, \
+    triton_mla_rope_forward, triton_mla_rope_backward
 
 
 def rotate_half(x):
@@ -67,6 +68,35 @@ def torch_qk_norm(q, k, qw, kw, eps=1e-6, transposed=True):
     k = k / rms[:, :, :, None]
     k = k * kw
     return q.to(dtype), k.to(dtype)
+
+def torch_mla_rope(q, kv, k_pos_emb, freqs, mscale=1.0):
+
+    L, B, H, _ = q.shape
+    q_no_pe, q_pos_emb = torch.split(
+        q, [128, 64], dim=-1
+    )
+
+    k_no_pe, value = torch.split(
+        kv, [128, 128], dim=-1
+    )
+
+    cos = freqs.cos().to(q.dtype) * mscale
+    sin = freqs.sin().to(q.dtype) * mscale
+    position_ids = torch.arange(L, device='cuda:0')[:, None].expand(-1, B)
+
+    q_pos_emb = torch.cat([q_pos_emb[:,:,:,0::2], q_pos_emb[:,:,:,1::2]], -1)
+    k_pos_emb = torch.cat([k_pos_emb[:,:,:,0::2], k_pos_emb[:,:,:,1::2]], -1)
+
+    q_pos_emb, k_pos_emb = apply_rotary_pos_emb(q_pos_emb, k_pos_emb, cos, sin,
+                                  position_ids)
+
+    query = torch.cat([q_no_pe, q_pos_emb], dim=-1)
+
+    k_pos_emb = k_pos_emb.expand(-1, -1, H, -1)
+
+    key = torch.cat([k_no_pe, k_pos_emb], dim=-1) 
+
+    return query, key, value.contiguous()
 
 
 def torch_qk_norm_and_half_rope(qkv, qw, kw, freqs, rope_theta=10000.0, H=32,
@@ -216,6 +246,54 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
                        n_profile=0)
 
 
+
+
+def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0,
+                   bench=False):
+    dtype = torch.bfloat16
+    device = 'cuda:0'
+    q = torch.randn(L, B, H, 192, dtype=dtype, device=device)
+    kv = torch.randn(L, B, H, 256, dtype=dtype, device=device)
+    k_pos_emb = torch.randn(L, B, 1, 64, dtype=dtype, device=device)
+    freqs = rope_freqs(L, 64, rope_theta=rope_theta)
+    freqs = torch.cat([freqs, freqs], -1)
+
+    mscale = 1.0
+    q_ref, k_ref, v_ref = torch_mla_rope(q.clone().detach(), kv, k_pos_emb, freqs, mscale=mscale)
+    qo, ko, vo = triton_mla_rope_forward(q.clone().detach(), kv, k_pos_emb, freqs, mscale=mscale)
+    output_check(q_ref, qo, mode='q')
+    output_check(k_ref, ko, mode='k')
+    output_check(v_ref, vo, mode='v')
+
+    q_grad = torch.randn(L, B, H, 192, dtype=dtype, device=device)
+    k_grad = torch.randn(L, B, H, 192, dtype=dtype, device=device)
+    v_grad = torch.randn(L, B, H, 128, dtype=dtype, device=device)
+    k_pos_emb_grad = torch.randn(L, B, 1, 64, dtype=dtype, device=device)
+    q_ref = q.detach().clone().requires_grad_()
+    kv_ref = kv.detach().clone().requires_grad_()
+    k_pos_emb_ref = k_pos_emb.detach().clone().requires_grad_()
+    qo_ref, ko_ref, vo_ref = torch_mla_rope(q_ref, kv_ref, k_pos_emb_ref, freqs, mscale=mscale)
+    qo_ref.backward(gradient=q_grad, retain_graph=True)
+    ko_ref.backward(gradient=k_grad, retain_graph=True)
+    vo_ref.backward(gradient=v_grad, retain_graph=True)
+    dq_ref = q_ref.grad
+    dkv_ref = kv_ref.grad
+    dp_ref = k_pos_emb_ref.grad
+    dq, dkv, dp = triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=mscale)
+    output_check(dq_ref, dq, mode='dq')
+    output_check(dkv_ref, dkv, mode='dkv')
+    output_check(dp_ref, dp, mode='dp')
+
+    if bench:
+        lbh = L*B*H
+        benchmark_func(triton_mla_rope_forward, q, kv, k_pos_emb, freqs,
+                       ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
+                       n_profile=0)
+        benchmark_func(triton_mla_rope_backward, q_grad, k_grad, v_grad, freqs,
+                       ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
+                       n_profile=0)
+
+
 if __name__ == '__main__':
     test_half_rope(B=2, L=4096, H=32, h=8, D=128, rope_theta=10000.0, transposed=True,
                    bench=False)
@@ -234,3 +312,5 @@ if __name__ == '__main__':
     test_qk_norm_and_half_rope(B=4, L=4096, H=32, h=8, D=128,
                                rope_theta=10000.0, interleaved=False, transposed=True, 
                                bench=False)
+    test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0,
+                   bench=False)

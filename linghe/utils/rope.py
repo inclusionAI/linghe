@@ -3,6 +3,7 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+from megatron.core.models.gpt.fine_grained_callables import MTPLossAutoScaler
 import torch
 import triton
 import triton.language as tl
@@ -137,7 +138,7 @@ def half_rope_forward_kernel(q_ptr, k_ptr, freqs_ptr, qo_ptr, ko_ptr, B,
 
 def triton_half_rope_forward(q, k, freqs, transposed=True):
     """
-    apply norm to qk, then apply half rope to qk
+    apply half rope to qk
     Args:
         q: query tensor, [len, bs, q_head, head_dim]
         k: key tensor, [len, bs, kv_head, head_dim]
@@ -219,6 +220,7 @@ def half_rope_backward_kernel(q_ptr, k_ptr, freqs_ptr,
         qr = tl.reshape(tl.permute(
             tl.flip(tl.permute(tl.reshape(q, (H, 2, d)), (0, 2, 1)),
                     dim=2) * signs, (0, 2, 1)), (H, D))
+
         q = q * cos + qr * sin
         if TRANSPOSED:
             tl.store(
@@ -879,3 +881,291 @@ def triton_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
     dqw = tmp_dqw.sum(0).to(dtype)
     dkw = tmp_dkw.sum(0).to(dtype)
     return dqkv, dqw, dkw
+
+
+
+@triton.jit
+def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr, 
+                            freqs_ptr, 
+                             ko_ptr, vo_ptr,
+                             mscale,
+                             H: tl.constexpr,
+                             B: tl.constexpr
+                             ):
+    pid = tl.program_id(0)
+    
+    freqs = tl.load(freqs_ptr + pid // B * 64 + tl.arange(0, 64))
+    q = tl.load(
+        q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(0, 64)[None, :])
+    k = tl.load(
+        k_pos_emb_ptr + pid * 64 + tl.arange(0, 64))
+
+    cos = tl.cos(freqs) * mscale
+    sin = tl.sin(freqs) * mscale
+    signs = tl.arange(0, 2).to(tl.float32) * 2 - 1
+
+    qt = tl.permute(tl.reshape(q, (H, 32, 2)), (0, 2, 1))
+    q = tl.reshape(qt, (H, 64))
+    qr = tl.reshape(tl.permute(
+        tl.flip(tl.permute(qt, (0, 2, 1)),
+                dim=2) * signs, (0, 2, 1)), (H, 64))
+    q = q * cos + qr * sin
+
+    tl.store(
+        q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0,H)[:,None] + tl.arange(0, 64)[None, :], q)
+
+    kt = tl.permute(tl.reshape(k, (32, 2)), (1, 0))
+    k = tl.reshape(
+        kt, (64, ))
+    kr = tl.reshape(tl.permute(
+        tl.flip(tl.permute(kt, (1, 0)),
+                dim=1) * signs, (1, 0)), (64, ))
+    k = k * cos + kr * sin
+    tl.store(ko_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(0, 64)[None, :], k[None, :])
+
+    k = tl.load(
+        kv_ptr + pid * H * 256 + 256 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :])
+    tl.store(
+        ko_ptr + pid * H * 192 + 192 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :], k)
+
+    v = tl.load(
+        kv_ptr + pid * H * 256 + 128 + 256 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :])
+    tl.store(
+        vo_ptr + pid * H * 128 + 128 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :], v)
+
+
+
+@triton.jit
+def depracated_mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr, 
+                            freqs_ptr, 
+                             ko_ptr, vo_ptr,
+                             mscale,
+                             H: tl.constexpr,
+                             B: tl.constexpr
+                             ):
+    pid = tl.program_id(0)
+    
+    freqs0 = tl.load(freqs_ptr + pid // B * 64 + tl.arange(0, 32))
+    freqs1 = tl.load(freqs_ptr + pid // B * 64 + 32 + tl.arange(0, 32))
+
+    cos0 = tl.cos(freqs0)*mscale
+    sin0 = tl.sin(freqs0)*mscale
+
+    cos1 = tl.cos(freqs1)*mscale
+    sin1 = tl.sin(freqs1)*mscale
+
+    q = tl.load(
+        q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(0, 64)[None, :])
+
+    q0, q1 = tl.split(tl.reshape(q, (H, 32, 2)))
+    qo0 = q0 * cos0 - q1 * sin0
+    qo1 = q1 * cos1 + q0 * sin1
+
+    tl.store(
+        q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0,H)[:,None] + tl.arange(0, 32)[None, :], qo0)
+    tl.store(
+        q_ptr + pid * H * 192 + 160 + 192 * tl.arange(0,H)[:,None] + tl.arange(0, 32)[None, :], qo1)
+
+    k = tl.load(
+        k_pos_emb_ptr + pid * 64 + tl.arange(0, 64))
+
+    k0, k1 = tl.split(tl.reshape(k, (32, 2)))
+    ko0 = k0 * cos0 - k1 * sin0
+    ko1 = k1 * cos1 + k0 * sin1
+    tl.store(ko_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(0, 32)[None, :], ko0[None, :])
+    tl.store(ko_ptr + pid * H * 192 + 160 + 192 * tl.arange(0, H)[:, None] + tl.arange(0, 32)[None, :], ko1[None, :])
+
+    k = tl.load(
+        kv_ptr + pid * H * 256 + 256 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :])
+    tl.store(
+        ko_ptr + pid * H * 192 + 192 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :], k)
+
+    v = tl.load(
+        kv_ptr + pid * H * 256 + 128 + 256 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :])
+    tl.store(
+        vo_ptr + pid * H * 128 + 128 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :], v)
+
+
+def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0):
+    """
+    apply MLA-type rope to qkv
+    Args:
+        q: query tensor, [len, bs, n_head, 192]
+        kv: key-value tensor, [len, bs, n_head, 256]
+        k_pos_emb: k pos emb, [len, bs, 1, 64]
+        freqs: rope freqs, [len, 64]
+        mscale: mscale for rope
+
+    Returns:
+        - qo: inplace updated query, [len, bs, n_head, 192]
+        - ko: key output, [len, bs, n_head, 192]
+        - vo: value output, [len, bs, n_head, 128]
+    """
+    L, B, H, D = q.shape
+    assert D == 192 and kv.shape[-1] == 256 and k_pos_emb.shape[-1] == 64
+    num_stages = 2
+    num_warps = 2
+
+    dtype = q.dtype 
+    device = q.device
+    ko = torch.empty((L, B, H, 192), dtype=dtype, device=device)
+    vo = torch.empty((L, B, H, 128), dtype=dtype, device=device)
+
+    grid = (L*B,)
+    mla_rope_forward_kernel[grid](
+        q, 
+        kv,
+        k_pos_emb,
+        freqs,
+        ko,
+        vo,
+        mscale,
+        H,
+        B,
+        num_stages=num_stages,
+        num_warps=num_warps
+    )
+    return q, ko, vo
+
+
+@triton.jit
+def depracated_mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
+                             dkv_ptr,
+                             dp_ptr,
+                             mscale,
+                              H: tl.constexpr,
+                              B: tl.constexpr
+                              ):
+    pid = tl.program_id(0)
+
+    freqs = tl.load(freqs_ptr + pid // B * 64 + tl.arange(0, 64))
+
+    q = tl.load(q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[
+                                                                    :,
+                                                                    None] + tl.arange(
+                    0, 64)[None, :])
+        
+    cos = tl.cos(freqs)*mscale
+    sin = tl.sin(freqs)*mscale
+    signs = -tl.arange(0, 2).to(tl.float32) * 2 + 1
+
+    qr = tl.reshape(tl.permute(
+        tl.flip(tl.permute(tl.reshape(q, (H, 2, 32)), (0, 2, 1)),
+                dim=2) * signs, (0, 2, 1)), (H, 64))
+    q = q * cos + qr * sin
+    q = tl.reshape(tl.permute(tl.reshape(q, (H, 2, 32)), (0, 2, 1)), (H, 64))
+    tl.store(q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(
+                    0, 64)[None, :], q)
+
+    k = tl.load(
+        k_ptr + pid * H * 192 + 128 + 192 * tl.arange(0,  H)[:, None] + tl.arange(
+            0, 64)[None, :])
+
+    kr = tl.reshape(tl.permute(
+        tl.flip(tl.permute(tl.reshape(k, (H, 2, 32)), (0, 2, 1)),
+                dim=2) * signs, (0, 2, 1)), (H, 64))
+    k = k * cos + kr * sin
+    k = tl.sum(k, 0)
+    k = tl.reshape(tl.permute(tl.reshape(k, (2, 32)), (1, 0)), (64, ))
+
+    tl.store(
+        dp_ptr + pid * 64  + tl.arange(0, 64), k)
+
+    k = tl.load(
+        k_ptr + pid * H * 192 + 192 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :])
+    tl.store(
+        dkv_ptr + pid * H * 256 + 256 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :], k)
+
+    v = tl.load(
+        v_ptr + pid * H * 128 + 128 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :])
+    tl.store(
+        dkv_ptr + pid * H * 256 + 128 + 256 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :], v)
+
+
+
+@triton.jit
+def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
+                             dkv_ptr,
+                             dp_ptr,
+                             mscale,
+                              H: tl.constexpr,
+                              B: tl.constexpr
+                              ):
+    pid = tl.program_id(0)
+
+    freqs0 = tl.load(freqs_ptr + pid // B * 64 + tl.arange(0, 32))
+    freqs1 = tl.load(freqs_ptr + pid // B * 64 + 32 + tl.arange(0, 32))
+
+
+    q0 = tl.load(q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[
+                                                                    :,
+                                                                    None] + tl.arange(
+                    0, 32)[None, :])
+    q1 = tl.load(q_ptr + pid * H * 192 + 160 + 192 * tl.arange(0, H)[
+                                                                    :,
+                                                                    None] + tl.arange(
+                    0, 32)[None, :])
+        
+
+    cos0 = tl.cos(freqs0)*mscale
+    sin0 = tl.sin(freqs0)*mscale
+
+    cos1 = tl.cos(freqs1)*mscale
+    sin1 = tl.sin(freqs1)*mscale
+
+    dq0 = q0 * cos0 + q1 * sin1
+    dq1 = q1 * cos1 - q0 * sin0
+    dq = tl.reshape(tl.join(dq0, dq1), (H, 64))
+    tl.store(q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(
+                    0, 64)[None, :], dq)
+
+    k0 = tl.load(
+        k_ptr + pid * H * 192 + 128 + 192 * tl.arange(0,  H)[:, None] + tl.arange(
+            0, 32)[None, :])
+    k1 = tl.load(
+        k_ptr + pid * H * 192 + 160 + 192 * tl.arange(0,  H)[:, None] + tl.arange(
+            0, 32)[None, :])
+    dk0 = tl.sum(k0 * cos0 + k1 * sin1, 0)
+    dk1 = tl.sum(k1 * cos1 - k0 * sin0, 0)
+    dk = tl.reshape(tl.join(dk0, dk1), (64, ))
+
+    tl.store(
+        dp_ptr + pid * 64  + tl.arange(0, 64), dk)
+
+    k = tl.load(
+        k_ptr + pid * H * 192 + 192 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :])
+    tl.store(
+        dkv_ptr + pid * H * 256 + 256 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :], k)
+
+    v = tl.load(
+        v_ptr + pid * H * 128 + 128 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :])
+    tl.store(
+        dkv_ptr + pid * H * 256 + 128 + 256 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :], v)
+
+
+
+def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0):
+    L, B, H, D = q_grad.shape
+    num_stages = 2
+    num_warps = 2
+
+    dtype = q_grad.dtype
+    device = q_grad.device
+    dkv = torch.empty((L,B,H,256),dtype=dtype,device=device)
+    dp = torch.empty((L,B,1,64),dtype=dtype,device=device)
+
+    grid = (L*B,)
+    mla_rope_backward_kernel[grid](
+        q_grad, 
+        k_grad,
+        v_grad,
+        freqs,
+        dkv,
+        dp,
+        mscale,
+        H,
+        B,
+        num_stages=num_stages,
+        num_warps=num_warps
+    )
+    return q_grad, dkv, dp
