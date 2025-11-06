@@ -201,7 +201,6 @@ def fp32_gemm_for_update_kernel(
     c_ptrs = c_ptr + offs_m[:, None] * N + offs_n[None, :]
     tl.store(c_ptrs, c)
 
-
 def triton_fp32_gemm_for_update(a: torch.Tensor, b: torch.Tensor):
     """
     mix precision gemm for updaing weight
@@ -214,7 +213,8 @@ def triton_fp32_gemm_for_update(a: torch.Tensor, b: torch.Tensor):
     assert a.is_contiguous() and b.is_contiguous()
     K, M = a.size()
     K, N = b.size()
-    c = torch.empty((M, N), dtype=b.dtype, device=b.device)
+    # use float32 instead of bf16/fp16 for output
+    c = torch.empty((M, N), dtype=torch.float32, device=b.device)
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
     BLOCK_SIZE_K = 128

@@ -5,8 +5,10 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import torch
 
-from linghe.utils.rope import triton_qk_norm_and_half_rope_forward, \
-    triton_qk_norm_and_half_rope_backward
+from linghe.utils.rope import triton_mla_rope_backward, triton_mla_rope_forward, triton_qk_norm_and_half_rope_forward, \
+    triton_qk_norm_and_half_rope_backward, \
+    triton_mla_rope_forward, \
+    triton_mla_rope_backward
 
 
 class QkNormHalfRopeFunction(torch.autograd.Function):
@@ -80,3 +82,54 @@ def qk_norm_half_rope(qkv: torch.Tensor,
                                         H,
                                         h,
                                         eps)
+
+
+class MLARopeFunction(torch.autograd.Function):
+    """"""
+    @staticmethod
+    def forward(ctx, q, kv, k_pos_emb, freqs, mscale):
+        qo, ko, vo = triton_mla_rope_forward(q,
+                                             kv,
+                                            k_pos_emb,
+                                            freqs,
+                                            mscale)
+
+        ctx.save_for_backward(freqs)
+        ctx.mscale = mscale
+        return qo, ko, vo
+
+    @staticmethod
+    def backward(ctx, grad_q, grad_k, grad_v):
+        freqs, = ctx.saved_tensors
+        dq, dkv, dp = triton_mla_rope_backward(grad_q,
+                                                  grad_k,
+                                                  grad_v,
+                                                  freqs,
+                                                  ctx.mscale)
+        return dq, dkv, dp, None, None
+
+
+def mla_rope(q: torch.Tensor,
+                      kv: torch.Tensor,
+                      k_pos_emb: torch.Tensor,
+                      freqs: torch.Tensor,
+                      mscale: float = 1.0):
+    """
+    inplace apply rope to tail 64 dims, split kv and apply rope to k_pos_emb and copy to k
+    Args:
+        q: query tensor with size of [S, B, H, 128]
+        kv: kv tensor with size of [S, B, H, 256]
+        k_pos_emb: k pos emb with size of [S, B, 1, 64]
+        freqs: Freqs tensor with size of [S, 64]
+        mscale: mscale of rope
+
+    Returns:
+        - qo: shape [S, B, H, 192]
+        - ko: shape [S, B, H, 192]
+        - vo: shape [S, B, H, 128]
+    """
+    return MLARopeFunction.apply(q,
+                                kv,
+                                k_pos_emb,
+                                freqs,
+                                mscale)
