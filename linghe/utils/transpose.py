@@ -41,7 +41,7 @@ def transpose_kernel(x_ptr, t_ptr, M, N, H: tl.constexpr, W: tl.constexpr,
 
 
 @triton.jit
-def transpose_dim_0_1_kernel(x_ptr, t_ptr, B, M, b_stride, m_stride,
+def transpose_inner_dims_kernel(x_ptr, t_ptr, B, M, b_stride, m_stride,
                              N: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
@@ -51,15 +51,38 @@ def transpose_dim_0_1_kernel(x_ptr, t_ptr, B, M, b_stride, m_stride,
     tl.store(t_ptr + toffs, y)
 
 
-def triton_transpose(x: torch.Tensor,
-                     dim0: Optional[int] = None,
-                     dim1: Optional[int] = None):
+@triton.jit
+def transpose_outer_dims_kernel(x_ptr, t_ptr, M, N, H: tl.constexpr, W: tl.constexpr,
+                     EVEN: tl.constexpr):
+    bid = tl.program_id(axis=0)
+    rid = tl.program_id(axis=1)
+    cid = tl.program_id(axis=2)
+    offs = bid * M * N + rid * H * N + cid * W + tl.arange(0, H)[:, None] * N + tl.arange(0,
+                                                                            W)[
+                                                                  None, :]
+    toffs = bid * M * N + rid * H + cid * M * W + tl.arange(0, W)[:, None] * M + tl.arange(0,
+                                                                             H)[
+                                                                   None, :]
+    if EVEN:
+        y = tl.trans(tl.load(x_ptr + offs))
+        tl.store(t_ptr + toffs, y)
+    else:
+        y = tl.trans(tl.load(x_ptr + offs,
+                             mask=(cid * W + tl.arange(0, W)[None, :] < N) & (
+                                     rid * H + tl.arange(0, H)[:,
+                                               None] < M)))
+        tl.store(t_ptr + toffs, y,
+                 mask=(cid * W + tl.arange(0, W)[:, None] < N) & (
+                         rid * H + tl.arange(0, H)[None, :] < M))
+
+
+
+def triton_transpose(x: torch.Tensor, inner=True):
     """
     transpose x with dim0 and dim1
     Args:
         x: input tensor
-        dim0: dim 0
-        dim1: dim 1
+        inner: inner dim if True, outer dim if False 
 
     Returns:
         transposed tensor
@@ -86,7 +109,7 @@ def triton_transpose(x: torch.Tensor,
             num_stages=num_stages,
             num_warps=num_warps
         )
-    elif dim0 == 0 and dim1 == 1:
+    elif inner:
         stride = x.stride()
         if rank == 4:
             B, M, N = shape[0], shape[1], shape[2] * shape[3]
@@ -101,7 +124,7 @@ def triton_transpose(x: torch.Tensor,
         num_stages = 5
         num_warps = 2
         grid = (B, M)
-        transpose_dim_0_1_kernel[grid](x,
+        transpose_inner_dims_kernel[grid](x,
                                        t,
                                        B,
                                        M,
@@ -112,7 +135,30 @@ def triton_transpose(x: torch.Tensor,
                                        num_warps=num_warps
                                        )
     else:
-        raise NotImplementedError()
+
+        if rank == 4:
+            B, M, N = shape[0] * shape[1], shape[2], shape[3]
+            t = torch.empty((shape[0], shape[1], N, M), device=x.device,
+                            dtype=x.dtype)
+        else:
+            B, M, N = shape
+            t = torch.empty((B, N, M), device=x.device, dtype=x.dtype)
+
+        H = 64
+        W = 32 if x.dtype.itemsize == 1 else 16
+        EVEN = M % H == 0 and N % W == 0
+        num_stages = 5
+        num_warps = 2
+
+        grid = (B, triton.cdiv(M, H), triton.cdiv(N, W))
+        transpose_outer_dims_kernel[grid](
+            x, t,
+            M, N,
+            H, W,
+            EVEN,
+            num_stages=num_stages,
+            num_warps=num_warps
+        )
     return t
 
 

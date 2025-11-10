@@ -75,25 +75,37 @@ def test_nd_transpose(B=4096, M=4, N=4096, bench=False):
 
     x = torch.randn(B, M, N, dtype=dtype, device=device)
     t_ref = torch_nd_transpose(x, 0, 1)
-    t = triton_transpose(x, dim0=0, dim1=1)
+    t = triton_transpose(x, inner=True)
     output_check(t_ref, t, '3d_transpose')
 
     x = torch.randn(B, M, N, dtype=dtype, device=device)[:, :M // 2]
     t_ref = torch_nd_transpose(x, 0, 1)
-    t = triton_transpose(x, dim0=0, dim1=1)
+    t = triton_transpose(x, inner=True)
     output_check(t_ref, t, '3d_transpose_stride')
 
     x = torch.randn(B, M, N // 128, 128, dtype=dtype, device=device)[:, :M // 2]
     t_ref = torch_nd_transpose(x, 0, 1)
-    t = triton_transpose(x, dim0=0, dim1=1)
+    t = triton_transpose(x, inner=True)
     output_check(t_ref, t, '4d_transpose')
+
+    x = torch.randn(B, M, N, dtype=dtype, device=device)
+    t_ref = torch_nd_transpose(x, 1, 2)
+    t = triton_transpose(x, inner=False)
+    output_check(t_ref, t, '3d_outer_transpose')
+
 
     if bench:
         x = torch.randn(B, M, N, dtype=dtype, device=device)
         ref_time = benchmark_func(torch_nd_transpose, x, 0, 1,
                                   n_repeat=n_repeat,
                                   ref_bytes=B * M * N * 4)
-        benchmark_func(triton_transpose, x, dim0=0, dim1=1, n_repeat=n_repeat,
+        benchmark_func(triton_transpose, x, inner=True, n_repeat=n_repeat,
+                       ref_bytes=B * M * N * 4, ref_time=ref_time)
+        x = torch.randn(M, B, N, dtype=dtype, device=device)
+        ref_time = benchmark_func(torch_nd_transpose, x, 1, 2,
+                                  n_repeat=n_repeat,
+                                  ref_bytes=B * M * N * 4)
+        benchmark_func(triton_transpose, x, inner=False, n_repeat=n_repeat,
                        ref_bytes=B * M * N * 4, ref_time=ref_time)
 
 
@@ -175,8 +187,8 @@ def test_batch_transpose_and_pad(M=4096, N=4096, k=32, bench=False):
 
 
 if __name__ == '__main__':
-    test_transpose(M=4096, N=4096)
-    test_transpose_and_pad(M=4095, N=4096)
-    test_nd_transpose(B=4096, M=4, N=4096)
-    test_batch_transpose(M=4096,N=4096,k=32)
-    test_batch_transpose_and_pad(M=4096,N=4096,k=32)
+    # test_transpose(M=4096, N=4096)
+    # test_transpose_and_pad(M=4095, N=4096)
+    test_nd_transpose(B=4096, M=4, N=2048, bench=True)
+    # test_batch_transpose(M=4096,N=4096,k=32)
+    # test_batch_transpose_and_pad(M=4096,N=4096,k=32)
