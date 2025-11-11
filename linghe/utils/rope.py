@@ -27,7 +27,6 @@ def half_rope_forward_kernel(q_ptr, k_ptr, freqs_ptr, qo_ptr, ko_ptr, B,
     sin = tl.sin(freqs)
     signs = tl.arange(0, 2).to(tl.float32) * 2 - 1
 
-    
     for i in range(B):
         if TRANSPOSED:
             # [len, bs, q_head, head_dim]
@@ -908,8 +907,10 @@ def _get_varlen_token_idx(cu_seqlens, pid_m, seq_num, cp_rank, cp_size):
 def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr, 
                             freqs_ptr, 
                             ko_ptr, vo_ptr,
-                            cu_seqlens_ptr,
+                            cu_seqlens_q_ptr,
+                            cu_seqlens_kv_ptr,
                             mscale,
+                            kpe_stride,
                             B, 
                             cp_rank,
                             cp_size: tl.constexpr,
@@ -919,16 +920,13 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
     pid = tl.program_id(0)
     
     if VARLEN:
-        pos = _get_varlen_token_idx(cu_seqlens_ptr, pid, B, cp_rank, cp_size)
+        pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, cp_rank, cp_size)
     else:
         pos = pid // B
-
 
     freqs = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 64))
     q = tl.load(
         q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(0, 64)[None, :])
-    k = tl.load(
-        k_pos_emb_ptr + pid * 64 + tl.arange(0, 64))
 
     cos = tl.cos(freqs) * mscale
     sin = tl.sin(freqs) * mscale
@@ -941,8 +939,21 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
                 dim=2) * signs, (0, 2, 1)), (H, 64))
     q = q * cos + qr * sin
 
+    # q0, q1 = tl.split(tl.reshape(q, (H, 32, 2)))
+    # qo0 = q0 * cos0 - q1 * sin0
+    # qo1 = q1 * cos1 + q0 * sin1
+
     tl.store(
         q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0,H)[:,None] + tl.arange(0, 64)[None, :], q)
+
+    k = tl.load(
+        k_pos_emb_ptr + pid * kpe_stride + tl.arange(0, 64))
+
+    if cp_size > 1:
+        pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, cp_size)
+        freqs = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 64))
+        cos = tl.cos(freqs) * mscale
+        sin = tl.sin(freqs) * mscale
 
     kt = tl.permute(tl.reshape(k, (32, 2)), (1, 0))
     k = tl.reshape(
@@ -963,60 +974,7 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
     tl.store(
         vo_ptr + pid * H * 128 + 128 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :], v)
 
-
-
-@triton.jit
-def depracated_mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr, 
-                            freqs_ptr, 
-                             ko_ptr, vo_ptr,
-                             mscale,
-                             H: tl.constexpr,
-                             B: tl.constexpr
-                             ):
-    pid = tl.program_id(0)
-    
-    freqs0 = tl.load(freqs_ptr + pid // B * 64 + tl.arange(0, 32))
-    freqs1 = tl.load(freqs_ptr + pid // B * 64 + 32 + tl.arange(0, 32))
-
-    cos0 = tl.cos(freqs0)*mscale
-    sin0 = tl.sin(freqs0)*mscale
-
-    cos1 = tl.cos(freqs1)*mscale
-    sin1 = tl.sin(freqs1)*mscale
-
-    q = tl.load(
-        q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(0, 64)[None, :])
-
-    q0, q1 = tl.split(tl.reshape(q, (H, 32, 2)))
-    qo0 = q0 * cos0 - q1 * sin0
-    qo1 = q1 * cos1 + q0 * sin1
-
-    tl.store(
-        q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0,H)[:,None] + tl.arange(0, 32)[None, :], qo0)
-    tl.store(
-        q_ptr + pid * H * 192 + 160 + 192 * tl.arange(0,H)[:,None] + tl.arange(0, 32)[None, :], qo1)
-
-    k = tl.load(
-        k_pos_emb_ptr + pid * 64 + tl.arange(0, 64))
-
-    k0, k1 = tl.split(tl.reshape(k, (32, 2)))
-    ko0 = k0 * cos0 - k1 * sin0
-    ko1 = k1 * cos1 + k0 * sin1
-    tl.store(ko_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(0, 32)[None, :], ko0[None, :])
-    tl.store(ko_ptr + pid * H * 192 + 160 + 192 * tl.arange(0, H)[:, None] + tl.arange(0, 32)[None, :], ko1[None, :])
-
-    k = tl.load(
-        kv_ptr + pid * H * 256 + 256 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :])
-    tl.store(
-        ko_ptr + pid * H * 192 + 192 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :], k)
-
-    v = tl.load(
-        kv_ptr + pid * H * 256 + 128 + 256 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :])
-    tl.store(
-        vo_ptr + pid * H * 128 + 128 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :], v)
-
-
-def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0, cu_seqlens=None, cp_rank=0, cp_size=1):
+def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0, cu_seqlens_q=None, cu_seqlens_kv=None, cp_rank=0, cp_size=1):
     """
     apply MLA-type rope to qkv
     Args:
@@ -1032,20 +990,23 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0, cu_seqlens=None
         - vo: value output, [len, bs, n_head, 128]
     """
 
-    VARLEN = cu_seqlens is not None
+    VARLEN = cu_seqlens_q is not None and cu_seqlens_kv is not None
 
     dtype = q.dtype 
     device = q.device
     if VARLEN:
         N, H, D = q.shape 
-        B = cu_seqlens.shape[0] - 1
+        B = cu_seqlens_q.shape[0] - 1
+        assert B <= 128
         ko = torch.empty((N, H, 192), dtype=dtype, device=device)
         vo = torch.empty((N, H, 128), dtype=dtype, device=device)
+        kpe_stride = k_pos_emb.stride(0)
     else:
         L, B, H, D = q.shape
         ko = torch.empty((L, B, H, 192), dtype=dtype, device=device)
         vo = torch.empty((L, B, H, 128), dtype=dtype, device=device)
         N = L * B 
+        kpe_stride = k_pos_emb.stride(1)
 
     assert D == 192 and kv.shape[-1] == 256 and k_pos_emb.shape[-1] == 64
     num_stages = 2
@@ -1059,8 +1020,10 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0, cu_seqlens=None
         freqs,
         ko,
         vo,
-        cu_seqlens,
+        cu_seqlens_q,
+        cu_seqlens_kv,
         mscale,
+        kpe_stride,
         B,
         cp_rank,
         cp_size,
@@ -1072,66 +1035,13 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0, cu_seqlens=None
     return q, ko, vo
 
 
-@triton.jit
-def depracated_mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
-                             dkv_ptr,
-                             dp_ptr,
-                             mscale,
-                              H: tl.constexpr,
-                              B: tl.constexpr
-                              ):
-    pid = tl.program_id(0)
-
-    freqs = tl.load(freqs_ptr + pid // B * 64 + tl.arange(0, 64))
-
-    q = tl.load(q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[
-                                                                    :,
-                                                                    None] + tl.arange(
-                    0, 64)[None, :])
-        
-    cos = tl.cos(freqs)*mscale
-    sin = tl.sin(freqs)*mscale
-    signs = -tl.arange(0, 2).to(tl.float32) * 2 + 1
-
-    qr = tl.reshape(tl.permute(
-        tl.flip(tl.permute(tl.reshape(q, (H, 2, 32)), (0, 2, 1)),
-                dim=2) * signs, (0, 2, 1)), (H, 64))
-    q = q * cos + qr * sin
-    q = tl.reshape(tl.permute(tl.reshape(q, (H, 2, 32)), (0, 2, 1)), (H, 64))
-    tl.store(q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(
-                    0, 64)[None, :], q)
-
-    k = tl.load(
-        k_ptr + pid * H * 192 + 128 + 192 * tl.arange(0,  H)[:, None] + tl.arange(
-            0, 64)[None, :])
-
-    kr = tl.reshape(tl.permute(
-        tl.flip(tl.permute(tl.reshape(k, (H, 2, 32)), (0, 2, 1)),
-                dim=2) * signs, (0, 2, 1)), (H, 64))
-    k = k * cos + kr * sin
-    k = tl.sum(k, 0)
-    k = tl.reshape(tl.permute(tl.reshape(k, (2, 32)), (1, 0)), (64, ))
-
-    tl.store(
-        dp_ptr + pid * 64  + tl.arange(0, 64), k)
-
-    k = tl.load(
-        k_ptr + pid * H * 192 + 192 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :])
-    tl.store(
-        dkv_ptr + pid * H * 256 + 256 * tl.arange(0, H)[: ,None] + tl.arange(0, 128)[None, :], k)
-
-    v = tl.load(
-        v_ptr + pid * H * 128 + 128 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :])
-    tl.store(
-        dkv_ptr + pid * H * 256 + 128 + 256 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :], v)
-
-
 
 @triton.jit
 def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
                              dkv_ptr,
                              dp_ptr,
-                             cu_seqlens_ptr,
+                             cu_seqlens_q_ptr,
+                             cu_seqlens_kv_ptr,
                              mscale,
                             B, 
                             cp_rank,
@@ -1142,7 +1052,7 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
     pid = tl.program_id(0)
 
     if VARLEN:
-        pos = _get_varlen_token_idx(cu_seqlens_ptr, pid, B, cp_rank, cp_size)
+        pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, cp_rank, cp_size)
     else:
         pos = pid // B
 
@@ -1172,6 +1082,24 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
     tl.store(q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[:, None] + tl.arange(
                     0, 64)[None, :], dq)
 
+    # qr = tl.reshape(tl.permute(
+    #     tl.flip(tl.permute(tl.reshape(q, (H, 2, 32)), (0, 2, 1)),
+    #             dim=2) * signs, (0, 2, 1)), (H, 64))
+    # q = q * cos + qr * sin
+    # q = tl.reshape(tl.permute(tl.reshape(q, (H, 2, 32)), (0, 2, 1)), (H, 64))
+
+    if cp_size > 1:
+        pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, cp_size)
+
+        freqs0 = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 32))
+        freqs1 = tl.load(freqs_ptr + pos * 64 + 32 + tl.arange(0, 32))
+
+        cos0 = tl.cos(freqs0)*mscale
+        sin0 = tl.sin(freqs0)*mscale
+
+        cos1 = tl.cos(freqs1)*mscale
+        sin1 = tl.sin(freqs1)*mscale
+
     k0 = tl.load(
         k_ptr + pid * H * 192 + 128 + 192 * tl.arange(0,  H)[:, None] + tl.arange(
             0, 32)[None, :])
@@ -1197,20 +1125,21 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
 
 
 
-def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, cu_seqlens=None, cp_rank=0, cp_size=1):
+def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, cu_seqlens_q=None, cu_seqlens_kv=None, cp_rank=0, cp_size=1):
 
     dtype = q_grad.dtype
     device = q_grad.device
 
-    VARLEN = cu_seqlens is not None
-
+    VARLEN = cu_seqlens_q is not None and cu_seqlens_kv is not None
+ 
     dtype = q_grad.dtype 
     device = q_grad.device
     if VARLEN:
         N, H, D = q_grad.shape 
-        B = cu_seqlens.shape[0] - 1
+        B = cu_seqlens_q.shape[0] - 1
+        assert B <= 128
         dkv = torch.empty((N, H, 256), dtype=dtype, device=device)
-        dp = torch.empty((N, 1, 64), dtype=dtype, device=device)
+        dp = torch.empty((N, 1, 64), dtype=dtype, device=device)            
     else:
         L, B, H, D = q_grad.shape
         N = L * B 
@@ -1227,7 +1156,8 @@ def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, cu_seqle
         freqs,
         dkv,
         dp,
-        cu_seqlens,
+        cu_seqlens_q,
+        cu_seqlens_kv,
         mscale,
         B,
         cp_rank,

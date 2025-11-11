@@ -88,17 +88,18 @@ def qk_norm_half_rope(qkv: torch.Tensor,
 class MLARopeFunction(torch.autograd.Function):
     """"""
     @staticmethod
-    def forward(ctx, q, kv, k_pos_emb, freqs, mscale, cu_seqlens, cp_size, cp_rank):
+    def forward(ctx, q, kv, k_pos_emb, freqs, mscale, cu_seqlens_q, cu_seqlens_kv, cp_size, cp_rank):
         qo, ko, vo = triton_mla_rope_forward(q,
                                              kv,
                                             k_pos_emb,
                                             freqs,
                                             mscale=mscale,
-                                            cu_seqlens=cu_seqlens,
+                                            cu_seqlens_q=cu_seqlens_q,
+                                            cu_seqlens_kv=cu_seqlens_kv,
                                             cp_size=cp_size,
                                             cp_rank=cp_rank)
 
-        ctx.save_for_backward(freqs, cu_seqlens)
+        ctx.save_for_backward(freqs, cu_seqlens_q, cu_seqlens_kv)
         ctx.mscale = mscale
         ctx.cp_size = cp_size 
         ctx.cp_rank = cp_rank
@@ -106,23 +107,25 @@ class MLARopeFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_q, grad_k, grad_v):
-        freqs, cu_seqlens = ctx.saved_tensors
+        freqs, cu_seqlens_q, cu_seqlens_kv = ctx.saved_tensors
         dq, dkv, dp = triton_mla_rope_backward(grad_q,
                                                   grad_k,
                                                   grad_v,
                                                   freqs,
                                                   mscale=ctx.mscale,
-                                                  cu_seqlens=cu_seqlens,
+                                                  cu_seqlens_q=cu_seqlens_q,
+                                                  cu_seqlens_kv=cu_seqlens_kv,
                                                   cp_size=ctx.cp_size,
                                                   cp_rank=ctx.cp_rank)
-        return dq, dkv, dp, None, None, None, None, None
+        return dq, dkv, dp, None, None, None, None, None, None
 
 
 def mla_rope(q: torch.Tensor,
                       kv: torch.Tensor,
                       k_pos_emb: torch.Tensor,
                       freqs: torch.Tensor,
-                      cu_seqlens: Optional[torch.Tensor] = None,
+                      cu_seqlens_q: Optional[torch.Tensor] = None,
+                      cu_seqlens_kv: Optional[torch.Tensor] = None,
                       mscale: float = 1.0,
                       cp_size: int = 1,
                       cp_rank: int = 0):
@@ -136,7 +139,8 @@ def mla_rope(q: torch.Tensor,
         k_pos_emb: k pos emb with size of [S, B, 1, 64] (cu_seqlens is None) or 
             [N, 1, 64] (cu_seqlens is not None)
         freqs: Freqs tensor with size of [S, 64]
-        cu_seqlens: cumulative sequence lengths tensor with size of [B+1]
+        cu_seqlens_q: cumulative query lengths tensor with size of [B+1]
+        cu_seqlens_kv: cumulative kv lengths tensor with size of [B+1]
         mscale: mscale of rope
         cp_size: context-parallel size
         cp_rank: context-parallel rank
@@ -150,6 +154,7 @@ def mla_rope(q: torch.Tensor,
                                 k_pos_emb,
                                 freqs,
                                 mscale,
-                                cu_seqlens,
+                                cu_seqlens_q,
+                                cu_seqlens_kv,
                                 cp_size,
                                 cp_rank)

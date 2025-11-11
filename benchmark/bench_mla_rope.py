@@ -20,13 +20,17 @@ def bench_mla_rope(L=4096, B=2, H=16):
     kv = torch.randn((L, B, H, 256), dtype=dtype, device=device).requires_grad_()
     k_pos_emb = torch.randn((L, B, 1, 64), dtype=dtype, device=device).requires_grad_()
 
+    cp_rank = 0
+    cp_size = 1
     query = fused_apply_mla_rope_for_q(
         q,
         rotary_pos_cos,
         rotary_pos_sin,
         128,
         64,
-        None
+        cu_seqlens_q=None,
+        cp_rank=cp_rank,
+        cp_size=cp_size
     )
     key, value = fused_apply_mla_rope_for_kv(
         kv,
@@ -36,7 +40,9 @@ def bench_mla_rope(L=4096, B=2, H=16):
         64,
         128,
         128,
-        None,
+        cu_seqlens_kv=None,
+        cp_rank=cp_rank,
+        cp_size=cp_size
     )
     ref_bytes = L*B*H*64*4
     ref_time = benchmark_func(fused_apply_mla_rope_for_q, 
