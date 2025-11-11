@@ -99,6 +99,67 @@ def torch_mla_rope(q, kv, k_pos_emb, freqs, mscale=1.0):
     return query, key, value.contiguous()
 
 
+def torch_varlen_mla_rope(qs, kvs, k_pos_embs, freqs, lengths, mscale=1.0, cp_size=1, cp_rank=0):
+
+    ls = [x//cp_size for x in lengths]
+    
+    B = len(lengths)
+    N, H, _ = qs.shape
+    dtype = qs.dtype
+
+    qss = qs.split(ls, 0)
+    kvss = kvs.split(ls, 0)
+    k_pos_embss = k_pos_embs.split(ls, 0)
+
+    seg_size = 2 * cp_size
+    qoss = [] 
+    koss = []
+    voss = []
+    for i in range(B):
+        q01 = qss[i][:,None].split([ls[i]//2]*2, 0)
+        kv01 = kvss[i][:,None].split([ls[i]//2]*2, 0)
+        pos01 = k_pos_embss[i][:,None].split([ls[i]//2]*2, 0)
+
+        for j in range(2):
+            q_no_pe, q_pos_emb = torch.split(
+                q01[j], [128, 64], dim=-1
+            )
+
+            k_no_pe, value = torch.split(
+                kv01[j], [128, 128], dim=-1
+            )
+
+            cos = freqs.cos().to(dtype) * mscale
+            sin = freqs.sin().to(dtype) * mscale
+            if j == 0:
+                p = cp_rank * lengths[i] // seg_size
+            else:
+                p = (cp_size * 2 - cp_rank - 1) * lengths[i] // seg_size
+            position_ids = p + torch.arange(lengths[i]//seg_size, device='cuda:0')[:, None]
+
+            q_pos_emb = torch.cat([q_pos_emb[:,:,:,0::2], q_pos_emb[:,:,:,1::2]], -1)
+            k_pos_emb = torch.cat([pos01[j][:,:,:,0::2], pos01[j][:,:,:,1::2]], -1)
+
+            q_pos_emb, k_pos_emb = apply_rotary_pos_emb(q_pos_emb, k_pos_emb, cos, sin,
+                                        position_ids)
+
+            query = torch.cat([q_no_pe, q_pos_emb], dim=-1)
+
+            k_pos_emb = k_pos_emb.expand(-1, -1, H, -1)
+
+            key = torch.cat([k_no_pe, k_pos_emb], dim=-1) 
+
+            qoss.append(query)
+            koss.append(key)
+            voss.append(value)
+
+    qoss = torch.cat(qoss, 0)[:,0]
+    koss = torch.cat(koss, 0)[:,0]
+    voss = torch.cat(voss, 0)[:,0]
+
+    return qoss, koss, voss
+
+
 def torch_qk_norm_and_half_rope(qkv, qw, kw, freqs, rope_theta=10000.0, H=32,
                                 h=4, eps=1e-6, interleaved=True, transposed=True, silu=False):
     if transposed:
@@ -268,7 +329,6 @@ def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0,
     q_grad = torch.randn(L, B, H, 192, dtype=dtype, device=device)
     k_grad = torch.randn(L, B, H, 192, dtype=dtype, device=device)
     v_grad = torch.randn(L, B, H, 128, dtype=dtype, device=device)
-    k_pos_emb_grad = torch.randn(L, B, 1, 64, dtype=dtype, device=device)
     q_ref = q.detach().clone().requires_grad_()
     kv_ref = kv.detach().clone().requires_grad_()
     k_pos_emb_ref = k_pos_emb.detach().clone().requires_grad_()
@@ -294,6 +354,72 @@ def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0,
                        n_profile=0)
 
 
+def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
+                   bench=False, cp_size=1, cp_rank=0):
+    dtype = torch.bfloat16
+    device = 'cuda:0'
+    S = cp_size * 2
+    qcs = []
+    kvcs = []
+    k_pos_embcs = []
+    for i, N in enumerate(lengths):
+        q = torch.randn(N, H, 192, dtype=dtype, device=device)
+        kv = torch.randn(N, H, 256, dtype=dtype, device=device)
+        k_pos_emb = torch.randn(N, 1, 64, dtype=dtype, device=device)
+        qc = q.split([N//S]*S, 0)
+        qcs.append(qc[cp_rank])
+        qcs.append(qc[cp_size * 2 - cp_rank - 1])
+        kvc = kv.split([N//S]*S, 0)
+        kvcs.append(kvc[cp_rank])
+        kvcs.append(kvc[cp_size * 2 - cp_rank - 1])
+        k_pos_embc = k_pos_emb.split([N//S]*S, 0)
+        k_pos_embcs.append(k_pos_embc[cp_rank])
+        k_pos_embcs.append(k_pos_embc[cp_size * 2 - cp_rank - 1])
+    qc = torch.cat(qcs, 0)
+    kvc = torch.cat(kvcs, 0)
+    k_pos_embc = torch.cat(k_pos_embcs, 0)
+
+    cu_seqlens = torch.cumsum(torch.tensor([0]+lengths, device=device), 0)
+
+    freqs = rope_freqs(max(lengths), 64, rope_theta=rope_theta)
+    freqs = torch.cat([freqs, freqs], -1)
+
+    mscale = 1.0
+    q_ref, k_ref, v_ref = torch_varlen_mla_rope(qc, kvc, k_pos_embc, freqs, lengths, mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
+    qo, ko, vo = triton_mla_rope_forward(qc, kvc, k_pos_embc, freqs, mscale=mscale, cu_seqlens=cu_seqlens, cp_size=cp_size, cp_rank=cp_rank)
+    output_check(q_ref, qo, mode='q')
+    output_check(k_ref, ko, mode='k')
+    output_check(v_ref, vo, mode='v')
+
+    q_grad = torch.randn(sum(lengths)//cp_size, H, 192, dtype=dtype, device=device)
+    k_grad = torch.randn(sum(lengths)//cp_size, H, 192, dtype=dtype, device=device)
+    v_grad = torch.randn(sum(lengths)//cp_size, H, 128, dtype=dtype, device=device)
+    q_i = qc.detach().clone().requires_grad_()
+    kv_i = kvc.detach().clone().requires_grad_()
+    k_pos_emb_i = k_pos_embc.detach().clone().requires_grad_()
+    qo_ref, ko_ref, vo_ref = torch_varlen_mla_rope(q_i, kv_i, k_pos_emb_i, freqs, lengths, mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
+    qo_ref.backward(gradient=q_grad, retain_graph=True)
+    ko_ref.backward(gradient=k_grad, retain_graph=True)
+    vo_ref.backward(gradient=v_grad, retain_graph=True)
+    dq_ref = q_i.grad
+    dkv_ref = kv_i.grad
+    dp_ref = k_pos_emb_i.grad
+    dq, dkv, dp = triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=mscale, cu_seqlens=cu_seqlens, cp_size=cp_size, cp_rank=cp_rank)
+    output_check(dq_ref, dq, mode='dq')
+    output_check(dkv_ref, dkv, mode='dkv')
+    output_check(dp_ref, dp, mode='dp')
+
+    if bench:
+        lbh = sum(lengths)//cp_size*H
+        benchmark_func(triton_mla_rope_forward, qc, kvc, k_pos_embc, freqs, mscale=mscale, cu_seqlens=cu_seqlens, cp_size=cp_size, cp_rank=cp_rank,
+                       ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
+                       n_profile=0)
+        benchmark_func(triton_mla_rope_backward, q_grad, k_grad, v_grad, freqs, mscale=mscale, cu_seqlens=cu_seqlens, cp_size=cp_size, cp_rank=cp_rank,
+                       ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
+                       n_profile=0)
+
+
+
 if __name__ == '__main__':
     test_half_rope(B=2, L=4096, H=32, h=8, D=128, rope_theta=10000.0, transposed=True,
                    bench=False)
@@ -314,3 +440,9 @@ if __name__ == '__main__':
                                bench=False)
     test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0,
                    bench=False)
+    test_varlen_mla_rope(lengths=[4096,4096], H=32, rope_theta=10000.0,
+                   bench=False, cp_size=1, cp_rank=0)
+    test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
+                   bench=False, cp_size=4, cp_rank=0)
+    test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
+                   bench=False, cp_size=4, cp_rank=1)

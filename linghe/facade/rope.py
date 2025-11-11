@@ -3,6 +3,7 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+from typing import Optional
 import torch
 
 from linghe.utils.rope import triton_mla_rope_backward, triton_mla_rope_forward, triton_qk_norm_and_half_rope_forward, \
@@ -87,49 +88,68 @@ def qk_norm_half_rope(qkv: torch.Tensor,
 class MLARopeFunction(torch.autograd.Function):
     """"""
     @staticmethod
-    def forward(ctx, q, kv, k_pos_emb, freqs, mscale):
+    def forward(ctx, q, kv, k_pos_emb, freqs, mscale, cu_seqlens, cp_size, cp_rank):
         qo, ko, vo = triton_mla_rope_forward(q,
                                              kv,
                                             k_pos_emb,
                                             freqs,
-                                            mscale)
+                                            mscale=mscale,
+                                            cu_seqlens=cu_seqlens,
+                                            cp_size=cp_size,
+                                            cp_rank=cp_rank)
 
-        ctx.save_for_backward(freqs)
+        ctx.save_for_backward(freqs, cu_seqlens)
         ctx.mscale = mscale
+        ctx.cp_size = cp_size 
+        ctx.cp_rank = cp_rank
         return qo, ko, vo
 
     @staticmethod
     def backward(ctx, grad_q, grad_k, grad_v):
-        freqs, = ctx.saved_tensors
+        freqs, cu_seqlens = ctx.saved_tensors
         dq, dkv, dp = triton_mla_rope_backward(grad_q,
                                                   grad_k,
                                                   grad_v,
                                                   freqs,
-                                                  ctx.mscale)
-        return dq, dkv, dp, None, None
+                                                  mscale=ctx.mscale,
+                                                  cu_seqlens=cu_seqlens,
+                                                  cp_size=ctx.cp_size,
+                                                  cp_rank=ctx.cp_rank)
+        return dq, dkv, dp, None, None, None, None, None
 
 
 def mla_rope(q: torch.Tensor,
                       kv: torch.Tensor,
                       k_pos_emb: torch.Tensor,
                       freqs: torch.Tensor,
-                      mscale: float = 1.0):
+                      cu_seqlens: Optional[torch.Tensor] = None,
+                      mscale: float = 1.0,
+                      cp_size: int = 1,
+                      cp_rank: int = 0):
     """
     inplace apply rope to tail 64 dims, split kv and apply rope to k_pos_emb and copy to k
     Args:
-        q: query tensor with size of [S, B, H, 128]
-        kv: kv tensor with size of [S, B, H, 256]
-        k_pos_emb: k pos emb with size of [S, B, 1, 64]
+        q: query tensor with size of [S, B, H, 128] (cu_seqlens is None) 
+                or [N, H, 128] (cu_seqlens is not None)
+        kv: kv tensor with size of [S, B, H, 256] (cu_seqlens is None) or 
+            [N, H, 256] (cu_seqlens is not None)
+        k_pos_emb: k pos emb with size of [S, B, 1, 64] (cu_seqlens is None) or 
+            [N, 1, 64] (cu_seqlens is not None)
         freqs: Freqs tensor with size of [S, 64]
+        cu_seqlens: cumulative sequence lengths tensor with size of [B+1]
         mscale: mscale of rope
-
+        cp_size: context-parallel size
+        cp_rank: context-parallel rank
     Returns:
-        - qo: shape [S, B, H, 192]
-        - ko: shape [S, B, H, 192]
-        - vo: shape [S, B, H, 128]
+        - qo: shape [S, B, H, 192] or [N, H, 192]
+        - ko: shape [S, B, H, 192] or [N, H, 192]
+        - vo: shape [S, B, H, 128] or [N, H, 128]
     """
     return MLARopeFunction.apply(q,
                                 kv,
                                 k_pos_emb,
                                 freqs,
-                                mscale)
+                                mscale,
+                                cu_seqlens,
+                                cp_size,
+                                cp_rank)
