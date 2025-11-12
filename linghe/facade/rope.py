@@ -99,22 +99,24 @@ class MLARopeFunction(torch.autograd.Function):
                                             cp_size=cp_size,
                                             cp_rank=cp_rank)
 
-        ctx.save_for_backward(freqs, cu_seqlens_q, cu_seqlens_kv)
+        ctx.save_for_backward(freqs)
         ctx.mscale = mscale
         ctx.cp_size = cp_size 
         ctx.cp_rank = cp_rank
+        ctx.cu_seqlens_q = cu_seqlens_q
+        ctx.cu_seqlens_kv = cu_seqlens_kv
         return qo, ko, vo
 
     @staticmethod
     def backward(ctx, grad_q, grad_k, grad_v):
-        freqs, cu_seqlens_q, cu_seqlens_kv = ctx.saved_tensors
+        freqs, = ctx.saved_tensors
         dq, dkv, dp = triton_mla_rope_backward(grad_q,
                                                   grad_k,
                                                   grad_v,
                                                   freqs,
                                                   mscale=ctx.mscale,
-                                                  cu_seqlens_q=cu_seqlens_q,
-                                                  cu_seqlens_kv=cu_seqlens_kv,
+                                                  cu_seqlens_q=ctx.cu_seqlens_q,
+                                                  cu_seqlens_kv=ctx.cu_seqlens_kv,
                                                   cp_size=ctx.cp_size,
                                                   cp_rank=ctx.cp_rank)
         return dq, dkv, dp, None, None, None, None, None, None

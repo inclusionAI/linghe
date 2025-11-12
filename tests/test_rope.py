@@ -21,8 +21,14 @@ def rotate_half(x):
 
 
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
-    cos = cos[position_ids][:, :, None]
-    sin = sin[position_ids][:, :, None]
+    if cos.ndim == 2:
+        cos = cos[position_ids][:, :, None]
+        sin = sin[position_ids][:, :, None]
+    elif cos.ndim == 4:
+        cos = cos[:,0,0][position_ids][:, :, None]
+        sin = sin[:,0,0][position_ids][:, :, None]
+    else:
+        raise ValueError('unsupported ndim=3')
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
@@ -315,9 +321,10 @@ def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0,
     device = 'cuda:0'
     q = torch.randn(L, B, H, 192, dtype=dtype, device=device)
     kv = torch.randn(L, B, H, 256, dtype=dtype, device=device)
-    k_pos_emb = torch.randn(L, B, 1, 64, dtype=dtype, device=device)
+    k_pos_emb = torch.randn(L, B, 1, 64+512, dtype=dtype, device=device)[:,:,:,:64]
     freqs = rope_freqs(L, 64, rope_theta=rope_theta)
     freqs = torch.cat([freqs, freqs], -1)
+    freqs = freqs[:,None,None]
 
     mscale = 1.0
     q_ref, k_ref, v_ref = torch_mla_rope(q.clone().detach(), kv, k_pos_emb, freqs, mscale=mscale)
@@ -325,6 +332,7 @@ def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0,
     output_check(q_ref, qo, mode='q')
     output_check(k_ref, ko, mode='k')
     output_check(v_ref, vo, mode='v')
+
 
     q_grad = torch.randn(L, B, H, 192, dtype=dtype, device=device)
     k_grad = torch.randn(L, B, H, 192, dtype=dtype, device=device)
@@ -343,6 +351,55 @@ def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0,
     output_check(dq_ref, dq, mode='dq')
     output_check(dkv_ref, dkv, mode='dkv')
     output_check(dp_ref, dp, mode='dp')
+
+
+
+    if True:
+        from megatron.core.fusions.fused_mla_yarn_rope_apply import (
+            fused_apply_mla_rope_for_kv,
+            fused_apply_mla_rope_for_q,
+        )
+        rotary_pos_cos = freqs.cos()
+        rotary_pos_sin = freqs.sin()
+        q_ref = q.detach().clone().requires_grad_()
+        kv_ref = kv.detach().clone().requires_grad_()
+        k_pos_emb_ref = k_pos_emb.detach().clone().requires_grad_()
+        query_ref = fused_apply_mla_rope_for_q(
+            q_ref,
+            rotary_pos_cos,
+            rotary_pos_sin,
+            128,
+            64,
+            cu_seqlens_q=None,
+            cp_rank=0,
+            cp_size=1,
+        )
+        key_ref, value_ref = fused_apply_mla_rope_for_kv(
+            kv_ref,
+            k_pos_emb_ref,
+            rotary_pos_cos,
+            rotary_pos_sin,
+            64,
+            128,
+            128,
+            cu_seqlens_kv=None,
+            cp_rank=0,
+            cp_size=1
+        )
+        output_check(query_ref, qo, mode='q')
+        output_check(key_ref, ko, mode='k')
+        output_check(value_ref, vo, mode='v')
+
+        query_ref.backward(gradient=q_grad, retain_graph=True)
+        key_ref.backward(gradient=k_grad, retain_graph=True)
+        value_ref.backward(gradient=v_grad, retain_graph=True)
+        dq_ref = q_ref.grad
+        dkv_ref = kv_ref.grad
+        dp_ref = k_pos_emb_ref.grad
+        output_check(dq_ref, dq, mode='dq')
+        output_check(dkv_ref, dkv, mode='dkv')
+        output_check(dp_ref, dp, mode='dp')
+
 
     if bench:
         lbh = L*B*H
@@ -378,6 +435,7 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     qc = torch.cat(qcs, 0)
     kvc = torch.cat(kvcs, 0)
     k_pos_embc = torch.cat(k_pos_embcs, 0)
+    k_pos_embc = torch.cat([k_pos_embc, k_pos_embc], -1)[:,:,:64]
 
     cu_seqlens_q = torch.cumsum(torch.tensor([0]+lengths, device=device, dtype=torch.int32), 0).to(torch.int32)
     cu_seqlens_kv = cu_seqlens_q
@@ -391,40 +449,6 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     output_check(q_ref, qo, mode='q')
     output_check(k_ref, ko, mode='k')
     output_check(v_ref, vo, mode='v')
-
-
-    if True:
-        from megatron.core.fusions.fused_mla_yarn_rope_apply import (
-            fused_apply_mla_rope_for_kv,
-            fused_apply_mla_rope_for_q,
-        )
-        rotary_pos_cos = freqs.cos()
-        rotary_pos_sin = freqs.sin()
-        query_ref = fused_apply_mla_rope_for_q(
-            qc.detach().clone(),
-            rotary_pos_cos,
-            rotary_pos_sin,
-            128,
-            64,
-            cu_seqlens_q,
-            cp_rank,
-            cp_size,
-        )
-        key_ref, value_ref = fused_apply_mla_rope_for_kv(
-            kvc,
-            k_pos_embc,
-            rotary_pos_cos,
-            rotary_pos_sin,
-            64,
-            128,
-            128,
-            cu_seqlens_kv,
-            cp_rank,
-            cp_size,
-        )
-        output_check(query_ref, qo, mode='q')
-        output_check(key_ref, ko, mode='k')
-        output_check(value_ref, vo, mode='v')
 
 
     q_grad = torch.randn(sum(lengths)//cp_size, H, 192, dtype=dtype, device=device)
@@ -444,6 +468,52 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     output_check(dq_ref, dq, mode='dq')
     output_check(dkv_ref, dkv, mode='dkv')
     output_check(dp_ref, dp, mode='dp')
+
+
+    if True:
+        from megatron.core.fusions.fused_mla_yarn_rope_apply import (
+            fused_apply_mla_rope_for_kv,
+            fused_apply_mla_rope_for_q,
+        )
+        rotary_pos_cos = freqs.cos()
+        rotary_pos_sin = freqs.sin()
+        q_i = qc.detach().clone().requires_grad_()
+        kv_i = kvc.detach().clone().requires_grad_()
+        k_pos_emb_i = k_pos_embc.detach().clone().requires_grad_()
+        query_ref = fused_apply_mla_rope_for_q(
+            q_i,
+            rotary_pos_cos,
+            rotary_pos_sin,
+            128,
+            64,
+            cu_seqlens_q,
+            cp_rank,
+            cp_size,
+        )
+        key_ref, value_ref = fused_apply_mla_rope_for_kv(
+            kv_i,
+            k_pos_emb_i,
+            rotary_pos_cos,
+            rotary_pos_sin,
+            64,
+            128,
+            128,
+            cu_seqlens_kv,
+            cp_rank,
+            cp_size,
+        )
+        output_check(query_ref, qo, mode='q')
+        output_check(key_ref, ko, mode='k')
+        output_check(value_ref, vo, mode='v')
+        query_ref.backward(gradient=q_grad, retain_graph=True)
+        key_ref.backward(gradient=k_grad, retain_graph=True)
+        value_ref.backward(gradient=v_grad, retain_graph=True)
+        dq_ref = q_i.grad
+        dkv_ref = kv_i.grad
+        dp_ref = k_pos_emb_i.grad
+        output_check(dq_ref, dq, mode='dq')
+        output_check(dkv_ref, dkv, mode='dkv')
+        output_check(dp_ref, dp, mode='dp')
 
 
     if bench:
@@ -475,11 +545,11 @@ if __name__ == '__main__':
     # test_qk_norm_and_half_rope(B=4, L=4096, H=32, h=8, D=128,
     #                            rope_theta=10000.0, interleaved=False, transposed=True, 
     #                            bench=False)
-    # test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0,
-    #                bench=False)
-    test_varlen_mla_rope(lengths=[4096,4096], H=32, rope_theta=10000.0,
-                   bench=True, cp_size=1, cp_rank=0)
-    test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
-                   bench=True, cp_size=4, cp_rank=0)
-    test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
-                   bench=True, cp_size=4, cp_rank=1)
+    test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0,
+                   bench=False)
+    # test_varlen_mla_rope(lengths=[4096,4096], H=32, rope_theta=10000.0,
+    #                bench=False, cp_size=1, cp_rank=0)
+    # test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
+    #                bench=False, cp_size=4, cp_rank=0)
+    # test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
+    #                bench=False, cp_size=4, cp_rank=1)

@@ -990,11 +990,13 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0, cu_seqlens_q=No
         - vo: value output, [len, bs, n_head, 128]
     """
 
-    VARLEN = cu_seqlens_q is not None and cu_seqlens_kv is not None
+    assert q.is_contiguous and freqs.is_contiguous
+    VARLEN = cu_seqlens_q is not None
 
     dtype = q.dtype 
     device = q.device
     if VARLEN:
+        assert cu_seqlens_kv is not None
         N, H, D = q.shape 
         B = cu_seqlens_q.shape[0] - 1
         assert B <= 128
@@ -1127,14 +1129,13 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
 
 def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, cu_seqlens_q=None, cu_seqlens_kv=None, cp_rank=0, cp_size=1):
 
-    dtype = q_grad.dtype
-    device = q_grad.device
-
-    VARLEN = cu_seqlens_q is not None and cu_seqlens_kv is not None
+    assert q_grad.is_contiguous and k_grad.is_contiguous and v_grad.is_contiguous
+    VARLEN = cu_seqlens_q is not None
  
     dtype = q_grad.dtype 
     device = q_grad.device
     if VARLEN:
+        assert cu_seqlens_kv is not None
         N, H, D = q_grad.shape 
         B = cu_seqlens_q.shape[0] - 1
         assert B <= 128
