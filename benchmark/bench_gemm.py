@@ -70,44 +70,67 @@ def bench_cublas_blockwise_gemm(M=4096, N=4096, K=4096):
 def bench_te_blockwise_gemm(M=4096, N=4096, K=4096):
 
     # layout == 'TN':  # forward, y=x@w
-    # import transformer_engine_torch as tex
+    from linghe.quant.block import triton_block_quant,triton_blockwise_quant
     import transformer_engine as te
     import transformer_engine_torch as tex
-    from transformer_engine.pytorch.tensor.float8_blockwise_tensor import Float8BlockwiseQTensor
+    from transformer_engine.pytorch.tensor.float8_blockwise_tensor import Float8BlockwiseQTensor, Float8BlockQuantizer
     from transformer_engine.pytorch.module.base import get_workspace
     from transformer_engine.pytorch.constants import TE_DType
-    row_data = torch.randn((M,K), device='cuda:0').to(torch.float8_e4m3fn)
-    row_scales = torch.randn((K//128,M), device='cuda:0')
-    x = Float8BlockwiseQTensor(shape=(M,K),
-                                dtype=torch.bfloat16,
-                                fp8_dtype=TE_DType[torch.float8_e4m3fn],
-                                rowwise_data=row_data,
-                                rowwise_scale_inv=row_scales,
-                                columnwise_data=None,
-                                columnwise_scale_inv=None,
-                                quantizer=None,
-                                requires_grad=False,
-                                is_2D_scaled=False
-                            )
+
+
+    quantizer = Float8BlockQuantizer(TE_DType[torch.float8_e4m3fn], rowwise=True, 
+                    columnwise=True, amax_epsilon=0, force_pow_2_scales=False, block_scaling_dim=1)
+    dtype = torch.bfloat16
+    device = 'cuda:0'
+    x = torch.randn((M, K), device=device, dtype=dtype)
+
+    weight_quantizer = Float8BlockQuantizer(TE_DType[torch.float8_e4m3fn], rowwise=True, 
+                    columnwise=True, amax_epsilon=0, force_pow_2_scales=False, block_scaling_dim=2)
+    w = torch.randn((N, K), device=device, dtype=dtype)
+
+    if True:
+        x_q, x_s, xt_q, xt_s = triton_blockwise_quant(x)
+        qx = Float8BlockwiseQTensor(shape=(M, K),
+                                    dtype=torch.bfloat16,
+                                    fp8_dtype=TE_DType[torch.float8_e4m3fn],
+                                    rowwise_data=x_q,
+                                    rowwise_scale_inv=x_s,
+                                    columnwise_data=xt_q,
+                                    columnwise_scale_inv=xt_s,
+                                    quantizer=quantizer,
+                                    requires_grad=False,
+                                    is_2D_scaled=False
+                                )
+        w_q, w_s = triton_block_quant(w)
+        wt_q, wt_s = w_q.transpose(0,1).contiguous(), w_s.transpose(0,1).contiguous()
+        qw = Float8BlockwiseQTensor(shape=(N, K),
+                                    dtype=torch.bfloat16,
+                                    fp8_dtype=TE_DType[torch.float8_e4m3fn],
+                                    rowwise_data=w_q,
+                                    rowwise_scale_inv=w_s,
+                                    columnwise_data=wt_q,
+                                    columnwise_scale_inv=wt_s,
+                                    quantizer=weight_quantizer,
+                                    requires_grad=False,
+                                    is_2D_scaled=True
+                                )
+    else:
+        qx = quantizer.make_empty((M, K), dtype=torch.bfloat16, device='cuda:0', requires_grad=False)
+        qx = quantizer.update_quantized(x, qx)
+
+        qw = weight_quantizer.make_empty((N, K), dtype=torch.bfloat16, device='cuda:0', requires_grad=False)
+        qw = weight_quantizer.update_quantized(w, qw)
     
-    row_data = torch.randn((N,K), device='cuda:0').to(torch.float8_e4m3fn)
-    row_scales = torch.randn((K//128,N//128), device='cuda:0')
-    w = Float8BlockwiseQTensor(shape=(N,K),
-                                dtype=torch.bfloat16,
-                                fp8_dtype=TE_DType[torch.float8_e4m3fn],
-                                rowwise_data=row_data,
-                                rowwise_scale_inv=row_scales,
-                                columnwise_data=None,
-                                columnwise_scale_inv=None,
-                                quantizer=None,
-                                requires_grad=False,
-                                is_2D_scaled=True
-                            )
-    A = w 
+    print(f'{qx._rowwise_data.shape=} {qx._rowwise_scale_inv.shape=} {qx._columnwise_data.shape=}  {qx._columnwise_scale_inv.shape=}')
+    print(f'{qw._rowwise_data.shape=} {qw._rowwise_scale_inv.shape=} {qw._columnwise_data.shape=}  {qw._columnwise_scale_inv.shape=}')
+
+
+    A = qw 
     transa = True 
-    B = x 
+    B = qx 
     transb = False 
-    out = None 
+    # out = torch.randn( (M, N), device='cuda:0', dtype=torch.bfloat16) 
+    out = None
     quantization_params = None 
     out_dtype = TE_DType[torch.bfloat16]
     bias = None 
@@ -117,7 +140,9 @@ def bench_te_blockwise_gemm(M=4096, N=4096, K=4096):
     grad = False 
     workspace = get_workspace()
     workspace_size = workspace.shape[0]
-    accumulate = False 
+    # workspace_size = 0
+    # workspace = torch.empty(0, dtype=torch.uint8, device='cuda:0')
+    accumulate = True 
     use_split_accumulator = True 
     args = (
             A,
@@ -137,7 +162,20 @@ def bench_te_blockwise_gemm(M=4096, N=4096, K=4096):
             accumulate,
             use_split_accumulator,
         )
+    # kwargs = {
+    #     "comm_overlap": None,
+    #     "comm_type": None,
+    #     "extra_output": None,
+    #     "bulk_overlap": False,
+    #     "alpha": 1.0,
+    #     "beta": 0.0,
+    # }
     out, bias_grad, gelu_input, extra_output = tex.generic_gemm(*args)
+
+    ref_out = x@w.t()
+
+    rel_err = (out - ref_out).abs().sum().item()/ref_out.abs().sum().item()
+    print(f'rel:{rel_err:.6f}')
 
     ref_flops = M * N * K * 2
     ref_bytes = M * K + N * K + M * N *2 
@@ -146,6 +184,9 @@ def bench_te_blockwise_gemm(M=4096, N=4096, K=4096):
 
 
 def bench_te_mxfp8_gemm(M=4096, N=4096, K=4096):
+
+    if torch.cuda.get_device_properties(0).major < 10:
+        return
 
     # import transformer_engine_torch as tex
     from linghe.quant.mxfp8 import triton_mxfp8_quant
@@ -226,5 +267,5 @@ def bench_te_mxfp8_gemm(M=4096, N=4096, K=4096):
 
 if __name__ == '__main__':
     # bench_cublas_blockwise_gemm(M=4096, N=4096, K=4096)
-    # bench_te_blockwise_gemm(M=4096, N=4096, K=4096)
-    bench_te_mxfp8_gemm(M=4096, N=4096, K=4096)
+    bench_te_blockwise_gemm(M=8192, N=4096, K=2048)
+    # bench_te_mxfp8_gemm(M=4096, N=4096, K=4096)
