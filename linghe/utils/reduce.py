@@ -115,10 +115,10 @@ def triton_batch_count_zero(xs):
         a single-value int64 tensor
     """
     device = xs[0].device
-    sizes = torch.tensor([x.numel() for x in xs], dtype=torch.int64,
-                         device=device)
-    ptrs = torch.tensor([x.data_ptr() for x in xs], dtype=torch.int64,
-                        device=device)
+    sizes = torch.tensor([x.numel() for x in xs], 
+                         dtype=torch.int64).cuda(device, non_blocking=True)
+    ptrs = torch.tensor([x.data_ptr() for x in xs], 
+                        dtype=torch.int64).cuda(device, non_blocking=True)
 
     sm = torch.cuda.get_device_properties(device).multi_processor_count
     tensor_count = len(xs)
@@ -211,10 +211,10 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True):
     assert ord in (1, 2, -1)
     assert all([x.is_contiguous() for x in xs])
     device = xs[0].device
-    sizes = torch.tensor([x.numel() for x in xs], dtype=torch.int64,
-                         device=device)
-    ptrs = torch.tensor([x.data_ptr() for x in xs], dtype=torch.int64,
-                        device=device)
+    sizes = torch.tensor([x.numel() for x in xs], 
+                         dtype=torch.int64).cuda(device, non_blocking=True)
+    ptrs = torch.tensor([x.data_ptr() for x in xs], 
+                        dtype=torch.int64).cuda(device, non_blocking=True)
 
     sm = 256
     tensor_count = len(xs)

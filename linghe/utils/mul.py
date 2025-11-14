@@ -88,10 +88,10 @@ def triton_batch_scale(xs, scale):
     """
     assert all([x.is_contiguous() for x in xs])
     device = xs[0].device
-    sizes = torch.tensor([x.numel() for x in xs], dtype=torch.int64,
-                         device=device)
-    ptrs = torch.tensor([x.data_ptr() for x in xs], dtype=torch.int64,
-                        device=device)
+    sizes = torch.tensor([x.numel() for x in xs], 
+                         dtype=torch.int64).cuda(device, non_blocking=True)
+    ptrs = torch.tensor([x.data_ptr() for x in xs], 
+                        dtype=torch.int64).cuda(device, non_blocking=True)
 
     T = 256
     tensor_count = len(xs)

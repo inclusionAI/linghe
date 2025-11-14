@@ -79,4 +79,4 @@ def test_batch_clip(M=2048, N=1024, k=1024, bench=False):
 if __name__ == '__main__':
     test_calculate_smooth_scale(N=4096*32)
     test_calculate_smooth_scale(N=4096*32-1897)
-    test_batch_clip(M=2048, N=1024, k=1024, bench=False)
+    test_batch_clip(M=2048, N=1024, k=128, bench=False)

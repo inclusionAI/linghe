@@ -93,4 +93,4 @@ if __name__ == '__main__':
     test_count_zero(M=4096, N=8192, k=32, bench=False)
     test_batch_norm(M=4096, N=1024, k=16, bench=False)
     test_batch_norm(M=4096, N=1024, k=64, bench=False)
-    test_batch_norm(M=4096, N=1024, k=256, bench=True)
+    test_batch_norm(M=4096, N=1024, k=256, bench=False)

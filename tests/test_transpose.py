@@ -16,8 +16,6 @@ from linghe.utils.transpose import (round_up,
                                    triton_transpose_and_pad)
 
 
-# from torch.profiler import profile, record_function, ProfilerActivity
-
 def torch_nd_transpose(x, dim0, dim1):
     return x.transpose(dim0, dim1).contiguous()
 
@@ -187,8 +185,8 @@ def test_batch_transpose_and_pad(M=4096, N=4096, k=32, bench=False):
 
 
 if __name__ == '__main__':
-    # test_transpose(M=4096, N=4096)
-    # test_transpose_and_pad(M=4095, N=4096)
-    test_nd_transpose(B=4096, M=4, N=2048, bench=True)
-    # test_batch_transpose(M=4096,N=4096,k=32)
-    # test_batch_transpose_and_pad(M=4096,N=4096,k=32)
+    test_transpose(M=4096, N=4096)
+    test_transpose_and_pad(M=4095, N=4096)
+    test_nd_transpose(B=4096, M=4, N=2048, bench=False)
+    test_batch_transpose(M=4096,N=4096,k=32, bench=False)
+    test_batch_transpose_and_pad(M=4096,N=4096,k=32)

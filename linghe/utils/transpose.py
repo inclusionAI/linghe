@@ -254,13 +254,17 @@ def triton_batch_transpose(xs, xts=None):
     """
     M, N = xs[0].shape
     n_experts = len(xs)
+    device=xs[0].device
     if xts is None:
-        xts = torch.empty((M * n_experts, N), device=xs[0].device,
+        xts = torch.empty((M * n_experts, N), 
+                          device=device,
                           dtype=xs[0].dtype)
-    pointers = torch.tensor([x.data_ptr() for x in xs], device=xs[0].device)
-    H = 64
+    pointers = torch.tensor([x.data_ptr() for x in xs], 
+                            dtype=torch.int64).cuda(device, non_blocking=True)
+
+    H = 32
     W = 64
-    num_stages = 3
+    num_stages = 2
     num_warps = 8
     grid = (n_experts, N // W)
     batch_transpose_kernel[grid](
@@ -270,11 +274,7 @@ def triton_batch_transpose(xs, xts=None):
         num_stages=num_stages,
         num_warps=num_warps
     )
-    # outputs = torch.split(xts, n_experts)  # very slow
     outputs = torch.split(xts, [M] * n_experts)
-    # outputs = []
-    # for i in range(n_experts):
-    #     outputs.append(xts[i*M:(i+1)*M])
     return outputs
 
 
