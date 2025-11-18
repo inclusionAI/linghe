@@ -210,7 +210,9 @@ def torch_qk_norm_and_half_rope(qkv, qw, kw, freqs, H=32,
 
 
 
-def torch_varlen_qk_norm_and_half_rope(qkvs, qw, kw, freqs, lengths, H=32, h=4, interleaved=True, silu=False, eps=1e-6, mscale=1.0, cp_size=1, cp_rank=0):
+def torch_varlen_qk_norm_and_half_rope(qkvs, qw, kw, freqs, lengths, H=32, h=4, 
+                                       interleaved=True, silu=False, eps=1e-6,
+                                       mscale=1.0, cp_size=1, cp_rank=0):
     ls = [x//cp_size for x in lengths]
     D = qkvs.size(1)
 
@@ -377,7 +379,9 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048,2048], H=32, h=4, dim=128, r
     k_grad = torch.randn(sum(lengths)//cp_size, h, dim, dtype=dtype, device=device)
     v_grad = torch.randn(sum(lengths)//cp_size, h, dim, dtype=dtype, device=device)
     qkv = qkv.detach().clone().requires_grad_()
-    qo_ref, ko_ref, vo_ref = torch_varlen_qk_norm_and_half_rope(qkv, qw, kw, freqs, lengths, H=H, h=h, interleaved=interleaved, silu=silu, mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
+    qo_ref, ko_ref, vo_ref = torch_varlen_qk_norm_and_half_rope(qkv, qw, kw, freqs, lengths, 
+                                        H=H, h=h, interleaved=interleaved, silu=silu, 
+                                        mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
     
     qo_ref.backward(gradient=q_grad, retain_graph=True)
     ko_ref.backward(gradient=k_grad, retain_graph=True)
@@ -387,13 +391,19 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048,2048], H=32, h=4, dim=128, r
     dqw_ref = qw.grad
     dkw_ref = kw.grad
     
-    qo, ko, vo = triton_varlen_qk_norm_and_half_rope_forward(qkv, qw, kw, freqs, cu_seqlens_q, cu_seqlens_kv, interleaved=interleaved, silu=silu, mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
+    qo, ko, vo = triton_varlen_qk_norm_and_half_rope_forward(qkv, qw, kw, freqs, cu_seqlens_q, 
+                                                cu_seqlens_kv, interleaved=interleaved, silu=silu, 
+                                                mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
     output_check(qo_ref, qo, mode='q')
     output_check(ko_ref, ko, mode='k')
     output_check(vo_ref, vo, mode='v')
 
 
-    dqkv, dqw, dkw = triton_varlen_qk_norm_and_half_rope_backward(q_grad, k_grad, v_grad, qkv, qw, kw, freqs, cu_seqlens_q, cu_seqlens_kv, mscale=mscale, interleaved=interleaved, silu=silu, cp_size=cp_size, cp_rank=cp_rank)
+    dqkv, dqw, dkw = triton_varlen_qk_norm_and_half_rope_backward(q_grad, k_grad, v_grad, 
+                                                                qkv, qw, kw, freqs, 
+                                                                cu_seqlens_q, cu_seqlens_kv,
+                                                                 mscale=mscale, interleaved=interleaved,
+                                                                  silu=silu, cp_size=cp_size, cp_rank=cp_rank)
     output_check(dqkv_ref, dqkv, mode='dqkv')
     output_check(dqw_ref, dqw, mode='dqw')
     output_check(dkw_ref, dkw, mode='dkv')
@@ -401,10 +411,15 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048,2048], H=32, h=4, dim=128, r
 
     if bench:
         lbh = sum(lengths)//cp_size*H
-        benchmark_func(triton_varlen_qk_norm_and_half_rope_forward, qkv, qw, kw, freqs, cu_seqlens_q, cu_seqlens_kv, interleaved=interleaved, silu=silu, mscale=mscale, cp_size=cp_size, cp_rank=cp_rank,
+        benchmark_func(triton_varlen_qk_norm_and_half_rope_forward, qkv, qw, kw, freqs, 
+                        cu_seqlens_q, cu_seqlens_kv, interleaved=interleaved, 
+                        silu=silu, mscale=mscale, cp_size=cp_size, cp_rank=cp_rank,
                        ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
                        n_profile=0)
-        benchmark_func(triton_varlen_qk_norm_and_half_rope_backward, q_grad, k_grad, v_grad, qkv, qw, kw, freqs, cu_seqlens_q, cu_seqlens_kv, mscale=mscale, interleaved=interleaved, silu=silu, cp_size=cp_size, cp_rank=cp_rank,
+        benchmark_func(triton_varlen_qk_norm_and_half_rope_backward, q_grad, k_grad, v_grad, 
+                       qkv, qw, kw, freqs, cu_seqlens_q, 
+                       cu_seqlens_kv, mscale=mscale, interleaved=interleaved, 
+                       silu=silu, cp_size=cp_size, cp_rank=cp_rank,
                        ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
                        n_profile=0)
 
@@ -446,54 +461,6 @@ def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0,
     output_check(dq_ref, dq, mode='dq')
     output_check(dkv_ref, dkv, mode='dkv')
     output_check(dp_ref, dp, mode='dp')
-
-
-
-    if False:
-        from megatron.core.fusions.fused_mla_yarn_rope_apply import (
-            fused_apply_mla_rope_for_kv,
-            fused_apply_mla_rope_for_q,
-        )
-        rotary_pos_cos = freqs.cos()
-        rotary_pos_sin = freqs.sin()
-        q_ref = q.detach().clone().requires_grad_()
-        kv_ref = kv.detach().clone().requires_grad_()
-        k_pos_emb_ref = k_pos_emb.detach().clone().requires_grad_()
-        query_ref = fused_apply_mla_rope_for_q(
-            q_ref,
-            rotary_pos_cos,
-            rotary_pos_sin,
-            128,
-            64,
-            cu_seqlens_q=None,
-            cp_rank=0,
-            cp_size=1,
-        )
-        key_ref, value_ref = fused_apply_mla_rope_for_kv(
-            kv_ref,
-            k_pos_emb_ref,
-            rotary_pos_cos,
-            rotary_pos_sin,
-            64,
-            128,
-            128,
-            cu_seqlens_kv=None,
-            cp_rank=0,
-            cp_size=1
-        )
-        output_check(query_ref, qo, mode='q')
-        output_check(key_ref, ko, mode='k')
-        output_check(value_ref, vo, mode='v')
-
-        query_ref.backward(gradient=q_grad, retain_graph=True)
-        key_ref.backward(gradient=k_grad, retain_graph=True)
-        value_ref.backward(gradient=v_grad, retain_graph=True)
-        dq_ref = q_ref.grad
-        dkv_ref = kv_ref.grad
-        dp_ref = k_pos_emb_ref.grad
-        output_check(dq_ref, dq, mode='dq')
-        output_check(dkv_ref, dkv, mode='dkv')
-        output_check(dp_ref, dp, mode='dp')
 
 
     if bench:
@@ -539,8 +506,11 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     freqs = torch.cat([freqs, freqs], -1)
 
     mscale = 1.0
-    q_ref, k_ref, v_ref = torch_varlen_mla_rope(qc, kvc, k_pos_embc, freqs, lengths, mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
-    qo, ko, vo = triton_mla_rope_forward(qc.detach().clone(), kvc, k_pos_embc, freqs, mscale=mscale, cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank)
+    q_ref, k_ref, v_ref = torch_varlen_mla_rope(qc, kvc, k_pos_embc, freqs, lengths, 
+                                                mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
+    qo, ko, vo = triton_mla_rope_forward(qc.detach().clone(), kvc, k_pos_embc, freqs, mscale=mscale, 
+                                        cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, 
+                                        cp_size=cp_size, cp_rank=cp_rank)
     output_check(q_ref, qo, mode='q')
     output_check(k_ref, ko, mode='k')
     output_check(v_ref, vo, mode='v')
@@ -552,71 +522,29 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     q_i = qc.detach().clone().requires_grad_()
     kv_i = kvc.detach().clone().requires_grad_()
     k_pos_emb_i = k_pos_embc.detach().clone().requires_grad_()
-    qo_ref, ko_ref, vo_ref = torch_varlen_mla_rope(q_i, kv_i, k_pos_emb_i, freqs, lengths, mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
+    qo_ref, ko_ref, vo_ref = torch_varlen_mla_rope(q_i, kv_i, k_pos_emb_i, freqs, lengths, 
+                                                   mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
     qo_ref.backward(gradient=q_grad, retain_graph=True)
     ko_ref.backward(gradient=k_grad, retain_graph=True)
     vo_ref.backward(gradient=v_grad, retain_graph=True)
     dq_ref = q_i.grad
     dkv_ref = kv_i.grad
     dp_ref = k_pos_emb_i.grad
-    dq, dkv, dp = triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=mscale, cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank)
+    dq, dkv, dp = triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=mscale, 
+                 cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank)
     output_check(dq_ref, dq, mode='dq')
     output_check(dkv_ref, dkv, mode='dkv')
     output_check(dp_ref, dp, mode='dp')
 
 
-    if False:
-        from megatron.core.fusions.fused_mla_yarn_rope_apply import (
-            fused_apply_mla_rope_for_kv,
-            fused_apply_mla_rope_for_q,
-        )
-        rotary_pos_cos = freqs.cos()
-        rotary_pos_sin = freqs.sin()
-        q_i = qc.detach().clone().requires_grad_()
-        kv_i = kvc.detach().clone().requires_grad_()
-        k_pos_emb_i = k_pos_embc.detach().clone().requires_grad_()
-        query_ref = fused_apply_mla_rope_for_q(
-            q_i,
-            rotary_pos_cos,
-            rotary_pos_sin,
-            128,
-            64,
-            cu_seqlens_q,
-            cp_rank,
-            cp_size,
-        )
-        key_ref, value_ref = fused_apply_mla_rope_for_kv(
-            kv_i,
-            k_pos_emb_i,
-            rotary_pos_cos,
-            rotary_pos_sin,
-            64,
-            128,
-            128,
-            cu_seqlens_kv,
-            cp_rank,
-            cp_size,
-        )
-        output_check(query_ref, qo, mode='q')
-        output_check(key_ref, ko, mode='k')
-        output_check(value_ref, vo, mode='v')
-        query_ref.backward(gradient=q_grad, retain_graph=True)
-        key_ref.backward(gradient=k_grad, retain_graph=True)
-        value_ref.backward(gradient=v_grad, retain_graph=True)
-        dq_ref = q_i.grad
-        dkv_ref = kv_i.grad
-        dp_ref = k_pos_emb_i.grad
-        output_check(dq_ref, dq, mode='dq')
-        output_check(dkv_ref, dkv, mode='dkv')
-        output_check(dp_ref, dp, mode='dp')
-
-
     if bench:
         lbh = sum(lengths)//cp_size*H
-        benchmark_func(triton_mla_rope_forward, qc, kvc, k_pos_embc, freqs, mscale=mscale, cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank,
+        benchmark_func(triton_mla_rope_forward, qc, kvc, k_pos_embc, freqs, mscale=mscale, 
+                        cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank,
                        ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
                        n_profile=0)
-        benchmark_func(triton_mla_rope_backward, q_grad, k_grad, v_grad, freqs, mscale=mscale, cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank,
+        benchmark_func(triton_mla_rope_backward, q_grad, k_grad, v_grad, freqs, mscale=mscale, 
+                       cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank,
                        ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
                        n_profile=0)
 
