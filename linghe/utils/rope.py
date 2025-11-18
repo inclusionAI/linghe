@@ -1148,7 +1148,6 @@ def varlen_qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
                                           CP_SIZE: tl.constexpr
                                           ):
     pid = tl.program_id(0)
-    L = tl.num_programs(0)
     DD = 2 * D
     w = H // h
 
@@ -1229,7 +1228,6 @@ def varlen_qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
 
         dq_0 = r * gq_0 * q_w0 - r * r * r / DD * q0 * s[:, None]
         dq_1 = r * gq_1 * q_w1 - r * r * r / DD * q1 * s[:, None]
-
 
 
     tl.store(dq_ptr + pid * grad_stride + DD * row_offs[:,
@@ -1417,7 +1415,7 @@ def triton_varlen_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
     dtype = gq.dtype
     device = gq.device
     dqkv = torch.empty((T, (H + 2 * h) * D), dtype=dtype, device=device)
-    grad_stride = dqkv.stride(1)  # for potential fused kernel
+    grad_stride = dqkv.stride(0)  # for potential fused kernel
 
     tmp_dqw = torch.empty((T, D), dtype=torch.float32, device=device)
     tmp_dkw = torch.empty((T, D), dtype=torch.float32, device=device)
