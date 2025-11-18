@@ -101,9 +101,10 @@ class BlockRMSNorm(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output, grad_rms):
-        shape = grad_output.shape 
+        shape = grad_output.shape
         grad_output = grad_output.view(shape[0]*shape[1], shape[2])
         input, weight = ctx.saved_tensors
+        input = input.view(shape[0]*shape[1], shape[2])
         dx, dw = triton_rms_norm_backward(grad_output, input, weight, eps=ctx.eps)
         dx = dx.view(*shape)
 

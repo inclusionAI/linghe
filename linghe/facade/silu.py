@@ -41,7 +41,7 @@ class BlockSiluFunction(torch.autograd.Function):
         grad_output_view = grad_output.view(shape[0]*shape[1], shape[2])
         input, = ctx.saved_tensors
         grad_quantizer = ctx.grad_quantizer
-        input_view = input.view(shape[0]*shape[1], shape[2])
+        input_view = input.view(shape[0]*shape[1], shape[2]*2)
         x_q, x_scale, xt_q, xt_scale = triton_silu_and_block_quant_backward(grad_output_view, 
                                                                       input_view, 
                                                                       round_scale=grad_quantizer.force_pow_2_scales)
