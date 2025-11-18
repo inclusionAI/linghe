@@ -14,7 +14,6 @@ class _PaddedPermute(torch.autograd.Function):
     def forward(ctx, tokens, probs, routing_map, tokens_per_expert_cuda_tensor, tokens_per_expert_list):
         """Forward function."""
         num_tokens, hidden_dim = tokens.shape
-        counts = routing_map.sum(-1)
         
         row_id_map = triton_make_row_id_map(routing_map, multiple_of=16)
         num_out_tokens = sum([(x+15)//16*16 for x in tokens_per_expert_list])
@@ -23,7 +22,6 @@ class _PaddedPermute(torch.autograd.Function):
         ctx.hidden_dim = hidden_dim
         ctx.prob_shape = probs.shape
         ctx.shape = tokens.shape
-        ctx.counts = counts
         ctx.row_id_map = row_id_map
         permuted_tokens,_,permuted_probs = triton_permute_with_mask_map(
             tokens,
@@ -34,14 +32,15 @@ class _PaddedPermute(torch.autograd.Function):
             contiguous=False,
             tokens_per_expert=tokens_per_expert_cuda_tensor
             )
-
+        ctx.save_for_backward(row_id_map)
         return permuted_tokens, permuted_probs, row_id_map
 
     @staticmethod
     def backward(ctx, grad_output, grad_prob, grad_map):
         """Backward function."""
-        output, prob_output = triton_unpermute_with_mask_map(grad_output, ctx.row_id_map, grad_prob)
-        return output.view(ctx.shape), prob_output.view(ctx.prob_shape),None,None,None
+        row_id_map, = ctx.saved_tensors
+        output, prob_output = triton_unpermute_with_mask_map(grad_output, row_id_map, grad_prob)
+        return output.view(ctx.shape), prob_output.view(ctx.prob_shape), None, None, None
 
 
 
@@ -127,7 +126,6 @@ class _BlockPaddedPermute(torch.autograd.Function):
     def forward(ctx, tokens, probs, routing_map, tokens_per_expert_cuda_tensor, tokens_per_expert_list, quantizer, cls):
         """Forward function."""
         num_tokens, hidden_dim = tokens.shape
-        counts = routing_map.sum(-1)
         
         num_out_tokens = sum([(x+15)//16*16 for x in tokens_per_expert_list])
         row_id_map, row_id_index = triton_make_row_id_map_and_index(routing_map, num_out_tokens, multiple_of=16)
@@ -136,9 +134,6 @@ class _BlockPaddedPermute(torch.autograd.Function):
         ctx.hidden_dim = hidden_dim
         ctx.prob_shape = probs.shape
         ctx.shape = tokens.shape
-        ctx.counts = counts
-        ctx.row_id_map = row_id_map
-        ctx.row_id_index = row_id_index
         ctx.cls = cls
         x_q, x_scale, xt_q, xt_scale, permuted_probs = triton_batch_block_pad_permute_with_indices(
             tokens,
@@ -161,13 +156,14 @@ class _BlockPaddedPermute(torch.autograd.Function):
                     requires_grad=tokens.requires_grad,
                     is_2D_scaled=False
                 )
-
+        ctx.save_for_backward(row_id_map, )
         return output, permuted_probs, row_id_map, row_id_index
 
     @staticmethod
     def backward(ctx, grad_output, grad_prob, grad_map, grad_index):
         """Backward function."""
-        output, prob_output = triton_unpermute_with_mask_map(grad_output, ctx.row_id_map, grad_prob)
+        row_id_map, = ctx.saved_tensors
+        output, prob_output = triton_unpermute_with_mask_map(grad_output, row_id_map, grad_prob)
         return output.view(ctx.shape), prob_output.view(ctx.prob_shape),None,None,None,None,None
 
 
@@ -210,7 +206,7 @@ class _BlockPaddedUnpermute(torch.autograd.Function):
         num_tokens, hidden_size = restore_shape
         num_out_tokens = permuted_tokens.shape[0]
         n_experts = row_id_map.size(1)
-        ctx.save_for_backward(row_id_map, row_id_index)
+        ctx.save_for_backward(row_id_index)
         ctx.input_requires_grad = permuted_tokens.requires_grad
         ctx.num_experts = n_experts
         ctx.restore_shape = restore_shape
@@ -228,14 +224,9 @@ class _BlockPaddedUnpermute(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         """Backward function."""
-        row_id_map, row_id_index = ctx.saved_tensors
+        row_id_index, = ctx.saved_tensors
 
         quantizer = ctx.quantizer
-        # if grad_output.device.index == 0:
-        #     import pdb; pdb.set_trace()
-        # else:
-        #     import time 
-        #     time.sleep(6000)
         x_q, x_scale, xt_q, xt_scale, _ = triton_batch_block_pad_permute_with_indices(
             grad_output,
             ctx.tokens_per_expert,

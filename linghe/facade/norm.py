@@ -16,7 +16,6 @@ class RMSNormFunction(torch.autograd.Function):
             weight,
             eps
         )
-        # ctx.save_for_backward(x, weight, norm)
         ctx.save_for_backward(x, weight)
         ctx.eps = eps
 
@@ -70,8 +69,8 @@ class BlockRMSNorm(torch.autograd.Function):
         else:
             output_mode = 0
 
-        input = input.view(shape[0]*shape[1], shape[2])
-        x_q, x_scale, output_rms, xt_q, xt_scale = triton_rms_norm_and_block_quant_forward(input, 
+        input_view = input.view(shape[0]*shape[1], shape[2])
+        x_q, x_scale, output_rms, xt_q, xt_scale = triton_rms_norm_and_block_quant_forward(input_view, 
                                                                       weight.data, 
                                                                       rms=rms,
                                                                       eps=eps, 

@@ -49,20 +49,22 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                             mscale=mscale
                                                             )
         ctx.save_for_backward(qkv, q_norm_weight.data, k_norm_weight.data,
-                              freqs, cu_seqlens_q, cu_seqlens_kv)
+                              freqs)
         ctx.H = H
         ctx.h = h
         ctx.eps = eps
         ctx.cp_rank = cp_rank
         ctx.cp_size = cp_size 
         ctx.mscale = mscale 
+        ctx.cu_seqlens_q = cu_seqlens_q
+        ctx.cu_seqlens_kv = cu_seqlens_kv
         return qo, ko, vo
 
     @staticmethod
     def backward(ctx, grad_q, grad_k, grad_v):
-        qkv, q_norm_weight, k_norm_weight, freqs, cu_seqlens_q, cu_seqlens_kv = ctx.saved_tensors
+        qkv, q_norm_weight, k_norm_weight, freqs = ctx.saved_tensors
 
-        if cu_seqlens_q is None:
+        if ctx.cu_seqlens_q is None:
             dqkv, dqw, dkw = triton_qk_norm_and_half_rope_backward(grad_q,
                                                                 grad_k,
                                                                 grad_v,
@@ -81,8 +83,8 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                                 q_norm_weight,
                                                                 k_norm_weight,
                                                                 freqs,
-                                                                cu_seqlens_q,
-                                                                cu_seqlens_kv,
+                                                                ctx.cu_seqlens_q,
+                                                                ctx.cu_seqlens_kv,
                                                                 eps=ctx.eps,
                                                                 interleaved=True,
                                                                 cp_rank=ctx.cp_rank,
