@@ -11,7 +11,7 @@ class RMSNormFunction(torch.autograd.Function):
     """"""
     @staticmethod
     def forward(ctx, x, weight, eps=1e-6):
-        output = triton_rms_norm_forward(
+        output, rms = triton_rms_norm_forward(
             x,
             weight,
             eps
