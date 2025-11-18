@@ -70,12 +70,13 @@ class BlockRMSNorm(torch.autograd.Function):
             output_mode = 0
 
         input_view = input.view(shape[0]*shape[1], shape[2])
-        x_q, x_scale, output_rms, xt_q, xt_scale = triton_rms_norm_and_block_quant_forward(input_view, 
-                                                                      weight.data, 
-                                                                      rms=rms,
-                                                                      eps=eps, 
-                                                                      round_scale=quantizer.force_pow_2_scales,
-                                                                      output_mode=output_mode)
+        x_q, x_scale, output_rms, xt_q, xt_scale = \
+                triton_rms_norm_and_block_quant_forward(input_view, 
+                                                        weight.data, 
+                                                        rms=rms,
+                                                        eps=eps, 
+                                                        round_scale=quantizer.force_pow_2_scales,
+                                                        output_mode=output_mode)
 
         transpose_shape = (shape[2], shape[0], shape[1])
         output = cls(
@@ -94,8 +95,7 @@ class BlockRMSNorm(torch.autograd.Function):
         ctx.weight_requires_grad = weight.requires_grad
         ctx.shape = shape 
         ctx.eps = eps
-        ctx.rms = output_rms
-        ctx.save_for_backward(input, weight)
+        ctx.save_for_backward(input, weight.data)
 
         return output, output_rms
 
