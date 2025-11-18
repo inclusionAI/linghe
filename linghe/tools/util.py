@@ -402,11 +402,15 @@ def fp16_f_and_b(x, w, y):
 
 
 def output_check(org_out, opt_out, mode='', rtol=None, atol=None):
+    
     assert org_out.shape == opt_out.shape, f"ref:{org_out.shape} != out:{opt_out.shape}"
     dtype = org_out.dtype
     assert opt_out.dtype == dtype or dtype == torch.float32, f"ref:{dtype} != out:{opt_out.dtype}"
     if org_out.numel() == 0:
         return
+
+    org_out = org_out.detach()
+    opt_out = opt_out.detach()
 
     if dtype != torch.float32:
         org_out = org_out.float()
