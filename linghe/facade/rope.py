@@ -6,83 +6,136 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 from typing import Optional
 import torch
 
-from linghe.utils.rope import triton_mla_rope_backward, triton_mla_rope_forward, triton_qk_norm_and_half_rope_forward, \
-    triton_qk_norm_and_half_rope_backward, \
-    triton_mla_rope_forward, \
-    triton_mla_rope_backward
+from linghe.utils.rope import (triton_mla_rope_backward, 
+                               triton_mla_rope_forward, 
+                               triton_qk_norm_and_half_rope_forward,
+                               triton_qk_norm_and_half_rope_backward,
+                               triton_varlen_qk_norm_and_half_rope_forward,
+                               triton_varlen_qk_norm_and_half_rope_backward,
+                               triton_mla_rope_forward,
+                               triton_mla_rope_backward)
 
 
 class QkNormHalfRopeFunction(torch.autograd.Function):
     """"""
     @staticmethod
     def forward(ctx, qkv, q_norm_weight, k_norm_weight, freqs, 
-                H=32, h=4, eps=1e-6):
-        shape = qkv.shape
-        qo, ko, vo = triton_qk_norm_and_half_rope_forward(qkv,
-                                                          q_norm_weight.data,
-                                                          k_norm_weight.data,
-                                                          freqs,
-                                                          H=H,
-                                                          h=h,
-                                                          eps=eps,
-                                                          interleaved=True,
-                                                          transposed=True)
-
+                cu_seqlens_q, cu_seqlens_kv,
+                H=32, h=4, eps=1e-6, 
+                cp_rank=0, cp_size=1, mscale=1.0):
+        if cu_seqlens_q is None:
+            qo, ko, vo = triton_qk_norm_and_half_rope_forward(qkv,
+                                                            q_norm_weight.data,
+                                                            k_norm_weight.data,
+                                                            freqs,
+                                                            H=H,
+                                                            h=h,
+                                                            eps=eps,
+                                                            interleaved=True,
+                                                            transposed=True)
+        else:
+            qo, ko, vo = triton_varlen_qk_norm_and_half_rope_forward(qkv,
+                                                            q_norm_weight.data,
+                                                            k_norm_weight.data,
+                                                            freqs,
+                                                            cu_seqlens_q,
+                                                            cu_seqlens_kv,
+                                                            H=H,
+                                                            h=h,
+                                                            eps=eps,
+                                                            interleaved=True,
+                                                            cp_rank=cp_rank,
+                                                            cp_size=cp_size,
+                                                            mscale=mscale
+                                                            )
         ctx.save_for_backward(qkv, q_norm_weight.data, k_norm_weight.data,
-                              freqs)
+                              freqs, cu_seqlens_q, cu_seqlens_kv)
         ctx.H = H
         ctx.h = h
         ctx.eps = eps
-        ctx.shape = shape
+        ctx.cp_rank = cp_rank
+        ctx.cp_size = cp_size 
+        ctx.mscale = mscale 
         return qo, ko, vo
 
     @staticmethod
     def backward(ctx, grad_q, grad_k, grad_v):
-        qkv, q_norm_weight, k_norm_weight, freqs = ctx.saved_tensors
+        qkv, q_norm_weight, k_norm_weight, freqs, cu_seqlens_q, cu_seqlens_kv = ctx.saved_tensors
 
-        dqkv, dqw, dkw = triton_qk_norm_and_half_rope_backward(grad_q,
-                                                               grad_k,
-                                                               grad_v,
-                                                               qkv,
-                                                               q_norm_weight,
-                                                               k_norm_weight,
-                                                               freqs,
-                                                               eps=ctx.eps,
-                                                               transposed=True,
-                                                               interleaved=True)
-        return dqkv, dqw, dkw, None, None, None, None
+        if cu_seqlens_q is None:
+            dqkv, dqw, dkw = triton_qk_norm_and_half_rope_backward(grad_q,
+                                                                grad_k,
+                                                                grad_v,
+                                                                qkv,
+                                                                q_norm_weight,
+                                                                k_norm_weight,
+                                                                freqs,
+                                                                eps=ctx.eps,
+                                                                transposed=True,
+                                                                interleaved=True)
+        else:
+            dqkv, dqw, dkw = triton_varlen_qk_norm_and_half_rope_backward(grad_q,
+                                                                grad_k,
+                                                                grad_v,
+                                                                qkv,
+                                                                q_norm_weight,
+                                                                k_norm_weight,
+                                                                freqs,
+                                                                cu_seqlens_q,
+                                                                cu_seqlens_kv,
+                                                                eps=ctx.eps,
+                                                                interleaved=True,
+                                                                cp_rank=ctx.cp_rank,
+                                                                cp_size=ctx.cp_size,
+                                                                mscale=ctx.mscale)
+        return dqkv, dqw, dkw, None, None, None, None, None, None, None, None, None
 
 
 def qk_norm_half_rope(qkv: torch.Tensor,
                       q_norm_weight: torch.Tensor,
                       k_norm_weight: torch.Tensor,
                       freqs: torch.Tensor,
+                      cu_seqlens_q: Optional[torch.Tensor] = None, 
+                      cu_seqlens_kv: Optional[torch.Tensor] = None, 
                       H: int = 32,
                       h: int = 4,
-                      eps: float = 1e-6):
+                      eps: float = 1e-6,
+                      cp_rank=0, 
+                      cp_size=1,
+                      mscale=1.0):
     """
     split qkv to q/k/v, apply qk norm and half rope to q/k, transpose q/k/v to flash-attention layout
     Args:
-        qkv: QKV tensor with size of [S, B, dim], heads are interleaved
+        qkv: QKV tensor with size of [S, B, dim] or [T, dim] , heads are interleaved
         q_norm_weight: rms norm weight for query
         k_norm_weight: rms norm weight for key
         freqs: Freqs tensor based on half dim.
+        cu_seqlens_q: accumulated query lengths, [num_seqs + 1]
+        cu_seqlens_kv: accumulated kv lengths, [num_seqs + 1]
         H: Number of attention heads.
         h: Number of key/value heads.
         eps: epsilon value for L2 normalization.
+        cp_rank: context parallel rank
+        cp_size: context parallel size
+        mscale: mscale for rope
 
     Returns:
-        - qo: shape [B, S, H, head_dim]
-        - ko: shape [B, S, h, head_dim]
-        - vo: shape [B, S, h, head_dim]
+        - qo: shape [B, S, H, head_dim] or [T, H, head_dim]
+        - ko: shape [B, S, h, head_dim] or [T, h, head_dim]
+        - vo: shape [B, S, h, head_dim] or [T, h, head_dim]
     """
     return QkNormHalfRopeFunction.apply(qkv,
                                         q_norm_weight,
                                         k_norm_weight,
                                         freqs,
+                                        cu_seqlens_q,
+                                        cu_seqlens_kv,
                                         H,
                                         h,
-                                        eps)
+                                        eps,
+                                        cp_rank,
+                                        cp_size,
+                                        mscale)
 
 
 class MLARopeFunction(torch.autograd.Function):

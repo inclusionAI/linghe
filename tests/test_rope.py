@@ -7,11 +7,14 @@ import torch
 
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
-from linghe.utils.rope import triton_half_rope_forward, \
-    triton_half_rope_backward, triton_mla_rope_forward, triton_qk_norm_and_half_rope_forward, \
-    triton_qk_norm_and_half_rope_backward, \
-    triton_mla_rope_forward, triton_mla_rope_backward, \
-    triton_varlen_qk_norm_and_half_rope_forward, triton_varlen_qk_norm_and_half_rope_backward
+from linghe.utils.rope import (triton_half_rope_forward, 
+                               triton_half_rope_backward, 
+                               triton_qk_norm_and_half_rope_forward, 
+                               triton_qk_norm_and_half_rope_backward, 
+                               triton_mla_rope_forward, 
+                               triton_mla_rope_backward, 
+                               triton_varlen_qk_norm_and_half_rope_forward, 
+                               triton_varlen_qk_norm_and_half_rope_backward)
 
 
 def rotate_half(x):
