@@ -395,16 +395,13 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
         assert rms is None
         rms = torch.empty((M,), dtype=torch.float32, device=device)
         W = 8192 // N
-        T = 128 // W  # BLOCK SIZE
-        H = 64
-        grid = (triton.cdiv(M, 128),)
-        rms_norm_and_block_quant_forward_kernel[grid](
+        T = 16 // W  
+        grid = (triton.cdiv(M, 16),)
+        rms_norm_and_block_quant_forward_n_kernel[grid](
             x,
             weight,
             out,
             scale,
-            transpose_output,
-            transpose_scale,
             rms,
             eps,
             M,
@@ -412,12 +409,25 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
             N,
             N//128,
             W,
-            H,
             round_scale,
             num_stages=3,
-            num_warps=16
+            num_warps=4
         )
         scale = scale.t().contiguous()
+
+        W = 32 
+        grid = (triton.cdiv(M, 128), N//W)
+        rms_norm_and_block_quant_forward_t_kernel[grid](x, 
+                                    weight,
+                                    transpose_output, 
+                                    transpose_scale,
+                                    rms, 
+                                    M, 
+                                    N,
+                                    W, 
+                                    round_scale,
+                                    num_stages=3,
+                                    num_warps=4)
 
     return out, scale, rms, transpose_output, transpose_scale
 
