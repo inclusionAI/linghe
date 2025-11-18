@@ -532,8 +532,10 @@ if __name__ == '__main__':
     #                bench=False)
     # test_half_rope(B=2, L=4096, H=32, h=8, D=128, rope_theta=10000.0, transposed=False,
     #                bench=False)
-    # test_qk_norm_and_half_rope(B=1, L=4096, H=16, h=16, D=128,
-    #                            rope_theta=10000.0, interleaved=False, transposed=True, bench=False)
+    test_qk_norm_and_half_rope(B=2, L=4096, H=12, h=4, D=128,
+                               rope_theta=10000.0, interleaved=True, transposed=True, bench=False)
+    test_qk_norm_and_half_rope(B=2, L=4096, H=16, h=4, D=128,
+                               rope_theta=10000.0, interleaved=True, transposed=True, bench=False)
     # test_qk_norm_and_half_rope(B=2, L=4096, H=16, h=4, D=128,
     #                            rope_theta=10000.0, interleaved=False, transposed=True, bench=False)
     # test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
@@ -545,8 +547,8 @@ if __name__ == '__main__':
     # test_qk_norm_and_half_rope(B=4, L=4096, H=32, h=8, D=128,
     #                            rope_theta=10000.0, interleaved=False, transposed=True, 
     #                            bench=False)
-    test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0,
-                   bench=False)
+    # test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0,
+    #                bench=False)
     # test_varlen_mla_rope(lengths=[4096,4096], H=32, rope_theta=10000.0,
     #                bench=False, cp_size=1, cp_rank=0)
     # test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
