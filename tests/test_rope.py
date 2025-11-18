@@ -354,7 +354,7 @@ def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0,
 
 
 
-    if True:
+    if False:
         from megatron.core.fusions.fused_mla_yarn_rope_apply import (
             fused_apply_mla_rope_for_kv,
             fused_apply_mla_rope_for_q,
@@ -470,7 +470,7 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     output_check(dp_ref, dp, mode='dp')
 
 
-    if True:
+    if False:
         from megatron.core.fusions.fused_mla_yarn_rope_apply import (
             fused_apply_mla_rope_for_kv,
             fused_apply_mla_rope_for_q,

@@ -3,7 +3,6 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
-from megatron.core.models.gpt.fine_grained_callables import MTPLossAutoScaler
 import torch
 import triton
 import triton.language as tl
