@@ -209,7 +209,7 @@ def torch_qk_norm_and_half_rope(qkv, qw, kw, freqs, H=32,
 
 def torch_varlen_qk_norm_and_half_rope(qkvs, qw, kw, freqs, lengths, H=32, h=4, interleaved=True, silu=False, eps=1e-6, mscale=1.0, cp_size=1, cp_rank=0):
     ls = [x//cp_size for x in lengths]
-    D = qkvs[0].size(1)
+    D = qkvs.size(1)
 
     B = len(lengths)
 
@@ -220,10 +220,10 @@ def torch_varlen_qk_norm_and_half_rope(qkvs, qw, kw, freqs, lengths, H=32, h=4, 
     koss = []
     voss = []
     for i in range(B):
-        qkv01 = qkvss[i][:,None].split([ls[i]//2]*2, 0)
+        qkv01 = qkvss[i].split([ls[i]//2]*2, 0)
 
         for j in range(2):
-            qkv = qkv01[j].view(ls[i]//2, 1,  D)
+            qkv = qkv01[j].view(1, ls[i]//2, D)
 
             if j == 0:
                 p = cp_rank * lengths[i] // seg_size
@@ -232,14 +232,14 @@ def torch_varlen_qk_norm_and_half_rope(qkvs, qw, kw, freqs, lengths, H=32, h=4, 
             position_ids = p + torch.arange(lengths[i]//seg_size, device='cuda:0')
             fs = freqs[position_ids]
             query, key, value = torch_qk_norm_and_half_rope(qkv, qw, kw, fs, H=H,
-                                h=h, eps=eps, interleaved=interleaved, transposed=True, silu=silu)
+                                h=h, eps=eps, interleaved=interleaved, transposed=False, silu=silu)
             qoss.append(query)
             koss.append(key)
             voss.append(value)
 
-    qoss = torch.cat(qoss, 0)[:,0]
-    koss = torch.cat(koss, 0)[:,0]
-    voss = torch.cat(voss, 0)[:,0]
+    qoss = torch.cat(qoss, 1)[0]
+    koss = torch.cat(koss, 1)[0]
+    voss = torch.cat(voss, 1)[0]
 
     return qoss, koss, voss
 
@@ -296,7 +296,7 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
     freqs = rope_freqs(L, D // 2, rope_theta=rope_theta)
     freqs = torch.cat([freqs, freqs], -1)
     q_ref, k_ref, v_ref = torch_qk_norm_and_half_rope(qkv, qw, kw, freqs,
-                                                      rope_theta, H=H, h=h,
+                                                      H=H, h=h,
                                                       eps=1e-6,
                                                       transposed=transposed,
                                                       interleaved=interleaved,
@@ -318,7 +318,6 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
     kw_ref = kw.detach().clone().requires_grad_()
     qo_ref, ko_ref, vo_ref = torch_qk_norm_and_half_rope(qkv_ref, qw_ref,
                                                          kw_ref, freqs,
-                                                         rope_theta=rope_theta,
                                                          H=H, h=h, eps=1e-6,
                                                          transposed=transposed,
                                                          interleaved=interleaved,
@@ -368,11 +367,8 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048,2048], H=32, h=4, dim=128, r
     freqs = torch.cat([freqs, freqs], -1)
 
     mscale = 1.0
-    qw = torch.randn(dim, dtype=dtype, device=device)
-    kw = torch.randn(dim, dtype=dtype, device=device)
-
-
-
+    qw = torch.randn(dim, dtype=dtype, device=device).requires_grad_()
+    kw = torch.randn(dim, dtype=dtype, device=device).requires_grad_()
 
     q_grad = torch.randn(sum(lengths)//cp_size, H, dim, dtype=dtype, device=device)
     k_grad = torch.randn(sum(lengths)//cp_size, h, dim, dtype=dtype, device=device)
@@ -388,16 +384,16 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048,2048], H=32, h=4, dim=128, r
     dqw_ref = qw.grad
     dkw_ref = kw.grad
     
-    qo, ko, vo = triton_varlen_qk_norm_and_half_rope_forward(qkv.detach().clone(), qw, kw, freqs, cu_seqlens_q, cu_seqlens_kv, interleaved=interleaved, silu=silu, mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
+    qo, ko, vo = triton_varlen_qk_norm_and_half_rope_forward(qkv, qw, kw, freqs, cu_seqlens_q, cu_seqlens_kv, interleaved=interleaved, silu=silu, mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
     output_check(qo_ref, qo, mode='q')
     output_check(ko_ref, ko, mode='k')
     output_check(vo_ref, vo, mode='v')
 
 
-    dq, dkv, dp = triton_varlen_qk_norm_and_half_rope_backward(q_grad, k_grad, v_grad, qkv, qw, kw, freqs, cu_seqlens_q, cu_seqlens_kv, mscale=mscale, interleaved=interleaved, silu=silu, cp_size=cp_size, cp_rank=cp_rank)
-    output_check(dqkv_ref, dq, mode='dqkv')
-    output_check(dqw_ref, dkv, mode='dqw')
-    output_check(dkw_ref, dp, mode='dkv')
+    dqkv, dqw, dkw = triton_varlen_qk_norm_and_half_rope_backward(q_grad, k_grad, v_grad, qkv, qw, kw, freqs, cu_seqlens_q, cu_seqlens_kv, mscale=mscale, interleaved=interleaved, silu=silu, cp_size=cp_size, cp_rank=cp_rank)
+    output_check(dqkv_ref, dqkv, mode='dqkv')
+    output_check(dqw_ref, dqw, mode='dqw')
+    output_check(dkw_ref, dkw, mode='dkv')
 
 
     if bench:
@@ -450,7 +446,7 @@ def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0,
 
 
 
-    if True:
+    if False:
         from megatron.core.fusions.fused_mla_yarn_rope_apply import (
             fused_apply_mla_rope_for_kv,
             fused_apply_mla_rope_for_q,
@@ -566,7 +562,7 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     output_check(dp_ref, dp, mode='dp')
 
 
-    if True:
+    if False:
         from megatron.core.fusions.fused_mla_yarn_rope_apply import (
             fused_apply_mla_rope_for_kv,
             fused_apply_mla_rope_for_q,
@@ -624,28 +620,43 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
 
 
 if __name__ == '__main__':
-    # test_half_rope(B=2, L=4096, H=32, h=8, D=128, rope_theta=10000.0, transposed=True,
-    #                bench=False)
-    # test_half_rope(B=2, L=4096, H=32, h=8, D=128, rope_theta=10000.0, transposed=False,
-    #                bench=False)
-    # test_qk_norm_and_half_rope(B=1, L=4096, H=16, h=16, D=128,
-    #                            rope_theta=10000.0, interleaved=False, transposed=True, bench=False)
-    # test_qk_norm_and_half_rope(B=2, L=4096, H=16, h=4, D=128,
-    #                            rope_theta=10000.0, interleaved=False, transposed=True, bench=False)
-    # test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
-    #                            rope_theta=10000.0, interleaved=True, transposed=True, silu=True, bench=False)
-    # test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
-    #                            rope_theta=10000.0, interleaved=True, transposed=True, silu=False, bench=False)
-    # test_qk_norm_and_half_rope(B=4, L=4096, H=32, h=8, D=128,
-    #                            rope_theta=10000.0, interleaved=True, transposed=True, bench=False)
-    # test_qk_norm_and_half_rope(B=4, L=4096, H=32, h=8, D=128,
-    #                            rope_theta=10000.0, interleaved=False, transposed=True, 
-    #                            bench=False)
+    test_half_rope(B=2, L=4096, H=32, h=8, D=128, rope_theta=10000.0, transposed=True,
+                   bench=False)
+    test_half_rope(B=2, L=4096, H=32, h=8, D=128, rope_theta=10000.0, transposed=False,
+                   bench=False)
+    test_qk_norm_and_half_rope(B=1, L=4096, H=16, h=16, D=128,
+                               rope_theta=10000.0, interleaved=False, transposed=True, bench=False)
+    test_qk_norm_and_half_rope(B=2, L=4096, H=16, h=4, D=128,
+                               rope_theta=10000.0, interleaved=False, transposed=True, bench=False)
+    test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
+                               rope_theta=10000.0, interleaved=True, transposed=True, silu=True, bench=False)
+    test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
+                               rope_theta=10000.0, interleaved=True, transposed=True, silu=False, bench=False)
+    test_qk_norm_and_half_rope(B=4, L=4096, H=32, h=8, D=128,
+                               rope_theta=10000.0, interleaved=True, transposed=True, bench=False)
+    test_qk_norm_and_half_rope(B=4, L=4096, H=32, h=8, D=128,
+                               rope_theta=10000.0, interleaved=False, transposed=True, 
+                               bench=False)
     test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0,
                    bench=False)
-    # test_varlen_mla_rope(lengths=[4096,4096], H=32, rope_theta=10000.0,
-    #                bench=False, cp_size=1, cp_rank=0)
-    # test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
-    #                bench=False, cp_size=4, cp_rank=0)
-    # test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
-    #                bench=False, cp_size=4, cp_rank=1)
+    test_varlen_mla_rope(lengths=[4096,4096], H=32, rope_theta=10000.0,
+                   bench=False, cp_size=1, cp_rank=0)
+    test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
+                   bench=False, cp_size=4, cp_rank=0)
+    test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0,
+                   bench=False, cp_size=4, cp_rank=1)
+    test_varlen_qk_norm_and_half_rope(lengths=[2048,2048], H=32, h=4, dim=128, rope_theta=10000.0, silu=False,
+                    interleaved=True,
+                   bench=False, cp_size=1, cp_rank=0)
+    test_varlen_qk_norm_and_half_rope(lengths=[2048,4096,4096], H=32, h=4, dim=128, rope_theta=10000.0, silu=False,
+                    interleaved=True,
+                   bench=False, cp_size=1, cp_rank=0)
+    test_varlen_qk_norm_and_half_rope(lengths=[2048,4096,4096], H=32, h=4, dim=128, rope_theta=10000.0, silu=True,
+                    interleaved=True,
+                   bench=False, cp_size=1, cp_rank=0)
+    test_varlen_qk_norm_and_half_rope(lengths=[2048,4096,4096], H=32, h=4, dim=128, rope_theta=10000.0, silu=True,
+                    interleaved=True,
+                   bench=False, cp_size=4, cp_rank=0)
+    test_varlen_qk_norm_and_half_rope(lengths=[2048,4096,4096], H=32, h=4, dim=128, rope_theta=10000.0, silu=True,
+                    interleaved=False,
+                   bench=False, cp_size=4, cp_rank=0)
