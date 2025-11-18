@@ -7,6 +7,7 @@ import torch
 import triton
 import triton.language as tl
 
+
 @triton.jit
 def softmax_cross_entropy_forward_kernel(logit_ptr, label_ptr, loss_ptr,
                                          sum_exp_ptr, max_logit_ptr, N,
@@ -136,3 +137,103 @@ def triton_softmax_cross_entropy_backward(logits, labels, sum_exp, max_logit,
         num_warps=8
     )
     return output_grad
+
+
+
+
+@triton.jit
+def moe_z_loss_forward_kernel(logit_ptr, loss_ptr, coef,
+                             T: tl.constexpr,
+                              D: tl.constexpr):
+    pid = tl.program_id(axis=0)
+
+    logit = tl.load(logit_ptr + pid * T * D + tl.arange(0, T)[:, None]*D + tl.arange(0, D)).to(
+        tl.float32)
+    max_logit = tl.max(logit, 1)
+    lse = tl.log(tl.sum(tl.exp(logit - max_logit[:, None]), 1)) + max_logit
+    loss = coef / T * tl.sum(lse * lse)
+
+    tl.store(loss_ptr + pid, loss)
+
+
+def triton_moe_z_loss_forward(logits, coef=1e-6):
+    """
+    compute moe z loss,
+    z_loss = torch.mean(torch.square(torch.logsumexp(logits, dim=-1))) * coef
+    Args:
+        logits: logits tensor
+        coef: z loss coef
+    Returns:
+        z loss
+    """
+    L, B, D = logits.shape
+    device = logits.device
+    M = L*B
+    T = 4
+    assert M % T == 0
+    loss = torch.empty((M//T,), device=device, dtype=torch.float32)
+    grid = (M//T,)
+    moe_z_loss_forward_kernel[grid](
+        logits,
+        loss,
+        coef,
+        T,
+        D,
+        num_stages=3,
+        num_warps=1
+    )
+    return loss.mean()
+
+
+@triton.jit
+def moe_z_loss_backward_kernel(input_grad_ptr, logit_ptr, output_grad_ptr, coef,
+                                          T: tl.constexpr, 
+                                          D: tl.constexpr):
+    pid = tl.program_id(axis=0)
+    n_tokens = tl.num_programs(axis=0) * T
+    grad = tl.load(input_grad_ptr).to(tl.float32)
+
+    logit = tl.load(logit_ptr + pid * T * D + tl.arange(0, T)[:, None]*D + tl.arange(0, D)[None, :]).to(
+        tl.float32)
+    max_logit = tl.max(logit, 1, keep_dims=True)
+    e = tl.exp(logit - max_logit)
+    se = tl.sum(e, 1, keep_dims=True)
+    lse = tl.log(se) + max_logit
+
+    grads = 2 * coef / n_tokens * grad * lse * e/se
+
+    tl.store(output_grad_ptr + pid * T * D + tl.arange(0, T)[:, None]*D + tl.arange(0, D), grads)
+
+
+def triton_moe_z_loss_backward(grads, logits, coef=1e-6):
+    """
+    backward of moe z loss
+    Args:
+        grads: grad scalar tensor
+        logits: logit tensor, [L, B, dim]
+        coef: python scalar
+    Returns:
+        output_grad: [L, B, dim]
+    """
+    L, B, D = logits.shape
+    device = logits.device
+    M = L*B
+    T = 4
+    assert M % T == 0
+    output_grad = torch.empty((L,B,D), device=device, dtype=logits.dtype)
+    grid = (M//T,)
+    moe_z_loss_backward_kernel[grid](
+        grads,
+        logits,
+        output_grad,
+        coef,
+        T,
+        D,
+        num_stages=3,
+        num_warps=1
+    )
+    return output_grad
+
+
+
+

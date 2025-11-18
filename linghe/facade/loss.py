@@ -6,7 +6,8 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 
 from linghe.utils.loss import triton_softmax_cross_entropy_forward, \
-    triton_softmax_cross_entropy_backward
+    triton_softmax_cross_entropy_backward, triton_moe_z_loss_forward, \
+        triton_moe_z_loss_backward
 
 
 class SoftmaxCrossEntropyFunction(torch.autograd.Function):
@@ -70,3 +71,33 @@ class GradScalingFunction(torch.autograd.Function):
         scale = 1 / torch.pow(array.float(), ctx.coef)
         grad = grad_output * scale
         return grad, None
+
+
+
+class MoeZLossFunction(torch.autograd.Function):
+    """"""
+    @staticmethod
+    def forward(ctx, logits, coef):
+        loss = triton_moe_z_loss_forward(logits, coef=coef)
+        ctx.save_for_backward(logits, )
+        ctx.coef = coef
+        return loss
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        logits,  = ctx.saved_tensors
+        grad = triton_moe_z_loss_backward(grad_output, logits, coef=ctx.coef)
+        return grad, None
+
+
+def moe_z_loss(logits: torch.Tensor, coef: float = 1e-3):
+    """
+    softmax cross entropy
+    Args:
+        logits: logits tensor, shape [...,dim]
+        coef: z loss coef
+    Returns:
+        z loss
+    """
+    assert logits.is_contiguous()
+    return MoeZLossFunction.apply(logits, coef)

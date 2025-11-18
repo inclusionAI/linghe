@@ -15,8 +15,8 @@ from linghe.utils.rope import triton_mla_rope_backward, triton_mla_rope_forward,
 class QkNormHalfRopeFunction(torch.autograd.Function):
     """"""
     @staticmethod
-    def forward(ctx, qkv, q_norm_weight, k_norm_weight, freqs, H=32, h=4,
-                eps=1e-6):
+    def forward(ctx, qkv, q_norm_weight, k_norm_weight, freqs, 
+                H=32, h=4, eps=1e-6):
         shape = qkv.shape
         qo, ko, vo = triton_qk_norm_and_half_rope_forward(qkv,
                                                           q_norm_weight.data,
