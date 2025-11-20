@@ -15,7 +15,7 @@ from linghe.utils.rope import (triton_half_rope_forward,
                                triton_mla_rope_backward, 
                                triton_varlen_qk_norm_and_half_rope_forward, 
                                triton_varlen_qk_norm_and_half_rope_backward)
-
+from linghe.facade.rope import qk_norm_half_rope
 
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
@@ -298,17 +298,29 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
         qkv = torch.randn(L, B, (H + 2 * h) * D, dtype=dtype, device=device)
     else:
         qkv = torch.randn(B, L, (H + 2 * h) * D, dtype=dtype, device=device)
-    qkv = qkv*qkv.abs()
+    qkv = (qkv*qkv.abs()).requires_grad_()
     qw = torch.nn.Parameter(torch.randn(D, dtype=dtype, device=device), requires_grad=True)
     kw = torch.nn.Parameter(torch.randn(D, dtype=dtype, device=device), requires_grad=True)
     freqs = rope_freqs(L, D // 2, rope_theta=rope_theta)
     freqs = torch.cat([freqs, freqs], -1)
-    q_ref, k_ref, v_ref = torch_qk_norm_and_half_rope(qkv, qw, kw, freqs,
-                                                      H=H, h=h,
-                                                      eps=eps,
-                                                      transposed=transposed,
-                                                      interleaved=interleaved,
-                                                      silu=silu)
+    q_grad = torch.randn(B, L, H, D, dtype=dtype, device=device)**3
+    k_grad = torch.randn(B, L, h, D, dtype=dtype, device=device)**3
+    v_grad = torch.randn(B, L, h, D, dtype=dtype, device=device)**3
+
+
+    q_ref, k_ref, v_ref = torch_qk_norm_and_half_rope(qkv, qw,
+                                                         kw, freqs,
+                                                         H=H, h=h, eps=eps,
+                                                         transposed=transposed,
+                                                         interleaved=interleaved,
+                                                         silu=silu)
+    q_ref.backward(gradient=q_grad, retain_graph=True)
+    k_ref.backward(gradient=k_grad, retain_graph=True)
+    v_ref.backward(gradient=v_grad, retain_graph=True)
+    dqkv_ref = qkv.grad
+    dqw_ref = qw.grad
+    dkw_ref = kw.grad
+
     qo, ko, vo = triton_qk_norm_and_half_rope_forward(qkv, qw, kw, freqs, H=H,
                                                       h=h, eps=eps,
                                                       transposed=transposed,
@@ -317,26 +329,6 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
     output_check(q_ref, qo, mode='q')
     output_check(k_ref, ko, mode='k')
     output_check(v_ref, vo, mode='v')
-
-    q_grad = torch.randn(B, L, H, D, dtype=dtype, device=device)**3
-    k_grad = torch.randn(B, L, h, D, dtype=dtype, device=device)**3
-    v_grad = torch.randn(B, L, h, D, dtype=dtype, device=device)**3
-    qkv_ref = qkv.detach().clone().requires_grad_()
-    qw_ref = qw.detach().clone().requires_grad_()
-    kw_ref = kw.detach().clone().requires_grad_()
-    qo_ref, ko_ref, vo_ref = torch_qk_norm_and_half_rope(qkv_ref, qw_ref,
-                                                         kw_ref, freqs,
-                                                         H=H, h=h, eps=eps,
-                                                         transposed=transposed,
-                                                         interleaved=interleaved,
-                                                         silu=silu)
-    qo_ref.backward(gradient=q_grad, retain_graph=True)
-    ko_ref.backward(gradient=k_grad, retain_graph=True)
-    vo_ref.backward(gradient=v_grad, retain_graph=True)
-
-    dqkv_ref = qkv_ref.grad
-    dqw_ref = qw_ref.grad
-    dkw_ref = kw_ref.grad
 
     dqkv, dqw, dkw = triton_qk_norm_and_half_rope_backward(q_grad, k_grad,
                                                            v_grad, qkv, qw, kw,
@@ -347,6 +339,23 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
     output_check(dqkv_ref, dqkv, mode='dqkv')
     output_check(dqw_ref, dqw, mode='dqw')
     output_check(dkw_ref, dkw, mode='dkw')
+
+    if transposed and interleaved and not silu:
+        qkv.grad = None
+        qw.grad = None
+        kw.grad = None
+        q, k, v = qk_norm_half_rope(qkv, qw, kw, freqs, H=H, h=h, eps=eps)
+        # q.backward(gradient=q_grad, retain_graph=True)
+        # k.backward(gradient=k_grad, retain_graph=True)
+        # v.backward(gradient=v_grad, retain_graph=True)
+        loss = (q*q_grad).sum() + (k*k_grad).sum() + (v*v_grad).sum()
+        loss.backward()
+        dqkv = qkv.grad
+        dqw = qw.grad
+        dkw = kw.grad
+        output_check(dqkv_ref, dqkv, mode='dqkv')
+        output_check(dqw_ref, dqw, mode='dqw')
+        output_check(dkw_ref, dkw, mode='dkw')
 
     if bench:
         benchmark_func(triton_qk_norm_and_half_rope_forward, qkv, qw, kw, freqs,

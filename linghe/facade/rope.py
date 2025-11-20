@@ -22,7 +22,8 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
     def forward(ctx, qkv, q_norm_weight, k_norm_weight, freqs, 
                 cu_seqlens_q, cu_seqlens_kv,
                 H=32, h=4, eps=1e-6, 
-                cp_rank=0, cp_size=1, mscale=1.0):
+                cp_rank=0, cp_size=1, mscale=1.0,
+                silu=False):
         if cu_seqlens_q is None:
             qo, ko, vo = triton_qk_norm_and_half_rope_forward(qkv,
                                                             q_norm_weight,
@@ -32,7 +33,8 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                             h=h,
                                                             eps=eps,
                                                             interleaved=True,
-                                                            transposed=True)
+                                                            transposed=True,
+                                                            silu=silu)
         else:
             qo, ko, vo = triton_varlen_qk_norm_and_half_rope_forward(qkv,
                                                             q_norm_weight,
@@ -46,7 +48,8 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                             interleaved=True,
                                                             cp_rank=cp_rank,
                                                             cp_size=cp_size,
-                                                            mscale=mscale
+                                                            mscale=mscale,
+                                                            silu=silu
                                                             )
         ctx.save_for_backward(qkv, q_norm_weight, k_norm_weight, freqs)
         ctx.H = H
@@ -55,6 +58,7 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
         ctx.cp_rank = cp_rank
         ctx.cp_size = cp_size 
         ctx.mscale = mscale 
+        ctx.silu = silu
         ctx.cu_seqlens_q = cu_seqlens_q
         ctx.cu_seqlens_kv = cu_seqlens_kv
         return qo, ko, vo
@@ -73,7 +77,8 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                                 freqs,
                                                                 eps=ctx.eps,
                                                                 transposed=True,
-                                                                interleaved=True)
+                                                                interleaved=True,
+                                                                silu=ctx.silu)
         else:
             dqkv, dqw, dkw = triton_varlen_qk_norm_and_half_rope_backward(grad_q,
                                                                 grad_k,
@@ -88,8 +93,9 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                                 interleaved=True,
                                                                 cp_rank=ctx.cp_rank,
                                                                 cp_size=ctx.cp_size,
-                                                                mscale=ctx.mscale)
-        return dqkv, dqw, dkw, None, None, None, None, None, None, None, None, None
+                                                                mscale=ctx.mscale,
+                                                                silu=ctx.silu)
+        return dqkv, dqw, dkw, None, None, None, None, None, None, None, None, None, None
 
 
 def qk_norm_half_rope(qkv: torch.Tensor,
@@ -103,7 +109,8 @@ def qk_norm_half_rope(qkv: torch.Tensor,
                       eps: float = 1e-6,
                       cp_rank=0, 
                       cp_size=1,
-                      mscale=1.0):
+                      mscale=1.0,
+                      silu=False):
     """
     split qkv to q/k/v, apply qk norm and half rope to q/k, transpose q/k/v to flash-attention layout
     Args:
@@ -136,7 +143,8 @@ def qk_norm_half_rope(qkv: torch.Tensor,
                                         eps,
                                         cp_rank,
                                         cp_size,
-                                        mscale)
+                                        mscale,
+                                        silu)
 
 
 class MLARopeFunction(torch.autograd.Function):
