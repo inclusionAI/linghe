@@ -86,8 +86,8 @@ def test_z_loss(L=4096, B=2, N=256, coef=0.001, bench=False):
 
 
 if __name__ == '__main__':
-    test_triton_softmax_cross_entropy(M=8, N=157184, coef=1.0, inplace=False, bench=False)
-    test_triton_softmax_cross_entropy(M=8, N=157184, coef=10.0, inplace=True, bench=False)
-    test_triton_softmax_cross_entropy(M=8, N=157175, coef=10.0, inplace=False, bench=False)
-    test_triton_softmax_cross_entropy(M=8, N=157175, coef=10.0, inplace=True, bench=False)
+    test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, inplace=False, bench=False)
+    test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1e-6, inplace=True, bench=False)
+    test_triton_softmax_cross_entropy(M=8192, N=157175, coef=100.0, inplace=False, bench=False)
+    test_triton_softmax_cross_entropy(M=4096, N=157175, coef=10.0, inplace=True, bench=False)
     test_z_loss(L=4096, B=2, N=256, coef=1e-6, bench=False)

@@ -36,7 +36,7 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
                                                      inplace=ctx.inplace)
         if len(shape) == 3:
             grad = grad.view(shape)
-        return grad, None, None, None
+        return grad, None, None
 
 
 def softmax_cross_entropy(logits: torch.Tensor, labels: torch.Tensor, inplace: bool = False):
