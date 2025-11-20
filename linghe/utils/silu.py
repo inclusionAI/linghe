@@ -487,6 +487,7 @@ def triton_batch_weighted_silu_and_block_quant_forward(x,
         - transpose_output: quantized tensor of transposed output
         - transpose_scale: quantization scale of transposed output
     """
+    assert splits is not None, 'batch mode need splits to launch kernels'
     M, N = x.shape
     n = N // 2
     n_experts = counts.shape[0]
@@ -494,17 +495,14 @@ def triton_batch_weighted_silu_and_block_quant_forward(x,
     device = x.device
     if out is None:
         out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
-
-    assert splits is not None, 'batch mode need splits to launch kernels'
-    blocks = sum([(x + 127) // 128 for x in splits])
-    transpose_output = torch.empty((M * n), device=device,
-                                   dtype=torch.float8_e4m3fn)
-    transpose_scale = torch.empty((blocks * n), device=device,
-                                  dtype=torch.float32)
-    # intra layout and inner layput are not consist,
-    # tensors will be viewed after splitting
     if scale is None:
-        scale = torch.empty((M * n // 128,), device=device, dtype=torch.float32)
+        scale = torch.empty((M, n // 128), device=device, dtype=torch.float32)
+
+    blocks = sum([(x + 127) // 128 for x in splits])
+    transpose_output = torch.empty((M, n), device=device,
+                                   dtype=torch.float8_e4m3fn)
+    transpose_scale = torch.empty((blocks, n), device=device,
+                                  dtype=torch.float32)
 
     if M == 0:
         return out, scale, transpose_output, transpose_scale
@@ -664,15 +662,12 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
     accums = torch.cumsum(counts, 0)
 
     dx = torch.empty((M, N), device=device, dtype=torch.float8_e4m3fn)
-
-    # intra layout and inner layput are not consist,
-    # tensors will be viewed after splitting
-    dx_scale = torch.empty((N // 128 * M), device=device, dtype=torch.float32)
+    dx_scale = torch.empty((M, N // 128), device=device, dtype=torch.float32)
 
     s = sum([(x + 127) // 128 for x in splits])
-    transpose_dx = torch.empty((N * M), device=device,
+    transpose_dx = torch.empty((M, N), device=device,
                                dtype=torch.float8_e4m3fn)
-    transpose_dx_scale = torch.empty((s * N), device=device,
+    transpose_dx_scale = torch.empty((s, N), device=device,
                                      dtype=torch.float32)
     if s == 0:
         dw = torch.empty_like(weight)

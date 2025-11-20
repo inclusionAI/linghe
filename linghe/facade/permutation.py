@@ -108,7 +108,6 @@ class _PaddedUnpermute(torch.autograd.Function):
         return permuted_tokens, None, None, None
 
 
-
 def padded_unpermute(
     permuted_tokens: torch.Tensor,
     row_id_map: torch.Tensor,
@@ -119,11 +118,9 @@ def padded_unpermute(
     return output
 
 
-
-
 class _BlockPaddedPermute(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, tokens, probs, routing_map, tokens_per_expert_cuda_tensor, tokens_per_expert_list, quantizer, cls):
+    def forward(ctx, tokens, probs, routing_map, tokens_per_expert_cuda_tensor, tokens_per_expert_list, quantizers, cls):
         """Forward function."""
         num_tokens, hidden_dim = tokens.shape
         
@@ -141,22 +138,22 @@ class _BlockPaddedPermute(torch.autograd.Function):
             row_id_index,
             tokens_per_expert_list,
             probs=probs,
-            round_scale=quantizer.force_pow_2_scales
+            round_scale=quantizers[0].force_pow_2_scales
             )
 
         output = cls(
                     shape=x_q.shape,
                     dtype=tokens.dtype,
-                    fp8_dtype=quantizer.dtype,
+                    fp8_dtype=quantizers[0].dtype,
                     rowwise_data=x_q,
                     rowwise_scale_inv=x_scale,
                     columnwise_data=xt_q,
                     columnwise_scale_inv=xt_scale,
-                    quantizer=quantizer,
+                    quantizer=quantizers,
                     requires_grad=tokens.requires_grad,
                     is_2D_scaled=False
                 )
-        ctx.save_for_backward(row_id_map, )
+        ctx.save_for_backward(row_id_map)
         return output, permuted_probs, row_id_map, row_id_index
 
     @staticmethod
@@ -172,7 +169,7 @@ def block_padded_permute(
     routing_map,
     tokens_per_expert_cuda_tensor,
     tokens_per_expert_list,
-    quantizer,
+    quantizers,
     cls,
     probs: Optional[torch.Tensor] = None
 ):
@@ -193,7 +190,7 @@ def block_padded_permute(
                                                                       routing_map, 
                                                                       tokens_per_expert_cuda_tensor, 
                                                                       tokens_per_expert_list,
-                                                                      quantizer,
+                                                                      quantizers,
                                                                       cls)
     return permuted_input, permuted_probs, row_id_map, row_id_index
 
@@ -201,7 +198,7 @@ def block_padded_permute(
 
 class _BlockPaddedUnpermute(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, permuted_tokens, row_id_map, row_id_index, tokens_per_expert, splits, restore_shape, quantizer, cls):
+    def forward(ctx, permuted_tokens, row_id_map, row_id_index, tokens_per_expert, splits, restore_shape, quantizers, cls):
         """Forward function."""
         num_tokens, hidden_size = restore_shape
         num_out_tokens = permuted_tokens.shape[0]
@@ -215,7 +212,7 @@ class _BlockPaddedUnpermute(torch.autograd.Function):
         ctx.hidden_size = hidden_size
         ctx.tokens_per_expert = tokens_per_expert
         ctx.splits = splits
-        ctx.quantizer = quantizer
+        ctx.quantizers = quantizers
         ctx.cls = cls
 
         output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map, None)
@@ -226,24 +223,24 @@ class _BlockPaddedUnpermute(torch.autograd.Function):
         """Backward function."""
         row_id_index, = ctx.saved_tensors
 
-        quantizer = ctx.quantizer
+        quantizers = ctx.quantizers
         x_q, x_scale, xt_q, xt_scale, _ = triton_batch_block_pad_permute_with_indices(
             grad_output,
             ctx.tokens_per_expert,
             row_id_index,
             ctx.splits,
-            round_scale=quantizer.force_pow_2_scales
+            round_scale=quantizers[0].force_pow_2_scales
             )
 
         output = ctx.cls(
                     shape=x_q.shape,
                     dtype=grad_output.dtype,
-                    fp8_dtype=quantizer.dtype,
+                    fp8_dtype=quantizers[0].dtype,
                     rowwise_data=x_q,
                     rowwise_scale_inv=x_scale,
                     columnwise_data=xt_q,
                     columnwise_scale_inv=xt_scale,
-                    quantizer=quantizer,
+                    quantizer=quantizers,
                     requires_grad=False,
                     is_2D_scaled=False
                 )
@@ -259,8 +256,8 @@ def block_padded_unpermute(
     tokens_per_expert: torch.Tensor,
     splits: List,
     restore_shape: torch.Size,
-    quantizer,
+    quantizers,
     cls
 ):
-    output = _BlockPaddedUnpermute.apply(permuted_tokens, row_id_map, row_id_index, tokens_per_expert, splits, restore_shape, quantizer, cls) 
+    output = _BlockPaddedUnpermute.apply(permuted_tokens, row_id_map, row_id_index, tokens_per_expert, splits, restore_shape, quantizers, cls) 
     return output

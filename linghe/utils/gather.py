@@ -988,14 +988,13 @@ def triton_batch_block_pad_permute_with_indices(xs,
     M = indices.shape[0]
     device = xs.device
     x_q = torch.empty((M, N), device=device, dtype=torch.float8_e4m3fn)
-    # intra layout and inner layput are not consist,
-    # tensors will be viewed after splitting
-    x_scale = torch.empty((M * N // 128,), device=device, dtype=torch.float32)
+    # intra layout is [N//128, m]
+    x_scale = torch.empty((M, N // 128), device=device, dtype=torch.float32)
     blocks = sum([(x + 127) // 128 for x in splits])
-    xt_q = torch.empty((M * N,), device=device,
-                                   dtype=torch.float8_e4m3fn)
-    xt_scale = torch.empty((blocks * N,), device=device,
-                                  dtype=torch.float32)
+    # intra layout is [N, m]
+    xt_q = torch.empty((M, N), device=device, dtype=torch.float8_e4m3fn)
+    # intra layout is [ceil(m/128), N]
+    xt_scale = torch.empty((blocks, N), device=device, dtype=torch.float32)
     PROB = probs is not None
     if PROB:
         prob_output = torch.empty((M, ), device=device, dtype=probs.dtype)
