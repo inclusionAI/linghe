@@ -18,11 +18,11 @@ class GroupRMSNormGateFunction(torch.autograd.Function):
         output = triton_group_rms_norm_gate_forward(
             attn_output,
             gate,
-            weight.data,
+            weight,
             eps=eps,
             group_size=group_size
         )
-        ctx.save_for_backward(attn_output, gate, weight.data)
+        ctx.save_for_backward(attn_output, gate, weight)
         ctx.eps = eps
         ctx.group_size = group_size
 

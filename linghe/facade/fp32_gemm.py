@@ -18,12 +18,12 @@ class Fp32GEMM(torch.autograd.Function):
         assert len(shape) == 3
         input = input.view(shape[0] * shape[1], shape[2])
 
-        logits = triton_fp32_gemm(input, weight.data)
+        logits = triton_fp32_gemm(input, weight)
 
         ctx.input_requires_grad = input.requires_grad
         ctx.weight_requires_grad = weight.requires_grad
         ctx.shape = shape
-        ctx.save_for_backward(input, weight.data)
+        ctx.save_for_backward(input, weight)
 
         return logits.view(shape[0], shape[1], weight.shape[0])
 

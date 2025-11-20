@@ -494,7 +494,7 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
     group_rms_norm_gate_forward_kernel[grid](
         x,
         gate,
-        weight.data,
+        weight,
         out,
         eps,
         bs,

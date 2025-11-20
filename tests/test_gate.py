@@ -11,7 +11,7 @@ from linghe.utils.gate import (triton_group_rms_norm_gate_forward,
 from linghe.tools.util import output_check
 from linghe.tools.benchmark import benchmark_func
 
-@torch.compile
+# @torch.compile
 def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4, transpose=True):
     x = x.float()
     gate = gate.float()
@@ -24,8 +24,13 @@ def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4, t
     attn_output = x.view(bs, length, group_size, d).transpose(0, 1)
     outputs = []
     for i in range(group_size):
-        outputs.append(F.rms_norm(attn_output[:, :, i], [d],
-                                  weight=weight[i * d:(i + 1) * d], eps=eps))
+        if weight.size(0) == dim:
+            o = F.rms_norm(attn_output[:, :, i], [d],
+                                    weight=weight[i * d:(i + 1) * d], eps=eps)
+        else:
+            o = F.rms_norm(attn_output[:, :, i], [d],
+                                    weight=weight, eps=eps)
+        outputs.append(o)
     outputs = torch.stack(outputs, 2)
     if transpose:
         outputs = outputs.view(length, bs, dim)
@@ -50,13 +55,14 @@ def torch_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6,
 
 
 def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
-                               transpose=True,
+                               transpose=True, share=False,
                                bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
     x = torch.randn(bs, length, dim, dtype=dtype, requires_grad=True,
                     device=device) ** 2
-    weight = torch.randn(dim, dtype=dtype, requires_grad=True, device=device)
+    weight = torch.randn(dim//group_size if share else dim, dtype=dtype, 
+                         requires_grad=True, device=device)
     if transpose:
         gate = torch.randn(length, bs, dim, dtype=dtype, requires_grad=True,
                         device=device)
@@ -102,12 +108,14 @@ def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
 
 
 if __name__ == '__main__':
-    
     test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
                             transpose=True,
                                bench=False)
     test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
                             transpose=False,
+                               bench=False)
+    test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
+                            transpose=False, share=True,
                                bench=False)
     test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
                                bench=False)

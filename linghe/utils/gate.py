@@ -9,13 +9,17 @@ from typing import Optional
 def group_rms_norm_gate_forward_kernel(x_ptr, gate_ptr, weight_ptr, out_ptr, eps, bs, length,
                             DIM: tl.constexpr, 
                             D: tl.constexpr, 
-                            GROUP_SIZE: tl.constexpr):
+                            GROUP_SIZE: tl.constexpr,
+                            SHARE: tl.constexpr):
     pid = tl.program_id(axis=0)
     bid = pid // length 
     sid = pid % length
 
-    weight = tl.load(weight_ptr + tl.arange(0, DIM))
-    weight = tl.reshape(weight, [GROUP_SIZE, D])
+    if SHARE:
+        weight = tl.load(weight_ptr + tl.arange(0, D))[None, :]
+    else:
+        weight = tl.load(weight_ptr + tl.arange(0, DIM))
+        weight = tl.reshape(weight, [GROUP_SIZE, D])
 
     x_offs = pid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
                                                             None, :]
@@ -54,7 +58,11 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
         length, bs, dim = gate.shape
     else:
         bs, length, dim = gate.shape
-    assert dim <= 8192 and triton.next_power_of_2(dim) == dim and triton.next_power_of_2(group_size) == group_size
+    assert (dim <= 8192 
+            and triton.next_power_of_2(dim) == dim 
+            and triton.next_power_of_2(group_size) == group_size)
+    wd = weight.shape[0]
+    share = wd != dim  # all groups share the same weight
     d = dim // group_size
     device = x.device
     if transpose:
@@ -66,7 +74,7 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
     group_rms_norm_gate_forward_kernel[grid](
         x,
         gate,
-        weight.data,
+        weight,
         out,
         eps,
         bs,
@@ -74,6 +82,7 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
         dim, 
         d,
         group_size,
+        share,
         num_stages=3,
         num_warps=4
     )
@@ -95,14 +104,18 @@ def group_rms_norm_gate_backward_kernel(
         DIM: tl.constexpr, 
         D: tl.constexpr, 
         GROUP_SIZE: tl.constexpr,
-        T: tl.constexpr
+        T: tl.constexpr,
+        SHARE: tl.constexpr
 ):
     pid = tl.program_id(0)
     bid = pid * T // length 
     sid = pid * T % length
 
-    w = tl.load(w_ptr + tl.arange(0, DIM))
-    w = tl.reshape(w, [GROUP_SIZE, D])
+    if SHARE:
+        w = tl.load(w_ptr + tl.arange(0, D))[None, :]
+    else:
+        w = tl.load(w_ptr + tl.arange(0, DIM))
+        w = tl.reshape(w, [GROUP_SIZE, D])
 
     x_offs = pid * DIM * T + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
                                                             None, :]
@@ -129,8 +142,12 @@ def group_rms_norm_gate_backward_kernel(
         x_offs += DIM
         offs += DIM * bs
 
-    dw = tl.reshape(dw, [DIM])
-    tl.store(dw_ptr + pid * DIM + tl.arange(0, DIM), dw)
+    if SHARE:
+        dw = tl.sum(dw, 0)
+        tl.store(dw_ptr + pid * D + tl.arange(0, D), dw)
+    else:
+        dw = tl.reshape(dw, [DIM])
+        tl.store(dw_ptr + pid * DIM + tl.arange(0, DIM), dw)
 
 
 def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6, group_size=4, transpose=True):
@@ -138,15 +155,23 @@ def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6, 
         length, bs, dim = gate.shape
     else:
         bs, length, dim = gate.shape
-    assert dim <= 8192 and triton.next_power_of_2(dim) == dim and triton.next_power_of_2(group_size) == group_size
+    assert (dim <= 8192 
+            and triton.next_power_of_2(dim) == dim 
+            and triton.next_power_of_2(group_size) == group_size)
     d = dim // group_size
+    wd = weight.shape[0]
+    share = wd != dim  # all groups share the same weight
+
     device = x.device
     dx = torch.empty_like(x)
     dg = torch.empty_like(gate)
 
     T = 8
     g = (bs*length)//T
-    tmp_dw = torch.empty(g, dim, dtype=torch.float32, device=device)
+    if share:
+        tmp_dw = torch.empty(g, d, dtype=torch.float32, device=device)
+    else:
+        tmp_dw = torch.empty(g, dim, dtype=torch.float32, device=device)
     grid = (g,)
     group_rms_norm_gate_backward_kernel[grid](
         grad_output,
@@ -163,6 +188,7 @@ def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6, 
         d,
         group_size,
         T,
+        share,
         num_stages=3,
         num_warps=8
     )

@@ -145,7 +145,7 @@ class SmoothQuantLinear(torch.nn.Module):
 
             if self.smooth_update_step % self.gap_step == 0:
                 input_maxs = triton_abs_max(input)
-                weight_maxs = triton_abs_max(self.weight.data)
+                weight_maxs = triton_abs_max(self.weight)
                 self.smooth_scale = torch.sqrt(input_maxs * weight_maxs)
 
             output = _SmoothQuantLinear.apply(input,

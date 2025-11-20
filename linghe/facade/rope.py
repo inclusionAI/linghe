@@ -25,8 +25,8 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                 cp_rank=0, cp_size=1, mscale=1.0):
         if cu_seqlens_q is None:
             qo, ko, vo = triton_qk_norm_and_half_rope_forward(qkv,
-                                                            q_norm_weight.data,
-                                                            k_norm_weight.data,
+                                                            q_norm_weight,
+                                                            k_norm_weight,
                                                             freqs,
                                                             H=H,
                                                             h=h,
@@ -35,8 +35,8 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                             transposed=True)
         else:
             qo, ko, vo = triton_varlen_qk_norm_and_half_rope_forward(qkv,
-                                                            q_norm_weight.data,
-                                                            k_norm_weight.data,
+                                                            q_norm_weight,
+                                                            k_norm_weight,
                                                             freqs,
                                                             cu_seqlens_q,
                                                             cu_seqlens_kv,
@@ -48,8 +48,7 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                             cp_size=cp_size,
                                                             mscale=mscale
                                                             )
-        ctx.save_for_backward(qkv, q_norm_weight.data, k_norm_weight.data,
-                              freqs)
+        ctx.save_for_backward(qkv, q_norm_weight, k_norm_weight, freqs)
         ctx.H = H
         ctx.h = h
         ctx.eps = eps
