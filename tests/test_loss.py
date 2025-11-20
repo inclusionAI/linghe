@@ -55,7 +55,7 @@ def test_triton_softmax_cross_entropy(M=4096, N=157184, coef=1.0, inplace=False,
     output_check(grad_ref.float(), grad.float(), mode='grad')
     if bench:
         benchmark_func(torch_cross_entropy, logits, targets, output_grad,
-                       ref_bytes=M * N * 6)
+                       ref_bytes=M * N * 2)
         benchmark_func(triton_softmax_cross_entropy_forward, logits, targets,
                        ref_bytes=M * N * 2)
         benchmark_func(triton_softmax_cross_entropy_backward, logits, targets,

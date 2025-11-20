@@ -85,6 +85,7 @@ def softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
                                           N, B: tl.constexpr,
                                           INPLACE: tl.constexpr):
     pid = tl.program_id(axis=0).to(tl.int64)
+    N = N.to(tl.int64)
     label = tl.load(label_ptr + pid)
     input_grad = tl.load(input_grad_ptr + pid).to(tl.float32)
     sum_exp = tl.load(sum_exp_ptr + pid)
@@ -97,6 +98,7 @@ def softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
             tl.float32)
         grad = tl.exp(logit - max_logit) * coef
         if INPLACE:
+            tl.debug_barrier()
             tl.store(logit_ptr + pid * N + i * B + tl.arange(0, B), grad,
                     mask=i * B + tl.arange(0, B) < N)
         else:
@@ -108,6 +110,7 @@ def softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
     else:
         target_grad = tl.load(output_grad_ptr + pid * N + label)
     target_grad -= input_grad
+    tl.debug_barrier()
     if INPLACE:
         tl.store(logit_ptr + pid * N + label, target_grad)
     else:
