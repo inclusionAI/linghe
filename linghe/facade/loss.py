@@ -30,11 +30,10 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
     def backward(ctx, grad_output):
         logits, labels, sum_exp, max_logit = ctx.saved_tensors
         shape = ctx.shape
-        grad = logits if ctx.inplace else None
         grad = triton_softmax_cross_entropy_backward(logits, labels, sum_exp,
                                                      max_logit,
                                                      grad_output,
-                                                     output_grad=grad)
+                                                     inplace=ctx.inplace)
         if len(shape) == 3:
             grad = grad.view(shape)
         return grad, None, None, None

@@ -82,7 +82,8 @@ def triton_softmax_cross_entropy_forward(logits, labels):
 def softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
                                           max_logit_ptr,
                                           input_grad_ptr, output_grad_ptr,
-                                          N, B: tl.constexpr):
+                                          N, B: tl.constexpr,
+                                          INPLACE: tl.constexpr):
     pid = tl.program_id(axis=0).to(tl.int64)
     label = tl.load(label_ptr + pid)
     input_grad = tl.load(input_grad_ptr + pid).to(tl.float32)
@@ -95,17 +96,27 @@ def softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
                         mask=i * B + tl.arange(0, B) < N, other=-1e30).to(
             tl.float32)
         grad = tl.exp(logit - max_logit) * coef
-        tl.store(output_grad_ptr + pid * N + i * B + tl.arange(0, B), grad,
-                 mask=i * B + tl.arange(0, B) < N)
+        if INPLACE:
+            tl.store(logit_ptr + pid * N + i * B + tl.arange(0, B), grad,
+                    mask=i * B + tl.arange(0, B) < N)
+        else:
+            tl.store(output_grad_ptr + pid * N + i * B + tl.arange(0, B), grad,
+                    mask=i * B + tl.arange(0, B) < N)
     tl.debug_barrier()
-    target_grad = tl.load(output_grad_ptr + pid * N + label)
+    if INPLACE:
+        target_grad = tl.load(logit_ptr + pid * N + label)
+    else:
+        target_grad = tl.load(output_grad_ptr + pid * N + label)
     target_grad -= input_grad
-    tl.store(output_grad_ptr + pid * N + label, target_grad)
+    if INPLACE:
+        tl.store(logit_ptr + pid * N + label, target_grad)
+    else:
+        tl.store(output_grad_ptr + pid * N + label, target_grad)
 
 
 def triton_softmax_cross_entropy_backward(logits, labels, sum_exp, max_logit,
                                           input_grad,
-                                          output_grad=None):
+                                          inplace=False):
     """
     backward of softmax cross entropy loss
     Args:
@@ -120,8 +131,10 @@ def triton_softmax_cross_entropy_backward(logits, labels, sum_exp, max_logit,
     """
     M, N = logits.shape
     device = logits.device
-    if output_grad is None:
+    if not inplace:
         output_grad = torch.empty((M, N), device=device, dtype=logits.dtype)
+    else:
+        output_grad = None
     B = 4096
     grid = (M,)
     softmax_cross_entropy_backward_kernel[grid](
@@ -133,9 +146,12 @@ def triton_softmax_cross_entropy_backward(logits, labels, sum_exp, max_logit,
         output_grad,
         N,
         B,
+        inplace,
         num_stages=3,
         num_warps=8
     )
+    if inplace:
+        output_grad = logits
     return output_grad
 
 

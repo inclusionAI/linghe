@@ -8,6 +8,7 @@ import torch
 from linghe.gemm.fp32_gemm import (triton_fp32_gemm,
                                   triton_fp32_gemm_for_backward,
                                   triton_fp32_gemm_for_update)
+from linghe.facade.fp32_gemm import fp32_gemm
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
 
@@ -29,23 +30,33 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     device = 'cuda:0'
     n_repeat = 100
 
-    x = torch.randn(M, K, dtype=dtype, device=device)
-    w = torch.randn(N, K, dtype=dtype, device=device)
-    scale = torch.randn(M, dtype=torch.float32, device=device)
+    x = torch.randn(M, K, dtype=dtype, device=device, requires_grad=True)
+    w = torch.randn(N, K, dtype=dtype, device=device, requires_grad=True)
     dy = torch.randn(M, N, dtype=torch.float32, device=device)
 
     y_ref = torch_fp32_matmul(x, w)
+    y_ref.backward(gradient=dy)
+    dx_ref = x.grad 
+    dw_ref = w.grad
+
     y = triton_fp32_gemm(x, w)
-    output_check(y_ref, y.float(), mode='fp32_gemm')
-
-    dx = torch.zeros(M, K, dtype=dtype, device=device)
     dx = triton_fp32_gemm_for_backward(dy, w)
-    dx_ref = dy @ w.float()
-    output_check(dx_ref, dx.float(), mode='backward')
+    dw = triton_fp32_gemm_for_update(dy, x)
 
-    main_grad = triton_fp32_gemm_for_update(y, x)
-    main_grad_ref = y.t() @ (x.float())
-    output_check(main_grad_ref, main_grad.float(), mode='update')
+    output_check(y_ref, y, mode='forward')
+    output_check(dx_ref, dx, mode='backward')
+    output_check(dw_ref, dw, mode='update')
+
+    x.grad = None 
+    w.grad = None
+    y = fp32_gemm(x.view(M,1,K), w)
+    y.backward(gradient=dy.view(M,1,N))
+    dx = x.grad 
+    dw = w.grad
+    output_check(y_ref, y[:,0], mode='forward')
+    output_check(dx_ref, dx, mode='backward')
+    output_check(dw_ref, dw, mode='update')
+
 
     if bench:
         print('\nbenchmark\n')
@@ -53,9 +64,6 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
                                   ref_bytes=M * K * 6 + N * K * 6 + M * N * 4,
                                   ref_linghe=2 * M * N * K)
         benchmark_func(triton_fp32_gemm, x, w, n_repeat=n_repeat,
-                       ref_bytes=M * K * 6 + N * K * 6 + M * N * 4,
-                       ref_linghe=2 * M * N * K, ref_time=ref_time)
-        benchmark_func(triton_scaled_fp32_gemm, x, w, scale, n_repeat=n_repeat,
                        ref_bytes=M * K * 6 + N * K * 6 + M * N * 4,
                        ref_linghe=2 * M * N * K, ref_time=ref_time)
 
@@ -75,11 +83,6 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
         benchmark_func(triton_fp32_gemm_for_update, dy, x, n_repeat=n_repeat,
                        ref_bytes=M * K * 2 + N * K * 8 + M * N * 4,
                        ref_linghe=2 * M * N * K, ref_time=ref_time)
-        benchmark_func(triton_scaled_fp32_gemm_for_update, dy, x, scale,
-                       n_repeat=n_repeat,
-                       ref_bytes=M * K * 2 + N * K * 8 + M * N * 4,
-                       ref_linghe=2 * M * N * K, ref_time=ref_time)
-
 
 if __name__ == '__main__':
     test_fp32_matmul(M=2048, N=256, K=8192)

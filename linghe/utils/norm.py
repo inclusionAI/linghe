@@ -895,13 +895,12 @@ def triton_rms_norm_and_mxfp8_quant_forward(x, weight, eps=1e-6,
             n, 
             M,
             T,
-            N,#N
-            N//32,#N//32
+            N,
+            N//32,
             W,
             num_stages=3,
             num_warps=4
         )
-        # scale = scale.t().contiguous()
 
     elif output_mode == 1:  # only output transposed tensor
         # W = N//512
@@ -944,7 +943,6 @@ def triton_rms_norm_and_mxfp8_quant_forward(x, weight, eps=1e-6,
             num_stages=3,
             num_warps=16
         )
-        # scale = scale.t().contiguous()
 
     return out, scale, rms, transpose_output, transpose_scale
 

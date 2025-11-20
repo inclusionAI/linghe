@@ -11,6 +11,7 @@ from linghe.utils.gate import (triton_group_rms_norm_gate_forward,
 from linghe.tools.util import output_check
 from linghe.tools.benchmark import benchmark_func
 
+
 # @torch.compile
 def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4, transpose=True):
     x = x.float()
@@ -60,7 +61,7 @@ def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
     dtype = torch.bfloat16
     device = 'cuda:0'
     x = torch.randn(bs, length, dim, dtype=dtype, requires_grad=True,
-                    device=device) ** 2
+                    device=device)
     weight = torch.randn(dim//group_size if share else dim, dtype=dtype, 
                          requires_grad=True, device=device)
     if transpose:
@@ -110,14 +111,14 @@ def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
 if __name__ == '__main__':
     test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
                             transpose=True,
-                               bench=False)
+                            bench=False)
     test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
                             transpose=False,
-                               bench=False)
+                            bench=False)
     test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
                             transpose=False, share=True,
-                               bench=False)
+                            bench=False)
     test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
-                               bench=False)
+                             bench=False)
 
 
