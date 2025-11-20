@@ -47,7 +47,7 @@ def triton_cross_entropy_forward_backward(logits, targets, input_grad, inplace=T
 
 def bench_triton_softmax_cross_entropy(M=4096, N=157184):
     device = 'cuda:0'
-    logits = torch.randn((M, N), dtype=torch.bfloat16, device=device)**3
+    logits = torch.randn((M, N), dtype=torch.bfloat16, device=device)*100
     logits = logits.detach().clone().requires_grad_()
     # targets = (torch.rand((M,), dtype=torch.float32, device=device) * N).to(
     #     torch.int64)

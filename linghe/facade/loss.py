@@ -5,9 +5,10 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import torch
 
-from linghe.utils.loss import triton_softmax_cross_entropy_forward, \
-    triton_softmax_cross_entropy_backward, triton_moe_z_loss_forward, \
-        triton_moe_z_loss_backward
+from linghe.utils.loss import (triton_softmax_cross_entropy_forward,
+                               triton_softmax_cross_entropy_backward,
+                               triton_moe_z_loss_forward,
+                               triton_moe_z_loss_backward)
 
 
 class SoftmaxCrossEntropyFunction(torch.autograd.Function):
@@ -15,9 +16,8 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, logits, labels, inplace=False):
         shape = logits.shape
-        if len(shape) == 3:
-            logits = logits.view(-1, shape[-1])
-        loss, sum_exp, max_logit = triton_softmax_cross_entropy_forward(logits,
+        logits_view = logits.view(-1, shape[-1]) if len(shape) == 3 else logits
+        loss, sum_exp, max_logit = triton_softmax_cross_entropy_forward(logits_view,
                                                                         labels)
         ctx.save_for_backward(logits, labels, sum_exp, max_logit)
         ctx.inplace = inplace
@@ -30,6 +30,9 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
     def backward(ctx, grad_output):
         logits, labels, sum_exp, max_logit = ctx.saved_tensors
         shape = ctx.shape
+        if len(shape) == 3:
+            logits = logits.view(-1, shape[-1])
+            grad_output = torch.reshape(grad_output,(-1,))
         grad = triton_softmax_cross_entropy_backward(logits, labels, sum_exp,
                                                      max_logit,
                                                      grad_output,

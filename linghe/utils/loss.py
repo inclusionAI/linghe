@@ -128,10 +128,12 @@ def triton_softmax_cross_entropy_backward(logits, labels, sum_exp, max_logit,
         sum_exp:  [bs]
         max_logit: [bs]
         output_grad: gradient, [bs, dim]
+        inplace: whether to reuse logits as gradient
 
     Returns:
         grad of input: [bs, dim]
     """
+    assert output_grad.is_contiguous()
     M, N = logits.shape
     device = logits.device
     if not inplace:
