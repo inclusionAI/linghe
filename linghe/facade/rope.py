@@ -150,12 +150,13 @@ def qk_norm_half_rope(qkv: torch.Tensor,
 class MLARopeFunction(torch.autograd.Function):
     """"""
     @staticmethod
-    def forward(ctx, q, kv, k_pos_emb, freqs, mscale, cu_seqlens_q, cu_seqlens_kv, cp_size, cp_rank):
+    def forward(ctx, q, kv, k_pos_emb, freqs, mscale, transpose, cu_seqlens_q, cu_seqlens_kv, cp_size, cp_rank):
         qo, ko, vo = triton_mla_rope_forward(q,
                                              kv,
                                             k_pos_emb,
                                             freqs,
                                             mscale=mscale,
+                                            transpose=transpose,
                                             cu_seqlens_q=cu_seqlens_q,
                                             cu_seqlens_kv=cu_seqlens_kv,
                                             cp_size=cp_size,
@@ -165,6 +166,7 @@ class MLARopeFunction(torch.autograd.Function):
         ctx.mscale = mscale
         ctx.cp_size = cp_size 
         ctx.cp_rank = cp_rank
+        ctx.transpose = transpose
         ctx.cu_seqlens_q = cu_seqlens_q
         ctx.cu_seqlens_kv = cu_seqlens_kv
         return qo, ko, vo
@@ -177,6 +179,7 @@ class MLARopeFunction(torch.autograd.Function):
                                                   grad_v,
                                                   freqs,
                                                   mscale=ctx.mscale,
+                                                  transposed=ctx.transpose,
                                                   cu_seqlens_q=ctx.cu_seqlens_q,
                                                   cu_seqlens_kv=ctx.cu_seqlens_kv,
                                                   cp_size=ctx.cp_size,
@@ -191,6 +194,7 @@ def mla_rope(q: torch.Tensor,
                       cu_seqlens_q: Optional[torch.Tensor] = None,
                       cu_seqlens_kv: Optional[torch.Tensor] = None,
                       mscale: float = 1.0,
+                      transpose: bool = False,
                       cp_size: int = 1,
                       cp_rank: int = 0):
     """
@@ -206,6 +210,7 @@ def mla_rope(q: torch.Tensor,
         cu_seqlens_q: cumulative query lengths tensor with size of [B+1]
         cu_seqlens_kv: cumulative kv lengths tensor with size of [B+1]
         mscale: mscale of rope
+        transpose: whether transpose output layout to [B, S, H, DIM]
         cp_size: context-parallel size
         cp_rank: context-parallel rank
     Returns:
@@ -218,6 +223,7 @@ def mla_rope(q: torch.Tensor,
                                 k_pos_emb,
                                 freqs,
                                 mscale,
+                                transpose,
                                 cu_seqlens_q,
                                 cu_seqlens_kv,
                                 cp_size,
