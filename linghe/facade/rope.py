@@ -184,7 +184,7 @@ class MLARopeFunction(torch.autograd.Function):
                                                   cu_seqlens_kv=ctx.cu_seqlens_kv,
                                                   cp_size=ctx.cp_size,
                                                   cp_rank=ctx.cp_rank)
-        return dq, dkv, dp, None, None, None, None, None, None
+        return dq, dkv, dp, None, None, None, None, None, None, None
 
 
 def mla_rope(q: torch.Tensor,
