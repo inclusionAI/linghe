@@ -82,4 +82,4 @@ jobs:
         isAutoSkip: ${{jobs.check.outputs.selectedCount}} = 0
         confirm:
           buttonName: 确认发布正式库
-          approvers: ["nanxiao.zy, liangchen.liangche"] # 具备发布角色的用户的域账号, 如 ["yunjie.gyj"]
+          approvers: ["nanxiao.zy", "liangchen.liangche"] # 具备发布角色的用户的域账号, 如 ["yunjie.gyj"]
