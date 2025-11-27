@@ -47,9 +47,8 @@ def fp32_gemm_kernel(
 
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     for i in range(k):
-        a = tl.load(a_ptrs).to(tl.float32)
-        b = tl.load(b_ptrs).to(tl.float32)
-        # c += tl.dot(a, b)
+        a = tl.load(a_ptrs)  #.to(tl.float32)
+        b = tl.load(b_ptrs)  #.to(tl.float32)
         c = tl.dot(a, b, c)
         a_ptrs += BLOCK_SIZE_K
         b_ptrs += BLOCK_SIZE_K
@@ -75,13 +74,13 @@ def triton_fp32_gemm(a: torch.Tensor, b: torch.Tensor):
     assert a.is_contiguous() and b.is_contiguous()
     M, K = a.size()
     N, K = b.size()
-    assert N >= 128
+    assert M % 32 == 0 and K % 128 ==0 and N % 16 == 0
     c = torch.empty(M, N, dtype=torch.float32, device=a.device)
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
     BLOCK_SIZE_K = 128
     BLOCK_SIZE_M = 32
-    BLOCK_SIZE_N = 128
+    BLOCK_SIZE_N = max([x for x in [16, 32, 64, 128] if N % x == 0])
     num_warps = 4
     num_stages = 3
     fp32_gemm_kernel[grid](a, b, c,
@@ -122,7 +121,6 @@ def fp32_gemm_for_backward_kernel(
     for i in range(k):
         a = tl.load(a_ptrs)
         b = tl.load(b_ptrs).to(tl.float32)
-        # c += tl.dot(a, b)
         c = tl.dot(a, b, c)
         a_ptrs += BLOCK_SIZE_K
         b_ptrs += BLOCK_SIZE_K * N
@@ -148,7 +146,7 @@ def triton_fp32_gemm_for_backward(a: torch.Tensor,
     c = torch.empty((M, N), dtype=b.dtype, device=b.device)
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
-    BLOCK_SIZE_K = 128
+    BLOCK_SIZE_K = max([x for x in [16, 32, 64, 128] if K % x == 0])
     BLOCK_SIZE_M = 32
     BLOCK_SIZE_N = 128
     num_warps = 4
@@ -187,11 +185,9 @@ def fp32_gemm_for_update_kernel(
     b_ptrs = b_ptr + offs_n[None, :] + offs_k[:, None] * N
 
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
-    # c = tl.load(c_ptr + offs_m[:, None] * N + offs_n[None, :]).to(tl.float32)
     for i in range(k):
         a = tl.trans(tl.load(a_ptrs)).to(tl.float32)
         b = tl.load(b_ptrs).to(tl.float32)
-        # c += tl.dot(a, b)
         c = tl.dot(a, b, c)
         a_ptrs += BLOCK_SIZE_K * M
         b_ptrs += BLOCK_SIZE_K * N
@@ -218,7 +214,7 @@ def triton_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
     BLOCK_SIZE_K = 128
-    BLOCK_SIZE_M = 32
+    BLOCK_SIZE_M = max([x for x in [16, 32] if M % x == 0])
     BLOCK_SIZE_N = 128
     num_warps = 4
     num_stages = 3
