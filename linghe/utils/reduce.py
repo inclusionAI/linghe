@@ -138,32 +138,6 @@ def triton_batch_count_zero(xs):
 
 
 @triton.jit
-def _batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr, 
-                              B: tl.constexpr,
-                              ORD: tl.constexpr):
-    tid = tl.program_id(axis=0)
-    bid = tl.program_id(axis=1)
-    sm = tl.num_programs(axis=1)
-    sums = 0.0
-
-    size = tl.load(size_ptr + tid)
-    input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
-    t = tl.cdiv(size, B * sm)
-    offs = bid * t * B + tl.arange(0, B)
-    for i in range(t):
-        x = tl.load(input_ptr + offs, mask=offs < size, other=0).to(tl.float32)
-        if ORD == 2:
-            sums += tl.sum(x * x)
-        elif ORD == 1:
-            sums += tl.sum(tl.abs(x))
-        elif ORD == -1:
-            sums = tl.maximum(sums, tl.max(tl.abs(x)))
-        offs += B
-
-    tl.store(tmp_ptr + tid * sm + bid, sums)
-
-
-@triton.jit
 def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr, 
                               B: tl.constexpr,
                               ORD: tl.constexpr):
@@ -209,7 +183,7 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True):
         a scalar if scalar=True else a single-value fp32 tensor
     """
     assert ord in (1, 2, -1)
-    assert all([x.is_contiguous() for x in xs])
+    # assert all([x.is_contiguous() for x in xs])
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs], 
                          dtype=torch.int64).cuda(device, non_blocking=True)

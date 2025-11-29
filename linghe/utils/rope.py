@@ -2032,6 +2032,7 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0, transpose=False
         N, H, D = q.shape 
         B = cu_seqlens_q.shape[0] - 1
         assert B <= 128
+        qo = None
         ko = torch.empty((N, H, 192), dtype=dtype, device=device)
         vo = torch.empty((N, H, 128), dtype=dtype, device=device)
         kpe_stride = k_pos_emb.stride(0)

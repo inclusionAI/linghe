@@ -130,7 +130,7 @@ def triton_weighted_silu_backward(g: torch.Tensor,
     assert N <= 8192 and triton.next_power_of_2(N) == N
     device = x.device
     if weight is not None:
-        dw = torch.empty(weight.shape, device=device, dtype=x.dtype)
+        dw = torch.empty(weight.shape, device=device, dtype=weight.dtype)
         WEIGHT = True
     else:
         dw = None

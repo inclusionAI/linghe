@@ -691,9 +691,9 @@ def test_triton_batch_weighted_silu_and_block_quant(M=1024, N=4096,
         output_mode=2)
 
     output_check(x_q_ref.float(), x_q.float(), 'block.q')
-    output_check(x_scale_ref, x_scale, 'block.scale')
-    output_check(xt_q_ref.float(), xt_q.float(), 'block.qt')
-    output_check(xt_scale_ref, xt_scale, 'block.t_scale')
+    output_check(x_scale_ref, x_scale.view(-1), 'block.scale')
+    output_check(xt_q_ref.float(), xt_q.float().view(-1), 'block.qt')
+    output_check(xt_scale_ref, xt_scale.view(-1), 'block.t_scale')
 
     dx_ref, dx_scale_ref, dw_ref, dxt_ref, dxt_scale_ref = torch_batch_weighted_silu_and_block_quant_backward(
         grad_output, x, weight, counts,
@@ -702,10 +702,10 @@ def test_triton_batch_weighted_silu_and_block_quant(M=1024, N=4096,
         grad_output, x, weight, counts, splits=count_list,
         round_scale=round_scale)
     output_check(dx_ref.float(), dx.float(), 'block.dx')
-    output_check(dx_scale_ref, dx_scale, 'block.dx_scale')
+    output_check(dx_scale_ref, dx_scale.view(-1), 'block.dx_scale')
     output_check(dw_ref, dw, 'block.dw')
-    output_check(dxt_ref.float(), dxt.float(), 'block.dxt')
-    output_check(dxt_scale_ref, dxt_scale, 'block.dxt_scale')
+    output_check(dxt_ref.float(), dxt.float().view(-1), 'block.dxt')
+    output_check(dxt_scale_ref, dxt_scale.view(-1), 'block.dxt_scale')
 
     if bench:
         ref_time = None

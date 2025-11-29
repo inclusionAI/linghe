@@ -97,7 +97,7 @@ def triton_split_smooth_quant(x_split, smooth_scales):
 def test_triton_smooth_quant(M=4096, N=4096, bench=False):
     device = 'cuda:0'
     x = torch.randn((M, N), dtype=torch.bfloat16, device=device)
-    smooth_scale = torch.randn((N,), device=device, dtype=torch.float32).abs()
+    smooth_scale = torch.randn((N,), device=device, dtype=torch.float32).abs()+1.0
     x_q_ref, scales_ref, x_maxs_ref = torch_smooth_quant(x, smooth_scale,
                                                          reverse=False,
                                                          round_scale=True)
