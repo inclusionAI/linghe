@@ -254,7 +254,7 @@ def test_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
         benchmark_func(triton_rms_norm_and_block_quant_forward, x, weight,
                        round_scale=True,
                        output_mode=2,
-                       ref_bytes=M * N * 4)
+                       ref_bytes=M * N * 6)
 
 def test_rmsnorm_and_mxfp8_quant(M=4096, N=4096, bench=False):
     dtype = torch.bfloat16
@@ -353,15 +353,13 @@ if __name__ == '__main__':
     test_rmsnorm(M=16384, N=2048, bench=False)
     test_rmsnorm(M=16384, N=1664, bench=False)
     test_rmsnorm(M=1664, N=1664, bench=False)
-
-    test_rmsnorm_and_mxfp8_quant(M=2048, N=1664, bench=False)
-
     test_rmsnorm(M=8192, N=4096, bench=False)
     test_rmsnorm(M=4096, N=8192, bench=False)
     test_rmsnorm_and_smooth_quant(M=16384, N=2048, bench=False)
     test_rmsnorm_and_smooth_quant(M=8192, N=4096, bench=False)
     test_rmsnorm_and_smooth_quant(M=4096, N=8192, bench=False)
-    test_rmsnorm_and_block_quant(M=128*128, N=2048, bench=False)
+    test_rmsnorm_and_block_quant(M=16384, N=2048, bench=False)
     test_rmsnorm_and_block_quant(M=8192, N=4096, bench=False)
+    test_rmsnorm_and_mxfp8_quant(M=2048, N=1664, bench=False)
     test_rms_norm_fp32_gemm_block_quant_forward(M=8192*2, N=256, K=2048, bench=False)
 

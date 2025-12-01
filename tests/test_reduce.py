@@ -10,6 +10,7 @@ from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
 from linghe.utils.reduce import (triton_abs_max,
                                 triton_batch_count_zero,
+                                triton_norm,
                                 triton_batch_norm)
 
 
@@ -63,6 +64,27 @@ def test_count_zero(M=4096, N=8192, k=32, bench=False):
                        ref_bytes=ref_bytes, ref_time=ref_time)
 
 
+
+def test_norm(M=4096, N=8192, bench=False):
+    x = torch.randn(M, N, dtype=torch.float32, device='cuda:0')
+
+    sum_ref = x.norm(p=2)
+    sums = triton_norm(x, ord=2, norm=True, scalar=True)
+    output_check(sum_ref, sums, 'l2_norm')
+
+    sum_ref = x.norm(p=1)
+    sums = triton_norm(x, ord=1, norm=True, scalar=True)
+    output_check(sum_ref, sums, 'l1_norm')
+
+    if bench:
+        ref_bytes = M * N * 4
+        n_repeat = 100
+        ref_time = benchmark_func(lambda x: x.norm(p=2), x, n_repeat=n_repeat,
+                                  ref_bytes=ref_bytes)
+        benchmark_func(triton_norm, x, ord=2, norm=True, scalar=True, 
+                       n_repeat=n_repeat,
+                       ref_bytes=ref_bytes, ref_time=ref_time)
+
 def test_batch_norm(M=4096, N=8192, k=32, bench=False):
     xs = [torch.randn(random.randint(1,int(M**0.5))**2, N, dtype=torch.float32, device='cuda:0') for i in range(k)]
 
@@ -87,10 +109,10 @@ def test_batch_norm(M=4096, N=8192, k=32, bench=False):
                        ref_bytes=ref_bytes, ref_time=ref_time)
 
 
-
 if __name__ == '__main__':
-    test_triton_abs_max(M=4096, N=4096, bench=False)
-    test_count_zero(M=4096, N=8192, k=32, bench=False)
-    test_batch_norm(M=4096, N=1024, k=16, bench=False)
-    test_batch_norm(M=4096, N=1024, k=64, bench=False)
-    test_batch_norm(M=4096, N=1024, k=256, bench=False)
+    # test_triton_abs_max(M=4096, N=4096, bench=False)
+    # test_count_zero(M=4096, N=8192, k=32, bench=False)
+    test_norm(M=100000, N=8192, bench=True)
+    # test_batch_norm(M=4096, N=1024, k=16, bench=False)
+    # test_batch_norm(M=4096, N=1024, k=64, bench=False)
+    # test_batch_norm(M=4096, N=1024, k=256, bench=False)

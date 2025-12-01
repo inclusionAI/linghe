@@ -367,14 +367,15 @@ def test_qk_norm_and_half_rope(B=2, L=4096, H=32, h=8, D=128,
 
     if bench:
         benchmark_func(triton_qk_norm_and_half_rope_forward, qkv, qw, kw, freqs,
-                       H=H, h=h, eps=1e-6, transposed=transposed, interleaved=interleaved,
+                       H=H, h=h, eps=1e-6, 
+                       transposed=transposed, interleaved=interleaved, silu=silu,
                        ref_bytes=L * B * (H + 2 * h) * D * 4,
                        n_profile=0)
         benchmark_func(triton_qk_norm_and_half_rope_backward, q_grad, k_grad,
-                       v_grad, qkv, qw, kw, freqs, eps=1e-6, transpose=transposed, interleaved=interleaved,
+                       v_grad, qkv, qw, kw, freqs, eps=1e-6, 
+                       transposed=transposed, interleaved=interleaved, silu=silu,
                        ref_bytes=L * B * (H + 2 * h) * D * 6,
                        n_profile=0)
-
 
 
 def test_varlen_qk_norm_and_half_rope(lengths=[2048,2048], H=32, h=4, dim=128, rope_theta=10000.0, silu=False,
@@ -565,7 +566,7 @@ if __name__ == '__main__':
                    bench=False)
     test_qk_norm_and_half_rope(B=2, L=4096, H=16, h=16, D=128,
                                rope_theta=10000.0, interleaved=True, transposed=True, silu=True, bench=False)
-    test_qk_norm_and_half_rope(B=2, L=4096, H=4, h=4, D=128,
+    test_qk_norm_and_half_rope(B=2, L=4096, H=16, h=16, D=128,
                                rope_theta=10000.0, interleaved=True, transposed=True, silu=False, bench=False)
     test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
                                rope_theta=10000.0, interleaved=True, transposed=False, silu=True, bench=False)

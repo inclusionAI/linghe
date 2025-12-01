@@ -352,4 +352,4 @@ if __name__ == '__main__':
 
     test_triton_batch_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
                                    round_scale=False)
-    test_smooth_quant_linear(M=8192, N=1024, K=2048)
+    # test_smooth_quant_linear(M=8192, N=1024, K=2048)

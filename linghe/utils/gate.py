@@ -192,5 +192,5 @@ def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6, 
         num_stages=3,
         num_warps=8
     )
-    dw = tmp_dw.sum(dim=0).to(weight.dtype)
+    dw = tmp_dw.sum(dim=0)
     return dx, dg, dw

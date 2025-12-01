@@ -56,6 +56,38 @@ def triton_dot(x, y):
     return s
 
 
+@triton.jit
+def inplace_scale_kernel(input_ptr, scale, m, B: tl.constexpr):
+    pid = tl.program_id(axis=0).to(tl.int64)
+
+    offs = pid * B + tl.arange(0, B)
+    x = tl.load(input_ptr + offs, mask=offs < m)
+    x = x * scale
+    tl.store(input_ptr + offs, x, mask=offs < m)
+
+
+def triton_inplace_scale(x, scale):
+    """
+    inplace scale a tensor.
+    Args:
+        x: Tensor.
+        scale: a python float scale
+    Returns:
+        x
+    """
+
+    B = 512
+    m = x.numel()
+    grid = (triton.cdiv(m, B), )
+    inplace_scale_kernel[grid](
+        x,
+        scale,
+        m,
+        B,
+        num_stages=2,
+        num_warps=2
+    )
+    return x
 
 
 @triton.jit

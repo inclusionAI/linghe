@@ -1329,10 +1329,9 @@ def triton_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
             num_stages=num_stages,
             num_warps=num_warps
         )
-    dqw = tmp_dqw.sum(0).to(dtype)
-    dkw = tmp_dkw.sum(0).to(dtype)
+    dqw = tmp_dqw.sum(0)
+    dkw = tmp_dkw.sum(0)
     return dqkv, dqw, dkw
-
 
 
 @triton.jit
@@ -1895,8 +1894,8 @@ def triton_varlen_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
         num_stages=num_stages,
         num_warps=num_warps
     )
-    dqw = tmp_dqw.sum(0).to(dtype)
-    dkw = tmp_dkw.sum(0).to(dtype)
+    dqw = tmp_dqw.sum(0)
+    dkw = tmp_dkw.sum(0)
     return dqkv, dqw, dkw
 
 

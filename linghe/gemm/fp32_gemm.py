@@ -202,15 +202,15 @@ def triton_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
     """
     mix precision gemm for updaing weight
     Args:
-        a: gradient of output, fp32
-        b: input activation, bf16/fp16
+        y: gradient of output, fp32
+        x: input activation, bf16/fp16
     Returns:
         c: gradient of weight
     """
     assert y.is_contiguous() and x.is_contiguous()
     K, M = y.size()
     K, N = x.size()
-    c = torch.empty((M, N), dtype=x.dtype, device=x.device)
+    c = torch.empty((M, N), dtype=torch.float32, device=x.device)
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
     BLOCK_SIZE_K = 128

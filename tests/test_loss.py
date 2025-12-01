@@ -9,8 +9,11 @@ import torch
 
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
-from linghe.utils.loss import triton_softmax_cross_entropy_forward, \
-    triton_softmax_cross_entropy_backward, triton_moe_z_loss_forward, triton_moe_z_loss_backward
+from linghe.utils.loss import (triton_softmax_cross_entropy_forward,
+                               triton_softmax_cross_entropy_backward,
+                               triton_moe_z_loss_forward,
+                               triton_moe_z_loss_backward)
+from linghe.facade.loss import moe_z_loss
 
 
 def torch_cross_entropy(logits, targets, grad):
@@ -72,10 +75,17 @@ def test_z_loss(L=4096, B=2, N=256, coef=0.001, bench=False):
     loss_ref, grad_ref = torch_z_loss(logits, coef=coef)
 
     loss = triton_moe_z_loss_forward(logits, coef=coef)
-    output_check(loss_ref, loss, mode='loss')
-
     grad = triton_moe_z_loss_backward(input_grad, logits, coef=coef)
+    output_check(loss_ref, loss, mode='loss')
     output_check(grad_ref.float(), grad.float(), mode='grad')
+
+    loss = moe_z_loss(logits, coef=coef)
+    loss.backward(gradient=input_grad[0])
+    grad = logits.grad 
+    output_check(loss_ref, loss, mode='loss')
+    output_check(grad_ref.float(), grad.float(), mode='grad')
+
+
     if bench:
         benchmark_func(torch_z_loss, logits, coef=coef,
                        ref_bytes=L * B * N * 4)

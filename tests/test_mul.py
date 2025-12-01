@@ -8,11 +8,15 @@ import torch
 
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import output_check
-from linghe.utils.mul import triton_dot, triton_batch_scale
+from linghe.utils.mul import triton_dot, triton_batch_scale, triton_inplace_scale
 
 
 def torch_fp16_dot(x, y):
     return (x * y).sum(1)
+
+def torch_inplace_scale(x, scale):
+    x *= scale
+    return x
 
 def torch_batch_scale(xs, scale):
     return [x*scale for x in xs]
@@ -42,6 +46,21 @@ def test_dot(M=4096, N=4096, bench=False):
         ref_time = benchmark_func(triton_dot, x, q, n_repeat=n_repeat, ref_time=ref_time)
 
 
+def test_inplace_scale(M=2**20, bench=False):
+    x = torch.randn((M, ), device='cuda:0', dtype=torch.float32)
+    scale = 7.86
+    sum_ref = torch_inplace_scale(x, scale)
+    sums = triton_inplace_scale(x, scale)
+    output_check(sum_ref, sums, 'sum')
+
+    ref_bytes = M * 8
+
+    if bench:
+        ref_time = benchmark_func(torch_inplace_scale, x, scale, 
+                                  ref_bytes=ref_bytes)
+        benchmark_func(triton_inplace_scale, x, scale,
+                       ref_bytes=ref_bytes, ref_time=ref_time)
+
 
 def test_batch_scale(M=4096, N=2048, k=1024, bench=False):
     xs = [torch.randn(random.randint(1,int(M**0.5))**2, N, 
@@ -63,4 +82,5 @@ def test_batch_scale(M=4096, N=2048, k=1024, bench=False):
 
 if __name__ == '__main__':
     # test_dot(M=4096, N=4096, bench=False)
-    test_batch_scale(M=2048, N=1024, k=1024, bench=True)
+    test_inplace_scale(M=2**28+1, bench=True)
+    # test_batch_scale(M=2048, N=1024, k=1024, bench=True)

@@ -164,7 +164,7 @@ def triton_rms_norm_backward(grad_output, x, w, eps=1e-6, rms=None):
         num_stages=3,
         num_warps=4
     )
-    return dx, tmp_dw.sum(dim=0).to(w.dtype)
+    return dx, tmp_dw.sum(dim=0)
 
 # output non-transposed and transposed together
 # should used with batchsize >= 16384
@@ -266,7 +266,9 @@ def rms_norm_and_block_quant_forward_n_kernel(x_ptr,
         x = x / scale[:,:, None]
         x = tl.reshape(x, [W, N])
 
-        tl.store(scale_ptr + indices[:, None] * nb + tl.arange(0, nb)[None, :], scale, mask=indices[:, None] < M)
+        tl.store(scale_ptr + tl.arange(0, nb)[:, None] * M + indices[None, :], 
+                 tl.trans(scale), 
+                 mask=indices[None,:] < M)
         tl.store(out_ptr + offs, x, mask=indices[:, None] < M)
         offs += N * W
 
@@ -344,7 +346,7 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
         out = torch.empty((M, N), device=device, dtype=torch.float8_e4m3fn)
 
     if scale is None and output_mode in (0, 2):
-        scale = torch.empty((M, N//128), device=device, dtype=torch.float32)
+        scale = torch.empty((N//128, M), device=device, dtype=torch.float32)
 
     # transpose_output should be initialized, or else can not make splitted tensors
     transpose_output = torch.empty((N, M), device=device, dtype=torch.float8_e4m3fn)
@@ -371,7 +373,6 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
             num_stages=3,
             num_warps=4
         )
-        scale = scale.t().contiguous()
 
     elif output_mode == 1:  # only output transposed tensor
         # W = N//512
@@ -392,6 +393,7 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
                                     num_warps=4)
     
     elif output_mode == 2:  # output non-transposed and transposed tensor together
+        
         assert rms is None
         rms = torch.empty((M,), dtype=torch.float32, device=device)
         W = 8192 // N
@@ -413,7 +415,6 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
             num_stages=3,
             num_warps=4
         )
-        scale = scale.t().contiguous()
 
         W = 32 
         grid = (triton.cdiv(M, 128), N//W)
@@ -428,6 +429,33 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
                                     round_scale,
                                     num_stages=3,
                                     num_warps=4)
+
+        # assert rms is None
+        # rms = torch.empty((M,), dtype=torch.float32, device=device)
+        # W = 8192 // N
+        # T = 128 // W  # BLOCK SIZE
+        # H = 64
+        # grid = (triton.cdiv(M, 128),)
+        # rms_norm_and_block_quant_forward_kernel[grid](
+        #     x,
+        #     weight,
+        #     out,
+        #     scale,
+        #     transpose_output,
+        #     transpose_scale,
+        #     rms,
+        #     eps,
+        #     M,
+        #     T,
+        #     N,
+        #     N//128,
+        #     W,
+        #     H,
+        #     round_scale,
+        #     num_stages=3,
+        #     num_warps=16
+        # )
+        # scale = scale.t().contiguous()
 
     return out, scale, rms, transpose_output, transpose_scale
 
@@ -594,7 +622,7 @@ def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6, 
         num_stages=3,
         num_warps=8
     )
-    dw = tmp_dw.sum(dim=0).to(weight.dtype)
+    dw = tmp_dw.sum(dim=0)
     return dx, dg, dw
 
 

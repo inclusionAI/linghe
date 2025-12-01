@@ -137,6 +137,69 @@ def triton_batch_count_zero(xs):
     return count
 
 
+
+@triton.jit
+def norm_kernel(input_ptr, tmp_ptr, m,
+                              B: tl.constexpr,
+                              ORD: tl.constexpr):
+    pid = tl.program_id(axis=0).to(tl.int64)
+
+    offs = pid * B + tl.arange(0, B)
+    x = tl.load(input_ptr + offs, mask=offs < m, other=0).to(tl.float32)
+    if ORD == 2:
+        sums = tl.sum(x * x)
+    elif ORD == 1:
+        sums = tl.sum(tl.abs(x))
+    elif ORD == -1:
+        sums = tl.max(tl.abs(x))
+
+    tl.store(tmp_ptr + pid, sums)
+
+
+
+def triton_norm(x, ord=2, norm=True, scalar=True):
+    """
+    calculate norm.
+    Args:
+        x: input tensor.
+        ord: the order of tensor. -1 means 'inf' ord.
+        norm:
+            only used with ord in (1, 2)
+            True: (sum(sum(abs(x)**ord) x for x in xs))**(1/ord) 
+            False: sum(sum(abs(x)**ord) x for x in xs))
+
+    Returns:
+        a scalar if scalar=True else a single-value fp32 tensor
+    """
+    assert ord in (1, 2, -1)
+    # assert all([x.is_contiguous() for x in xs])
+    device = x.device
+    m = x.numel()
+    B = 512
+    T = triton.cdiv(m, B)
+    tmp = torch.empty((T, ), device=device, dtype=torch.float32)
+    grid = (T, )
+    norm_kernel[grid](
+        x,
+        tmp,
+        m,
+        B,
+        ord,
+        num_stages=2,
+        num_warps=2
+    )
+    if ord == -1:
+        output = tmp.max()
+    else:
+        output = tmp.sum()
+        if ord == 2 and norm:
+            output = torch.sqrt(output)
+    if not scalar:
+        output = output.unsqueeze(0)
+    return output
+
+
+
 @triton.jit
 def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr, 
                               B: tl.constexpr,
@@ -170,7 +233,7 @@ def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr,
 
 def triton_batch_norm(xs, ord=2, norm=True, scalar=True):
     """
-    tread multiple tensors as a single tensor and calculate norm.
+    treat multiple tensors as a single tensor and calculate norm.
     Args:
         xs: Tensor lists.
         ord: the order of tensor. -1 means 'inf' ord.

@@ -187,9 +187,13 @@ def triton_moe_z_loss_forward(logits, coef=1e-6):
     Returns:
         z loss
     """
-    L, B, D = logits.shape
+    shape = logits.shape
+    if len(shape) == 3:
+        L, B, D = logits.shape
+        M = L*B
+    else:
+        M, D = logits.shape
     device = logits.device
-    M = L*B
     T = 4
     assert M % T == 0
     loss = torch.empty((M//T,), device=device, dtype=torch.float32)
@@ -236,12 +240,18 @@ def triton_moe_z_loss_backward(grads, logits, coef=1e-6):
     Returns:
         output_grad: [L, B, dim]
     """
-    L, B, D = logits.shape
     device = logits.device
-    M = L*B
+    shape = logits.shape
+    if len(shape) == 3:
+        L, B, D = logits.shape
+        M = L*B
+        output_grad = torch.empty((L,B,D), device=device, dtype=logits.dtype)
+    else:
+        M, D = logits.shape
+        output_grad = torch.empty((M,D), device=device, dtype=logits.dtype)
+    
     T = 4
     assert M % T == 0
-    output_grad = torch.empty((L,B,D), device=device, dtype=logits.dtype)
     grid = (M//T,)
     moe_z_loss_backward_kernel[grid](
         grads,

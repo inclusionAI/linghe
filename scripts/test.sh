@@ -19,6 +19,7 @@ echo "test_rope.py" && python test_rope.py
 echo "test_scatter.py" && python test_scatter.py 
 echo "test_silu.py" && python test_silu.py 
 echo "test_smooth_quant.py" && python test_smooth_quant.py 
+echo "test_topk.py" && python test_topk.py 
 echo "test_transpose.py" && python test_transpose.py
 echo "test_unary.py" && python test_unary.py
 
