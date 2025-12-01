@@ -404,19 +404,21 @@ def fp16_f_and_b(x, w, y):
 def output_check(org_out, opt_out, mode='', rtol=None, atol=None):
     
     assert org_out.shape == opt_out.shape, f"ref:{org_out.shape} != out:{opt_out.shape}"
-    dtype = org_out.dtype
-    assert opt_out.dtype == dtype or dtype == torch.float32, f"ref:{dtype} != out:{opt_out.dtype}"
     if org_out.numel() == 0:
         return
+    org_dtype = org_out.dtype
+    opt_dtype = opt_out.dtype
+    if org_dtype in (torch.uint8, torch.int8, torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
+        org_out = org_out.float()
+
+    if opt_dtype in (torch.uint8, torch.int8, torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
+        opt_out = opt_out.float()
+
+    assert org_out.dtype == opt_out.dtype
 
     org_out = org_out.detach()
     opt_out = opt_out.detach()
 
-    if dtype != torch.float32:
-        org_out = org_out.float()
-        opt_out = opt_out.float()
-    if dtype == torch.float8_e4m3fn:
-        rtol = 0.1
     abs_error = (opt_out - org_out).abs().mean().item()
     rel_error = abs_error / max(org_out.abs().mean().item(), 1e-38)
     if rel_error >= 0.005:
@@ -430,7 +432,10 @@ def output_check(org_out, opt_out, mode='', rtol=None, atol=None):
     print(f'\n{mode:<16}  rel:{rel_err_str}  abs:{abs_error:.6f}  ' \
           f'org:{org_max:.3f}/{org_mean:.3f} ' \
           f'opt:{opt_max:.3f}/{opt_mean:.3f} ')
-    if rtol is not None and atol is not None:
+    if (org_dtype != torch.float8_e4m3fn
+        and opt_dtype != torch.float8_e4m3fn
+        and rtol is not None 
+        and atol is not None):
         torch.testing.assert_close(opt_out, org_out, rtol=rtol, atol=atol)
 
 

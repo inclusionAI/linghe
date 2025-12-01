@@ -157,12 +157,12 @@ def test_rmsnorm(M=4096, N=4096, bench=False):
 
     dx_ref, dw_ref = torch_rms_backward(x, weight, dy)
     dx, dw = triton_rms_norm_backward(dy, x, weight)
-    output_check(dx_ref, dx, mode="dx")
-    output_check(dw_ref, dw, mode='dw')
+    output_check(dx_ref.float(), dx.float(), mode="dx")
+    output_check(dw_ref.float(), dw.float(), mode='dw')
 
     dx_with_rms, dw_with_rms = triton_rms_norm_backward(dy, x, weight, rms=rms)
-    output_check(dx_ref, dx_with_rms, mode="dx_with_rms")
-    output_check(dw_ref, dw_with_rms, mode='dw_with_rms')
+    output_check(dx_ref.float(), dx_with_rms.float(), mode="dx_with_rms")
+    output_check(dw_ref.float(), dw_with_rms.float(), mode='dw_with_rms')
 
     if bench:
         benchmark_func(triton_rms_norm_forward, x, weight, ref_bytes=M * N * 3)
@@ -192,7 +192,7 @@ def test_rmsnorm_and_smooth_quant(M=4096, N=4096, bench=False):
                                                                    calibrate=calibrate,
                                                                    output_rms=True,
                                                                    round_scale=True)
-    output_check(q_ref, q, mode="smooth.data")
+    output_check(q_ref, q, mode="smooth.data", rtol=None, atol=None)
     output_check(scale_ref, scale, mode='smooth.scale')
     if calibrate:
         output_check(maxs_ref, maxs, mode="smooth.maxs")

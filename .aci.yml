@@ -54,7 +54,8 @@ jobs:
     id: build
     component: pypi-artifact-uploader
     inputs:
-      buildImage: reg.docker.alibaba-inc.com/aii/aistudio:12150173-20251107143737  # max v2
+      buildImage: reg.docker.alibaba-inc.com/aii/aistudio:aistudio-190677225-3221750112-1752554942251
+      # buildImage: reg.docker.alibaba-inc.com/aii/aistudio:12150173-20251107143737  # max v2
       # buildTool: poetry
       # artifactType: "wheel" # 仅打wheel包，如需要 tgz，请删除此行
       registry: "https://artifacts.antgroup-inc.cn/artifact/repositories/simple-dev/" # 测试库地址
