@@ -9,7 +9,7 @@ from linghe.gemm.channelwise_fp8_gemm import triton_scaled_mm
 
 from linghe.utils.add import triton_inplace_add
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 
 
 def scaled_gemm_and_update(x_q, w_q, x_scales, w_scales, c=None, accum=False):
@@ -46,7 +46,7 @@ def test_triton_channelwise_gemm(M=4096, N=4096, K=4096, bench=False):
     y = triton_scaled_mm(x_q, w_q, x_scales, w_scales, c=None,
                     accum=False)
 
-    output_check(y_ref, y, 'y')
+    output_check(y_ref, y, name='y', atol=-1)
 
 
     if bench:
@@ -76,5 +76,5 @@ def test_triton_channelwise_gemm(M=4096, N=4096, K=4096, bench=False):
 
 
 if __name__ == '__main__':
-    test_triton_channelwise_gemm(M=4096, N=4096, K=4096, bench=True)
+    test_triton_channelwise_gemm(M=4096, N=4096, K=4096, bench=False)
 

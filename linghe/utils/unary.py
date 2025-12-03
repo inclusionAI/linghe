@@ -57,22 +57,19 @@ def triton_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5, inplace=Fal
     return output
 
 
-
-
-
 @triton.jit
 def batch_clip_kernel(input_ptrs, size_ptr, clip_value, 
                               B: tl.constexpr):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1)
-    sm = tl.num_programs(axis=1)
+    T = tl.num_programs(axis=1)
 
     size = tl.load(size_ptr + tid)
     input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
-    t = tl.cdiv(size, B * sm)
-    offs = bid * t * B + tl.arange(0, B)
+    t = tl.cdiv(size, B * T)
+    offs = bid.to(tl.int64) * t * B + tl.arange(0, B)
     for i in range(t):
-        x = tl.load(input_ptr + offs, mask=offs < size, other=0).to(tl.float32)
+        x = tl.load(input_ptr + offs, mask=offs < size, other=0)
         # clip value is a large value, so we do not need to clip for most cause
         max_val = tl.max(tl.abs(x))
         if max_val > clip_value:
@@ -98,10 +95,10 @@ def triton_batch_clip(xs, clip_value=100.0):
     ptrs = torch.tensor([x.data_ptr() for x in xs], 
                         dtype=torch.int64).cuda(device, non_blocking=True)
 
-    sm = 256
+    T = 256
     tensor_count = len(xs)
     B = 512
-    grid = (tensor_count, sm)
+    grid = (tensor_count, T)
     batch_clip_kernel[grid](
         ptrs,
         sizes,

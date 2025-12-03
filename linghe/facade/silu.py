@@ -112,7 +112,7 @@ class BlockBatchWeightedSiluFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         input, weights, counts = ctx.saved_tensors
-        quantizers = ctx.grad_quantizers
+        grad_quantizers = ctx.grad_quantizers
         (x_q, 
          x_scale, 
          wgrad, 
@@ -122,16 +122,16 @@ class BlockBatchWeightedSiluFunction(torch.autograd.Function):
                                                                          weights, 
                                                                          counts, 
                                                                          splits=ctx.splits, 
-                                                                         round_scale=quantizers[0].force_pow_2_scales)
+                                                                         round_scale=grad_quantizers[0].force_pow_2_scales)
         output = ctx.cls(
                     shape=ctx.shape,
                     dtype=grad_output.dtype,
-                    fp8_dtype=quantizers[0].dtype,
+                    fp8_dtype=grad_quantizers[0].dtype,
                     rowwise_data=x_q,
                     rowwise_scale_inv=x_scale,
                     columnwise_data=xt_q,
                     columnwise_scale_inv=xt_scale,
-                    quantizer=quantizers,
+                    quantizer=grad_quantizers,
                     requires_grad=ctx.input_requires_grad,
                     is_2D_scaled=False
                 )

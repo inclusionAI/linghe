@@ -10,7 +10,8 @@ def group_rms_norm_gate_forward_kernel(x_ptr, gate_ptr, weight_ptr, out_ptr, eps
                             DIM: tl.constexpr, 
                             D: tl.constexpr, 
                             GROUP_SIZE: tl.constexpr,
-                            SHARE: tl.constexpr):
+                            SHARE: tl.constexpr,
+                            TRANSPOSE: tl.constexpr):
     pid = tl.program_id(axis=0)
     bid = pid // length 
     sid = pid % length
@@ -24,14 +25,20 @@ def group_rms_norm_gate_forward_kernel(x_ptr, gate_ptr, weight_ptr, out_ptr, eps
     x_offs = pid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
                                                             None, :]
     x = tl.load(x_ptr + x_offs).to(tl.float32)
-    offs = sid * bs * DIM + bid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
-                                                            None, :]
-    g = tl.load(gate_ptr + offs).to(tl.float32)
+    if TRANSPOSE:
+        g_offs = sid * bs * DIM + bid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
+                                                                None, :]
+        g = tl.load(gate_ptr + g_offs).to(tl.float32)
+    else:
+        g = tl.load(gate_ptr + x_offs).to(tl.float32)
     rms = tl.sqrt(tl.sum(x * x, axis=1) / D + eps)
 
     x = (x / rms[:, None]) * weight * tl.sigmoid(g)
 
-    tl.store(out_ptr + offs, x)
+    if TRANSPOSE:
+        tl.store(out_ptr + g_offs, x)
+    else:
+        tl.store(out_ptr + x_offs, x)
 
 
 def triton_group_rms_norm_gate_forward(x: torch.Tensor, 
@@ -83,6 +90,7 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
         d,
         group_size,
         share,
+        transpose,
         num_stages=3,
         num_warps=4
     )
@@ -105,7 +113,8 @@ def group_rms_norm_gate_backward_kernel(
         D: tl.constexpr, 
         GROUP_SIZE: tl.constexpr,
         T: tl.constexpr,
-        SHARE: tl.constexpr
+        SHARE: tl.constexpr,
+        TRANSPOSE: tl.constexpr
 ):
     pid = tl.program_id(0)
     bid = pid * T // length 
@@ -119,13 +128,19 @@ def group_rms_norm_gate_backward_kernel(
 
     x_offs = pid * DIM * T + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
                                                             None, :]
-    offs = sid * bs * DIM + bid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
+    if TRANSPOSE:
+        offs = sid * bs * DIM + bid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
                                                             None, :]
+        
     dw = tl.zeros((GROUP_SIZE, D), dtype=tl.float32)
     for i in range(T):
         x = tl.load(x_ptr + x_offs).to(tl.float32)
-        g = tl.load(grad_output_ptr + offs).to(tl.float32)
-        gate = tl.load(gate_ptr + offs).to(tl.float32)
+        if TRANSPOSE:
+            g = tl.load(grad_output_ptr + offs).to(tl.float32)
+            gate = tl.load(gate_ptr + offs).to(tl.float32)
+        else:
+            g = tl.load(grad_output_ptr + x_offs).to(tl.float32)
+            gate = tl.load(gate_ptr + x_offs).to(tl.float32)
         gate = tl.sigmoid(gate)
         rms = tl.sqrt(tl.sum(x * x, 1) / D + eps)
         r = 1.0 / rms[:, None]
@@ -134,13 +149,18 @@ def group_rms_norm_gate_backward_kernel(
 
         dx = r * g * w * gate - r * r * r * x * tl.sum(x * g * w * gate, 1, keep_dims=True) / D
 
+
         tl.store(dx_ptr + x_offs, dx)
 
         dg = x * r * w * g * gate * (1 - gate)
-        tl.store(dg_ptr + offs, dg)
+        if TRANSPOSE:
+            tl.store(dg_ptr + offs, dg)
+        else:
+            tl.store(dg_ptr + x_offs, dg)
 
         x_offs += DIM
-        offs += DIM * bs
+        if TRANSPOSE:
+            offs += DIM * bs
 
     if SHARE:
         dw = tl.sum(dw, 0)
@@ -189,6 +209,7 @@ def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6, 
         group_size,
         T,
         share,
+        transpose,
         num_stages=3,
         num_warps=8
     )

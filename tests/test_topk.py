@@ -8,7 +8,7 @@ import random
 import torch
 
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 from linghe.utils.topk import (triton_topk_forward,
                                triton_topk_backward,
                                triton_group_topk_score_forward,

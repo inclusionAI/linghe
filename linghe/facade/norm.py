@@ -112,5 +112,6 @@ class BlockRMSNorm(torch.autograd.Function):
 
 
 def block_rms_norm(input, weight, rms, quantizer, cls, eps=1e-6, is_recomputing=None):
-    output = BlockRMSNorm.apply(input, weight, rms, eps, quantizer, cls, is_recomputing)
-    return output
+    output, output_rms = BlockRMSNorm.apply(input, weight, rms, eps, quantizer, cls, is_recomputing)
+    output_rms = output_rms.detach()
+    return output, output_rms

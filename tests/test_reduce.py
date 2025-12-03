@@ -7,7 +7,7 @@ import random
 import torch
 
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 from linghe.utils.reduce import (triton_abs_max,
                                 triton_batch_count_zero,
                                 triton_norm,
@@ -110,9 +110,9 @@ def test_batch_norm(M=4096, N=8192, k=32, bench=False):
 
 
 if __name__ == '__main__':
-    # test_triton_abs_max(M=4096, N=4096, bench=False)
-    # test_count_zero(M=4096, N=8192, k=32, bench=False)
-    test_norm(M=100000, N=8192, bench=True)
-    # test_batch_norm(M=4096, N=1024, k=16, bench=False)
-    # test_batch_norm(M=4096, N=1024, k=64, bench=False)
-    # test_batch_norm(M=4096, N=1024, k=256, bench=False)
+    test_triton_abs_max(M=4096, N=4096, bench=False)
+    test_count_zero(M=4096, N=8192, k=32, bench=False)
+    test_norm(M=100000, N=8192, bench=False)
+    test_batch_norm(M=4096, N=1024, k=16, bench=False)
+    test_batch_norm(M=4096, N=1024, k=64, bench=False)
+    test_batch_norm(M=4096, N=1024, k=256, bench=False)

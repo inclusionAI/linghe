@@ -198,7 +198,8 @@ def triton_unpermute_with_mask_map(
     PROB = probs is not None
     if PROB:
         restore_probs = torch.zeros((num_tokens, num_experts),
-                                    dtype=probs.dtype, device="cuda")
+                                    dtype=probs.dtype,
+                                    device="cuda")
     else:
         restore_probs = None
 

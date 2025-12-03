@@ -8,7 +8,7 @@ import torch
 
 from linghe.utils.unary import triton_calculate_smooth_scale, triton_batch_clip
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 
 
 
@@ -49,15 +49,14 @@ def test_calculate_smooth_scale(N=4096, bench=False):
 
 
 
-def test_batch_clip(M=2048, N=1024, k=1024, bench=False):
-    xs = [torch.randn(random.randint(1,int(M**0.5))**2, N, dtype=torch.float32, device='cuda:0') for i in range(k)]
+def test_batch_clip(M=2048, N=1024, k=1024, clip_value=1.0, bench=False):
+    xs = [torch.randn(random.randint(1,int(M**0.5))**2, random.randint(1,int(N**0.5))**2, dtype=torch.float32, device='cuda:0') for i in range(k)]
     xs1 = [x.clone().detach() for x in xs]
     xs2 = [x.clone().detach() for x in xs]
 
-    clip_value = 100.0
     sum_ref = torch_batch_clip(xs1, clip_value)
     sums = triton_batch_clip(xs2, clip_value)
-    output_check(torch.cat(sum_ref,0), torch.cat(sums,0), 'batch_clip')
+    output_check(torch.cat([x.view(-1) for x in sum_ref],0), torch.cat([x.view(-1) for x in sums],0), 'batch_clip')
 
 
     if bench:
@@ -75,8 +74,11 @@ def test_batch_clip(M=2048, N=1024, k=1024, bench=False):
                     n_warmup=0)
 
 
-
 if __name__ == '__main__':
     test_calculate_smooth_scale(N=4096*32)
     test_calculate_smooth_scale(N=4096*32-1897)
-    test_batch_clip(M=2048, N=1024, k=128, bench=False)
+    test_batch_clip(M=2048, N=1024, k=128, clip_value=0.1, bench=True)
+    test_batch_clip(M=2048, N=1024, k=128, clip_value=1.0, bench=True)
+    test_batch_clip(M=2048, N=1024, k=128, clip_value=100.0, bench=True)
+
+

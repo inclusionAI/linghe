@@ -8,7 +8,7 @@ import random
 import torch
 
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 from linghe.utils.transpose import (round_up,
                                    triton_batch_transpose,
                                    triton_batch_transpose_and_pad,
@@ -115,13 +115,7 @@ def test_transpose_and_pad(M=4095, N=4096, bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
 
-    n_repeat = 100
-
-    if True:
-        x = torch.randn(M, N, dtype=dtype, device=device)
-    else:
-        x = torch.load('/ossfs/workspace/tmp/vis/backward.bin')['w']
-        M, N = x.shape
+    x = torch.randn(M, N, dtype=dtype, device=device)
     P = round_up(M, b=32)
     tail = P - M
 
@@ -137,7 +131,7 @@ def test_transpose_and_pad(M=4095, N=4096, bench=False):
         assert opt_output[:, -tail:].float().abs().sum().item() == 0
 
     if bench:
-        benchmark_func(triton_transpose_and_pad, x_q, n_repeat=n_repeat,
+        benchmark_func(triton_transpose_and_pad, x_q,
                        ref_bytes=M * N * 2)
 
 

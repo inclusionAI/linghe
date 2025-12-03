@@ -7,7 +7,7 @@ import random
 import torch
 
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 from linghe.utils.mul import triton_dot, triton_batch_scale, triton_inplace_scale
 
 
@@ -35,7 +35,7 @@ def test_dot(M=4096, N=4096, bench=False):
 
     sums_ref = torch_fp16_dot(x, q.float().to(dtype))
     sums = triton_dot(x, q)
-    output_check(sums_ref, sums, 'dot')
+    output_check(sums_ref, sums, 'dot', atol=1.0)
 
     sums_ref = (x.float() * (
             q.to(torch.float32) * quant_scale[:, None] * smooth_scale[None,
@@ -62,14 +62,19 @@ def test_inplace_scale(M=2**20, bench=False):
                        ref_bytes=ref_bytes, ref_time=ref_time)
 
 
-def test_batch_scale(M=4096, N=2048, k=1024, bench=False):
-    xs = [torch.randn(random.randint(1,int(M**0.5))**2, N, 
-                     dtype=torch.float32, device='cuda:0') for i in range(k)]
+def test_batch_scale(M=4096, N=2048, k=128, scale=1.0, bench=False):
+    dtype = torch.float32
+    xs = [torch.randn(random.randint(1,int(M**0.5))**2,
+                     random.randint(1,int(N**0.5))**2, 
+                     dtype=dtype, device='cuda:0') for i in range(k)]
+    # xs.append(torch.randn(2**32//N, N, 
+    #                       dtype=dtype, device='cuda:0'))
+    xs1 = [x.clone().detach() for x in xs]
+    xs2 = [x.clone().detach() for x in xs]
 
-    scale = 7.86
-    sum_ref = torch_batch_scale(xs, scale)
-    sums = triton_batch_scale(xs, scale)
-    output_check(torch.cat(sum_ref,0), torch.cat(sums,0), 'batch_scale')
+    sum_ref = torch_batch_scale(xs1, scale)
+    sums = triton_batch_scale(xs2, scale)
+    output_check(torch.cat([x.view(-1) for x in sum_ref],0), torch.cat([x.view(-1) for x in sums],0), 'batch_clip')
 
     ref_bytes = sum([x.numel() for x in xs]) * 8
 
@@ -81,6 +86,8 @@ def test_batch_scale(M=4096, N=2048, k=1024, bench=False):
 
 
 if __name__ == '__main__':
-    # test_dot(M=4096, N=4096, bench=False)
-    test_inplace_scale(M=2**28+1, bench=True)
-    # test_batch_scale(M=2048, N=1024, k=1024, bench=True)
+    test_dot(M=4096, N=4096, bench=False)
+    test_inplace_scale(M=2**28+1, bench=False)
+    test_batch_scale(M=2048, N=1024, k=128, scale=2.0, bench=False)
+    test_batch_scale(M=2048, N=1024, k=128, scale=0.0, bench=False)
+

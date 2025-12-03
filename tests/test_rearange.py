@@ -6,7 +6,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 from linghe.utils.rearange import triton_split_and_cat
 
 
@@ -55,9 +55,9 @@ def test_triton_split_and_cat(M=4096, N=4096, bench=False):
 
     data, scale = triton_split_and_cat(x_q, counts, indices, scales=x_scales)
 
-    output_check(data_ref.view(torch.float8_e4m3fn).float(), data.float(),
-                 mode='data')
-    output_check(scale_ref, scale, mode='scale')
+    output_check(data_ref.view(torch.float8_e4m3fn), data,
+                 name='data')
+    output_check(scale_ref, scale, name='scale')
 
     if bench:
         benchmark_func(torch.split, x_q.view(torch.uint8), split_size_list,

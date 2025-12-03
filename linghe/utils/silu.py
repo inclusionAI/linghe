@@ -237,14 +237,14 @@ def triton_silu_and_block_quant_forward(x,
     n = N // 2
     device = x.device
     if out is None:
-        out = torch.empty((M, N // 2), device=device, dtype=torch.float8_e4m3fn)
+        out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
     if scale is None:
-        scale = torch.empty((N // 2 // 128, M), device=device,
+        scale = torch.empty((n // 128, M), device=device,
                             dtype=torch.float32)
 
-    transpose_output = torch.empty((N // 2, M), device=device,
+    transpose_output = torch.empty((n, M), device=device,
                                    dtype=torch.float8_e4m3fn)
-    transpose_scale = torch.empty((triton.cdiv(M, 128), N // 2), device=device,
+    transpose_scale = torch.empty((triton.cdiv(M, 128), n), device=device,
                                   dtype=torch.float32)
 
     grid = (triton.cdiv(M, 128), n // 128)
@@ -488,6 +488,7 @@ def triton_batch_weighted_silu_and_block_quant_forward(x,
         - transpose_scale: quantization scale of transposed output
     """
     assert splits is not None, 'batch mode need splits to launch kernels'
+    assert x.is_contiguous()
     M, N = x.shape
     n = N // 2
     n_experts = counts.shape[0]
@@ -655,6 +656,7 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
     n = N // 2
     n_expert = counts.shape[0]
     assert N <= 8192 and 8192 % N == 0
+    assert g.is_contiguous()
     assert splits is not None, 'batch mode need splits to launch kernels'
 
     device = x.device

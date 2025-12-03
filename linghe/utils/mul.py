@@ -100,7 +100,7 @@ def batch_scale_kernel(input_ptrs, size_ptr, scale,
     size = tl.load(size_ptr + tid)
     input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
     t = tl.cdiv(size, B * T)
-    offs = bid * t * B + tl.arange(0, B)
+    offs = bid.to(tl.int64) * t * B + tl.arange(0, B)
     for i in range(t):
         x = tl.load(input_ptr + offs, mask=offs < size, other=0).to(tl.float32)
         x = x * scale

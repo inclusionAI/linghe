@@ -10,7 +10,7 @@ from linghe.gemm.fp32_gemm import (triton_fp32_gemm,
                                   triton_fp32_gemm_for_update)
 from linghe.facade.fp32_gemm import fp32_gemm
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 
 
 
@@ -43,9 +43,9 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     dx = triton_fp32_gemm_for_backward(dy, w)
     dw = triton_fp32_gemm_for_update(dy, x)
 
-    output_check(y_ref, y, mode='forward')
-    output_check(dx_ref, dx, mode='backward')
-    output_check(dw_ref, dw, mode='update')
+    output_check(y_ref, y, name='forward')
+    output_check(dx_ref, dx, name='backward', atol=0.1)
+    output_check(dw_ref.float(), dw, name='update', atol=0.1)
 
     x.grad = None 
     w.grad = None
@@ -53,11 +53,9 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     y.backward(gradient=dy)
     dx = x.grad 
     dw = w.grad
-    output_check(y_ref, y, mode='forward')
-    output_check(dx_ref, dx, mode='backward')
-    output_check(dw_ref, dw, mode='update')
-
-
+    output_check(y_ref, y, name='forward')
+    output_check(dx_ref, dx, name='backward', atol=0.1)
+    output_check(dw_ref, dw, name='update', atol=0.1)
 
     if bench:
         print('\nbenchmark\n')
@@ -107,9 +105,9 @@ def test_batch_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False):
     y.backward(gradient=dy)
     dx = x.grad 
     dw = w.grad
-    output_check(y_ref, y, mode='forward')
-    output_check(dx_ref, dx, mode='backward')
-    output_check(dw_ref, dw, mode='update')
+    output_check(y_ref, y, name='forward')
+    output_check(dx_ref, dx, name='backward', atol=0.1)
+    output_check(dw_ref, dw, name='update', atol=0.1)
 
     
     if bench:

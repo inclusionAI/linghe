@@ -38,7 +38,7 @@ def torch_accum_weight(x, w, out, x_scale, w_scale):
     return out
 
 
-def bench_cublas_blockwise_gemm(M=4096, N=4096, K=4096):
+def bench_cublas_channelwise_gemm(M=4096, N=4096, K=4096):
 
     dtype = torch.bfloat16
     device = 'cuda:0'
@@ -67,7 +67,7 @@ def bench_cublas_blockwise_gemm(M=4096, N=4096, K=4096):
                 name=f'M:{M}')
 
 
-def bench_te_blockwise_gemm(M=4096, N=4096, K=4096):
+def bench_te_blockwise_gemm(M=4096, N=4096, K=4096, manual=True):
 
     # layout == 'TN':  # forward, y=x@w
     from linghe.quant.block import triton_block_quant,triton_blockwise_quant
@@ -83,12 +83,14 @@ def bench_te_blockwise_gemm(M=4096, N=4096, K=4096):
     dtype = torch.bfloat16
     device = 'cuda:0'
     x = torch.randn((M, K), device=device, dtype=dtype)
+    x[-64:] = 0
+    x[:,-64:] = 0
 
     weight_quantizer = Float8BlockQuantizer(TE_DType[torch.float8_e4m3fn], rowwise=True, 
                     columnwise=True, amax_epsilon=0, force_pow_2_scales=False, block_scaling_dim=2)
     w = torch.randn((N, K), device=device, dtype=dtype)
 
-    if True:
+    if manual:
         x_q, x_s, xt_q, xt_s = triton_blockwise_quant(x)
         qx = Float8BlockwiseQTensor(shape=(M, K),
                                     dtype=torch.bfloat16,
@@ -115,15 +117,14 @@ def bench_te_blockwise_gemm(M=4096, N=4096, K=4096):
                                     is_2D_scaled=True
                                 )
     else:
-        qx = quantizer.make_empty((M, K), dtype=torch.bfloat16, device='cuda:0', requires_grad=False)
+        qx = quantizer.make_empty((M, K), dtype=torch.bfloat16, device=device, requires_grad=False)
         qx = quantizer.update_quantized(x, qx)
 
-        qw = weight_quantizer.make_empty((N, K), dtype=torch.bfloat16, device='cuda:0', requires_grad=False)
+        qw = weight_quantizer.make_empty((N, K), dtype=torch.bfloat16, device=device, requires_grad=False)
         qw = weight_quantizer.update_quantized(w, qw)
     
-    print(f'{qx._rowwise_data.shape=} {qx._rowwise_scale_inv.shape=} {qx._columnwise_data.shape=}  {qx._columnwise_scale_inv.shape=}')
-    print(f'{qw._rowwise_data.shape=} {qw._rowwise_scale_inv.shape=} {qw._columnwise_data.shape=}  {qw._columnwise_scale_inv.shape=}')
-
+    # print(f'{qx._rowwise_data.shape=} {qx._rowwise_scale_inv.shape=} {qx._columnwise_data.shape=}  {qx._columnwise_scale_inv.shape=}')
+    # print(f'{qw._rowwise_data.shape=} {qw._rowwise_scale_inv.shape=} {qw._columnwise_data.shape=}  {qw._columnwise_scale_inv.shape=}')
 
     A = qw 
     transa = True 
@@ -140,9 +141,7 @@ def bench_te_blockwise_gemm(M=4096, N=4096, K=4096):
     grad = False 
     workspace = get_workspace()
     workspace_size = workspace.shape[0]
-    # workspace_size = 0
-    # workspace = torch.empty(0, dtype=torch.uint8, device='cuda:0')
-    accumulate = True 
+    accumulate = False 
     use_split_accumulator = True 
     args = (
             A,
@@ -175,12 +174,15 @@ def bench_te_blockwise_gemm(M=4096, N=4096, K=4096):
     ref_out = x@w.t()
 
     rel_err = (out - ref_out).abs().sum().item()/ref_out.abs().sum().item()
-    print(f'rel:{rel_err:.6f}')
+    print(f'rel:{rel_err:.6f} ref:{ref_out.abs().mean().item():.3f} out:{out.abs().mean().item():.3f}')
 
     ref_flops = M * N * K * 2
     ref_bytes = M * K + N * K + M * N *2 
-    benchmark_func(tex.generic_gemm, *args,
-                   n_repeat=100, ref_flops=ref_flops, ref_bytes=ref_bytes)
+    benchmark_func(tex.generic_gemm,
+                   *args,
+                   n_repeat=100,
+                   ref_flops=ref_flops,
+                   ref_bytes=ref_bytes)
 
 
 def bench_te_mxfp8_gemm(M=4096, N=4096, K=4096):
@@ -266,6 +268,7 @@ def bench_te_mxfp8_gemm(M=4096, N=4096, K=4096):
 
 
 if __name__ == '__main__':
-    # bench_cublas_blockwise_gemm(M=4096, N=4096, K=4096)
-    bench_te_blockwise_gemm(M=8192, N=4096, K=2048)
+    # bench_cublas_channelwise_gemm(M=4096, N=4096, K=4096)
+    bench_te_blockwise_gemm(M=128, N=128, K=128, manual=False)
+    bench_te_blockwise_gemm(M=128, N=128, K=128, manual=True)
     # bench_te_mxfp8_gemm(M=4096, N=4096, K=4096)

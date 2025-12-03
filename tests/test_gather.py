@@ -19,14 +19,14 @@ from linghe.utils.gather import (triton_make_row_id_map,
 from linghe.quant.block import triton_batch_blockwise_quant
 from linghe.quant.mxfp8 import triton_batch_mxfp8_quant
 
-from linghe.tools.util import (output_check,
-                              torch_batch_smooth_quant,
+from linghe.tools.util import (torch_batch_smooth_quant,
                               torch_blockwise_quant,
                               torch_make_indices,
                               torch_smooth_quant,
                               torch_group_quant,
                               torch_mxfp8_quant)
 from linghe.tools.benchmark import benchmark_func
+from linghe.tools.check import output_check
 
 
 def torch_index_select(y, indices):
@@ -370,8 +370,8 @@ def test_triton_smooth_permute_with_mask_map(M=4096, N=4096, n_experts=32,
                                                                  x_scale=None,
                                                                  reverse=False,
                                                                  round_scale=round_scale)
-    output_check(q_ref.float(), y_q.float(), 'data')
-    output_check(scale_ref.float(), y_scale.float(), 'scale')
+    output_check(q_ref.float(), y_q.float(), name='data', rtol=0.125)
+    output_check(scale_ref.float(), y_scale.float(), name='scale')
 
 
 
@@ -379,7 +379,7 @@ def test_triton_smooth_permute_with_mask_map(M=4096, N=4096, n_experts=32,
     permuted_data, permuted_scale = triton_smooth_permute_with_mask_map(
         grad_data, row_id_map, grad_scale, M, n_experts, out_tokens, N,
         smooth_scales, reverse=False, round_scale=round_scale)
-    output_check(q_ref.float(), permuted_data.float(), 'smoothed.data')
+    output_check(q_ref.float(), permuted_data.float(), name='smoothed.data', rtol=0.125)
     output_check(scale_ref.float(), permuted_scale.float(), 'smoothed.scale')
 
     q_ref, scale_ref = torch_smooth_permute_with_indices(grad_data, None,
@@ -389,7 +389,7 @@ def test_triton_smooth_permute_with_mask_map(M=4096, N=4096, n_experts=32,
     permuted_data, permuted_scale = triton_smooth_permute_with_mask_map(
         grad_data, row_id_map, None, M, n_experts, out_tokens, N,
         smooth_scales, reverse=False, round_scale=round_scale)
-    output_check(q_ref.float(), permuted_data.float(), 'smoothed.data')
+    output_check(q_ref.float(), permuted_data.float(), name='smoothed.data', rtol=0.125)
     output_check(scale_ref.float(), permuted_scale.float(), 'smoothed.scale')
 
 
@@ -448,7 +448,7 @@ def test_triton_batch_transpose_smooth_permute_with_indices(M=1024, N=2048, n_ex
                                        indices,
                                        token_count_per_expert, token_count_per_expert_list,
                                        round_scale=True)
-    output_check(x_q_ref.float(), x_q.float(), 'smoothed.data')
+    output_check(x_q_ref.float(), x_q.float(), name='smoothed.data', rtol=0.125)
     output_check(x_scale_ref.float(), x_scale.float(), 'smoothed.scale')
 
 

@@ -2,14 +2,13 @@
 
 import torch
 from linghe.quant.block import triton_block_quant,triton_blockwise_quant,triton_batch_blockwise_quant
-from linghe.tools.util import (output_check,
-                              torch_block_quant,
+from linghe.tools.util import (torch_block_quant,
                               torch_blockwise_quant,
                               torch_make_indices,
                               torch_smooth_quant,
                               torch_group_quant)
 from linghe.tools.benchmark import benchmark_func
-
+from linghe.tools.check import output_check
 
 
 

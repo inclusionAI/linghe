@@ -14,7 +14,7 @@ with pathlib.Path("requirements.txt").open() as f:
 
 setup(
     name="linghe",
-    version="0.1.2",
+    version="0.1.3",
     license="MIT",
     license_files=("LICENSE",),
     description="LLM traning kernels",

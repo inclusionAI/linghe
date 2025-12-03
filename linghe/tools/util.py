@@ -401,58 +401,6 @@ def fp16_f_and_b(x, w, y):
     return o, dx, dw
 
 
-def output_check(org_out, opt_out, mode='', rtol=None, atol=None):
-    
-    assert org_out.shape == opt_out.shape, f"ref:{org_out.shape} != out:{opt_out.shape}"
-    if org_out.numel() == 0:
-        return
-    org_dtype = org_out.dtype
-    opt_dtype = opt_out.dtype
-    if org_dtype in (torch.uint8, torch.int8, torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
-        org_out = org_out.float()
-
-    if opt_dtype in (torch.uint8, torch.int8, torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
-        opt_out = opt_out.float()
-
-    assert org_out.dtype == opt_out.dtype
-
-    org_out = org_out.detach()
-    opt_out = opt_out.detach()
-
-    abs_error = (opt_out - org_out).abs().mean().item()
-    rel_error = abs_error / max(org_out.abs().mean().item(), 1e-38)
-    if rel_error >= 0.005:
-        rel_err_str = f"\033[91m {rel_error:.6f}\033[00m"
-    else:
-        rel_err_str = f"{rel_error:.6f}"
-    org_max = org_out.abs().max()
-    org_mean = org_out.abs().mean()
-    opt_max = opt_out.abs().max()
-    opt_mean = opt_out.abs().mean()
-    print(f'\n{mode:<16}  rel:{rel_err_str}  abs:{abs_error:.6f}  ' \
-          f'org:{org_max:.3f}/{org_mean:.3f} ' \
-          f'opt:{opt_max:.3f}/{opt_mean:.3f} ')
-    if (org_dtype != torch.float8_e4m3fn
-        and opt_dtype != torch.float8_e4m3fn
-        and rtol is not None 
-        and atol is not None):
-        torch.testing.assert_close(opt_out, org_out, rtol=rtol, atol=atol)
-
-
-def quant_check(org_out, xq, wq, opt_out, mode):
-    abs_error = (opt_out.float() - org_out.float()).abs().mean().item()
-    rel_error = abs_error / org_out.float().abs().mean().item()
-    x_underflow = (xq == 0.0).sum().item() / xq.numel()
-    w_underflow = (wq == 0.0).sum().item() / wq.numel()
-    x_overflow = (torch.isnan(xq)).sum().item()
-    w_overflow = (torch.isnan(wq)).sum().item()
-    print(f'\n{mode}  rel:{rel_error:.3f}  abs:{abs_error:.3f}  ' \
-          f'org:{org_out.abs().max():.3f}/{org_out.abs().mean():.3f} ' \
-          f'opt:{opt_out.abs().max():.3f}/{opt_out.abs().mean():.3f} ' \
-          f'x_underflow:{x_underflow:.5f} w_underflow:{w_underflow:.5f} ' \
-          f'x_overflow:{x_overflow} w_overflow:{w_overflow}')
-
-
 def read_and_tile(filename, tile=True):
     device = 'cuda:0'
     dtype = torch.bfloat16

@@ -21,7 +21,7 @@ def half_rope_forward_kernel(q_ptr, k_ptr, freqs_ptr, qo_ptr, ko_ptr, B,
     pid = tl.program_id(0)
     L = tl.num_programs(0)
 
-    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D))
+    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D)).to(tl.float32)
     cos = tl.cos(freqs)
     sin = tl.sin(freqs)
     signs = tl.arange(0, 2).to(tl.float32) * 2 - 1
@@ -194,7 +194,7 @@ def half_rope_backward_kernel(q_ptr, k_ptr, freqs_ptr,
     pid = tl.program_id(0)
     L = tl.num_programs(0)
 
-    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D))
+    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D)).to(tl.float32)
     cos = tl.cos(freqs)
     sin = tl.sin(freqs)
     signs = -tl.arange(0, 2).to(tl.float32) * 2 + 1
@@ -207,33 +207,32 @@ def half_rope_backward_kernel(q_ptr, k_ptr, freqs_ptr,
                                                                                 H)[
                                                                     :,
                                                                     None] + tl.arange(
-                    0, D)[None, :])
+                    0, D)[None, :]).to(tl.float32)
         else:
             q = tl.load(
                 q_ptr + pid * H * D * 2 + i * L * H * D * 2 + 2 * D * tl.arange(0,
                                                                                 H)[
                                                                     :,
                                                                     None] + tl.arange(
-                    0, D)[None, :])
+                    0, D)[None, :]).to(tl.float32)
         qr = tl.reshape(tl.permute(
             tl.flip(tl.permute(tl.reshape(q, (H, 2, d)), (0, 2, 1)),
                     dim=2) * signs, (0, 2, 1)), (H, D))
-
-        q = q * cos + qr * sin
+        qo = (q * cos + qr * sin).to(q_ptr.dtype.element_ty)
         if TRANSPOSED:
             tl.store(
                 q_ptr + pid * B * H * D * 2 + i * H * D * 2 + 2 * D * tl.arange(0,
                                                                                 H)[
                                                                     :,
                                                                     None] + tl.arange(
-                    0, D)[None, :], q)
+                    0, D)[None, :], qo)
         else:
             tl.store(
                 q_ptr + pid * H * D * 2 + i * L * H * D * 2 + 2 * D * tl.arange(0,
                                                                                 H)[
                                                                     :,
                                                                     None] + tl.arange(
-                    0, D)[None, :], q)  
+                    0, D)[None, :], qo)  
 
     for i in range(B):
         if TRANSPOSED:
@@ -242,32 +241,32 @@ def half_rope_backward_kernel(q_ptr, k_ptr, freqs_ptr,
                                                                                 h)[
                                                                     :,
                                                                     None] + tl.arange(
-                    0, D)[None, :])
+                    0, D)[None, :]).to(tl.float32)
         else:
             k = tl.load(
                 k_ptr + pid * h * D * 2 + i * L * h * D * 2 + 2 * D * tl.arange(0,
                                                                                 h)[
                                                                     :,
                                                                     None] + tl.arange(
-                    0, D)[None, :])
+                    0, D)[None, :]).to(tl.float32)
         kr = tl.reshape(tl.permute(
             tl.flip(tl.permute(tl.reshape(k, (h, 2, d)), (0, 2, 1)),
                     dim=2) * signs, (0, 2, 1)), (h, D))
-        k = k * cos + kr * sin
+        ko = (k * cos + kr * sin).to(k_ptr.dtype.element_ty)
         if TRANSPOSED:
             tl.store(
                 k_ptr + pid * B * h * D * 2 + i * h * D * 2 + 2 * D * tl.arange(0,
                                                                                 h)[
                                                                     :,
                                                                     None] + tl.arange(
-                    0, D)[None, :], k)
+                    0, D)[None, :], ko)
         else:
             tl.store(
                 k_ptr + pid * h * D * 2 + i * L * h * D * 2 + 2 * D * tl.arange(0,
                                                                                 h)[
                                                                     :,
                                                                     None] + tl.arange(
-                    0, D)[None, :], k)
+                    0, D)[None, :], ko)
 
 
 def triton_half_rope_backward(q_grad, k_grad, freqs, inplace=False, transposed=True):
@@ -316,7 +315,7 @@ def qk_norm_and_half_rope_forward_kernel(qkv_ptr,
     L = tl.num_programs(0)
     DD = D * 2
 
-    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D))
+    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D)).to(tl.float32)
     cos = tl.cos(freqs)
     sin = tl.sin(freqs)
     signs = tl.arange(0, 2).to(tl.float32) * 2 - 1
@@ -477,7 +476,7 @@ def compatible_qk_norm_and_half_rop_forward_kernel(qkv_ptr,
     L = tl.num_programs(0)
     DD = D * 2
 
-    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D))
+    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D)).to(tl.float32)
     cos = tl.cos(freqs)
     sin = tl.sin(freqs)
     signs = tl.arange(0, 2).to(tl.float32) * 2 - 1
@@ -712,7 +711,7 @@ def qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
     DD = 2 * D
     w = H // h
 
-    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D))
+    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D)).to(tl.float32)
     cos = tl.cos(freqs)
     sin = tl.sin(freqs)
     signs = -tl.arange(0, 2).to(tl.float32) * 2 + 1
@@ -1001,7 +1000,7 @@ def compatible_qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
     DD = 2 * D
     w = H // h
 
-    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D))
+    freqs = tl.load(freqs_ptr + pid * D + tl.arange(0, D)).to(tl.float32)
     cos = tl.cos(freqs)
     sin = tl.sin(freqs)
     signs = -tl.arange(0, 2).to(tl.float32) * 2 + 1
@@ -1378,13 +1377,13 @@ def varlen_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
 
     DD = D * 2
 
-    freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D))
+    freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D)).to(tl.float32)
     cos = tl.cos(freqs) * mscale
     sin = tl.sin(freqs) * mscale
     signs = tl.arange(0, 2).to(tl.float32) * 2 - 1
 
-    q_weight_0 = tl.load(q_norm_weight_ptr + tl.arange(0, D))
-    q_weight_1 = tl.load(q_norm_weight_ptr + D + tl.arange(0, D))
+    q_weight_0 = tl.load(q_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
+    q_weight_1 = tl.load(q_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
     q_ptr = qkv_ptr
     w = H // h
 
@@ -1397,14 +1396,14 @@ def varlen_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
 
     q0 = tl.load(q_ptr + pid * stride + DD * row_offs[:,
                                                             None] + tl.arange(
-        0, D)[None, :])
+        0, D)[None, :]).to(tl.float32)
     q1 = tl.load(q_ptr + pid * stride + D + DD * row_offs[:,
                                                         None] + tl.arange(
-            0, D)[None, :])
+            0, D)[None, :]).to(tl.float32)
 
     if SILU:
-        q0 = q0 * tl.sigmoid(q0.to(tl.float32))
-        q1 = q1 * tl.sigmoid(q1.to(tl.float32))
+        q0 = q0 * tl.sigmoid(q0)
+        q1 = q1 * tl.sigmoid(q1)
     rms = 1 / tl.sqrt((tl.sum(q0 * q0, 1) + tl.sum(q1 * q1, 1)) / DD + eps)
     q1 *= rms[:, None]
     q1 *= q_weight_1
@@ -1425,12 +1424,12 @@ def varlen_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                                                                         D)[
                                                                 None, :], q0)
 
-    k_weight_0 = tl.load(k_norm_weight_ptr + tl.arange(0, D))
-    k_weight_1 = tl.load(k_norm_weight_ptr + D + tl.arange(0, D))
+    k_weight_0 = tl.load(k_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
+    k_weight_1 = tl.load(k_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
 
     if CP_SIZE > 1:
         pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, CP_SIZE)
-        freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D))
+        freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D)).to(tl.float32)
         cos = tl.cos(freqs) * mscale
         sin = tl.sin(freqs) * mscale
 
@@ -1443,15 +1442,15 @@ def varlen_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
         
     k0 = tl.load(k_ptr + pid * stride + DD * row_offs[:,
                                                             None] + tl.arange(
-        0, D)[None, :])
+        0, D)[None, :]).to(tl.float32)
     k1 = tl.load(
         k_ptr + pid * stride + D + DD * row_offs[:,
                                                         None] + tl.arange(
-            0, D)[None, :])
+            0, D)[None, :]).to(tl.float32)
 
     if SILU:
-        k0 = k0 * tl.sigmoid(k0.to(tl.float32))
-        k1 = k1 * tl.sigmoid(k1.to(tl.float32))
+        k0 = k0 * tl.sigmoid(k0)
+        k1 = k1 * tl.sigmoid(k1)
     rms = 1 / tl.sqrt((tl.sum(k0 * k0, 1) + tl.sum(k1 * k1, 1)) / DD + eps)
     k1 *= rms[:, None]
     k1 *= k_weight_1
@@ -1601,13 +1600,13 @@ def varlen_qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
 
     pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, cp_rank, CP_SIZE)
 
-    freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D))
+    freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D)).to(tl.float32)
     cos = tl.cos(freqs) * mscale
     sin = tl.sin(freqs) * mscale
     signs = -tl.arange(0, 2).to(tl.float32) * 2 + 1
 
-    q_w0 = tl.load(q_norm_weight_ptr + tl.arange(0, D))
-    q_w1 = tl.load(q_norm_weight_ptr + D + tl.arange(0, D))
+    q_w0 = tl.load(q_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
+    q_w1 = tl.load(q_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
 
     dqw_0 = tl.zeros((D,), dtype=tl.float32)
     dqw_1 = tl.zeros((D,), dtype=tl.float32)
@@ -1691,12 +1690,12 @@ def varlen_qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
 
     if CP_SIZE > 1:
         pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, CP_SIZE)
-        freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D))
+        freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D)).to(tl.float32)
         cos = tl.cos(freqs) * mscale
         sin = tl.sin(freqs) * mscale
 
-    k_w0 = tl.load(k_norm_weight_ptr + tl.arange(0, D))
-    k_w1 = tl.load(k_norm_weight_ptr + D + tl.arange(0, D))
+    k_w0 = tl.load(k_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
+    k_w1 = tl.load(k_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
 
     dkw_0 = tl.zeros((D,), dtype=tl.float32)
     dkw_1 = tl.zeros((D,), dtype=tl.float32)
@@ -1927,7 +1926,7 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
         L = num_tokens // B
         bid = pid % B
 
-    freqs = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 64))
+    freqs = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 64)).to(tl.float32)
 
     cos = tl.cos(freqs) * mscale
     sin = tl.sin(freqs) * mscale
@@ -2113,18 +2112,17 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
             pos = pid // B
             bid = pid % B
 
-    freqs0 = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 32))
-    freqs1 = tl.load(freqs_ptr + pos * 64 + 32 + tl.arange(0, 32))
-
+    freqs0 = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 32)).to(tl.float32)
+    freqs1 = tl.load(freqs_ptr + pos * 64 + 32 + tl.arange(0, 32)).to(tl.float32)
 
     q0 = tl.load(q_ptr + pid * H * 192 + 128 + 192 * tl.arange(0, H)[
                                                                     :,
                                                                     None] + tl.arange(
-                    0, 32)[None, :])
+                    0, 32)[None, :]).to(tl.float32)
     q1 = tl.load(q_ptr + pid * H * 192 + 160 + 192 * tl.arange(0, H)[
                                                                     :,
                                                                     None] + tl.arange(
-                    0, 32)[None, :])
+                    0, 32)[None, :]).to(tl.float32)
         
 
     cos0 = tl.cos(freqs0)*mscale
@@ -2169,10 +2167,10 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
 
     kp0 = tl.load(
         k_ptr + pid * H * 192 + 128 + 192 * tl.arange(0,  H)[:, None] + tl.arange(
-            0, 32)[None, :])
+            0, 32)[None, :]).to(tl.float32)
     kp1 = tl.load(
         k_ptr + pid * H * 192 + 160 + 192 * tl.arange(0,  H)[:, None] + tl.arange(
-            0, 32)[None, :])
+            0, 32)[None, :]).to(tl.float32)
     dkp0 = tl.sum(kp0 * cos0 + kp1 * sin1, 0)
     dkp1 = tl.sum(kp1 * cos1 - kp0 * sin0, 0)
     dkp = tl.reshape(tl.join(dkp0, dkp1), (64, ))

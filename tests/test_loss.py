@@ -8,7 +8,7 @@ import random
 import torch
 
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 from linghe.utils.loss import (triton_softmax_cross_entropy_forward,
                                triton_softmax_cross_entropy_backward,
                                triton_moe_z_loss_forward,
@@ -49,13 +49,13 @@ def test_triton_softmax_cross_entropy(M=4096, N=157184, coef=1.0, inplace=False,
 
     loss, sum_exp, max_logit = triton_softmax_cross_entropy_forward(logits,
                                                                     targets)
-    output_check(loss_ref, loss, mode='loss')
+    output_check(loss_ref, loss, name='loss')
 
     grad = triton_softmax_cross_entropy_backward(logits, targets, sum_exp,
                                                  max_logit,
                                                  output_grad,
                                                  inplace=inplace)
-    output_check(grad_ref.float(), grad.float(), mode='grad')
+    output_check(grad_ref.float(), grad.float(), name='grad')
     if bench:
         benchmark_func(torch_cross_entropy, logits, targets, output_grad,
                        ref_bytes=M * N * 2)
@@ -76,14 +76,14 @@ def test_z_loss(L=4096, B=2, N=256, coef=0.001, bench=False):
 
     loss = triton_moe_z_loss_forward(logits, coef=coef)
     grad = triton_moe_z_loss_backward(input_grad, logits, coef=coef)
-    output_check(loss_ref, loss, mode='loss')
-    output_check(grad_ref.float(), grad.float(), mode='grad')
+    output_check(loss_ref, loss, name='loss')
+    output_check(grad_ref.float(), grad.float(), name='grad')
 
     loss = moe_z_loss(logits, coef=coef)
     loss.backward(gradient=input_grad[0])
     grad = logits.grad 
-    output_check(loss_ref, loss, mode='loss')
-    output_check(grad_ref.float(), grad.float(), mode='grad')
+    output_check(loss_ref, loss, name='loss')
+    output_check(grad_ref.float(), grad.float(), name='grad')
 
 
     if bench:

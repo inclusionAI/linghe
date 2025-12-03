@@ -11,8 +11,8 @@ from linghe.quant.smooth import (triton_batch_smooth_quant,
                                                triton_smooth_quant,
                                                triton_transpose_smooth_quant)
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import (output_check,
-                               torch_make_indices,
+from linghe.tools.check import output_check
+from linghe.tools.util import (torch_make_indices,
                                torch_smooth_quant,
                                round_up)
 from linghe.facade.smooth_quant_linear import SmoothQuantLinear
@@ -98,16 +98,18 @@ def test_triton_smooth_quant(M=4096, N=4096, bench=False):
     device = 'cuda:0'
     x = torch.randn((M, N), dtype=torch.bfloat16, device=device)
     smooth_scale = torch.randn((N,), device=device, dtype=torch.float32).abs()+1.0
+    round_scale = False 
+    rtol = 2 if round_scale else 0.125
     x_q_ref, scales_ref, x_maxs_ref = torch_smooth_quant(x, smooth_scale,
                                                          reverse=False,
-                                                         round_scale=True)
+                                                         round_scale=round_scale)
 
     x_q, x_scale, x_maxs = triton_smooth_quant(x, smooth_scale,
                                                       reverse=False,
-                                                      round_scale=True,
+                                                      round_scale=round_scale,
                                                       calibrate=True)
-    output_check(x_q_ref.float(), x_q.float(),
-                 'triton_smooth_quant.data')
+    output_check(x_q_ref, x_q,
+                 'triton_smooth_quant.data', rtol=rtol)
     output_check(scales_ref, x_scale, 'triton_smooth_quant.scale')
     output_check(x_maxs_ref, x_maxs, 'triton_smooth_quant.x_maxs')
 
@@ -274,7 +276,8 @@ def test_triton_batch_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
     x_q_ref = torch.cat([x.view(torch.uint8) for x in x_q_ref], 0).view(
         torch.float8_e4m3fn)
     x_scale_ref = torch.cat(x_scale_ref, 0)
-    output_check(x_q_ref.float(), x_q.float(), 'triton_batch_smooth_quant.data')
+    rtol = 2 if round_scale else 0.125
+    output_check(x_q_ref, x_q, 'triton_batch_smooth_quant.data', rtol=rtol)
     output_check(x_scale_ref.float(), x_scale.float(),
                  'triton_batch_smooth_quant.scale')
     output_check(x_maxs_ref.float(), x_maxs.float(),
@@ -294,8 +297,6 @@ def test_triton_batch_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
                        n_repeat=n_repeat, ref_time=ref_time)
 
 
-
-
 def test_smooth_quant_linear(M=8192, N=1024, K=2048):
 
     dtype = torch.bfloat16 
@@ -308,15 +309,15 @@ def test_smooth_quant_linear(M=8192, N=1024, K=2048):
 
     y_ref = x@w.t()
     y = linear(x)
-    output_check(y_ref, y, mode='y')
+    output_check(y_ref, y, name='y')
 
     dx_ref = dy@w 
     dw_ref = dy.t()@x
     y.backward(dy)
     dw = linear.weight.grad 
     dx = x.grad
-    output_check(dx_ref, dx, mode='dx')
-    output_check(dw_ref, dw, mode='dw')
+    output_check(dx_ref, dx, name='dx')
+    output_check(dw_ref, dw, name='dw')
 
 
 

@@ -6,7 +6,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 from linghe.utils.add import triton_inplace_add
 
 
