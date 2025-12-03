@@ -327,3 +327,86 @@ def mxfp8_permute(
         cls,
     )
     return permuted_input, permuted_probs, row_id_map, row_id_index
+
+
+class _MXFP8Unpermute(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        permuted_tokens,
+        row_id_map,
+        row_id_index,
+        tokens_per_expert,
+        splits,
+        restore_shape,
+        quantizers,
+        cls,
+    ):
+        """Forward function."""
+        num_tokens, hidden_size = restore_shape
+        num_out_tokens = permuted_tokens.shape[0]
+        n_experts = row_id_map.size(1)
+        ctx.save_for_backward(row_id_index)
+        ctx.input_requires_grad = permuted_tokens.requires_grad
+        ctx.num_experts = n_experts
+        ctx.restore_shape = restore_shape
+        ctx.num_tokens = num_tokens
+        ctx.num_out_tokens = num_out_tokens
+        ctx.hidden_size = hidden_size
+        ctx.tokens_per_expert = tokens_per_expert
+        ctx.splits = splits
+        ctx.quantizers = quantizers
+        ctx.cls = cls
+
+        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map, None)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """Backward function."""
+        (row_id_index,) = ctx.saved_tensors
+
+        quantizers = ctx.quantizers
+        x_q, x_scale, xt_q, xt_scale, _ = triton_batch_mxfp8_permute_with_indices(
+            grad_output,
+            ctx.tokens_per_expert,
+            row_id_index,
+            ctx.splits,
+        )
+
+        output = ctx.cls(
+            shape=x_q.shape,
+            dtype=grad_output.dtype,
+            fp8_dtype=quantizers[0].dtype,
+            rowwise_data=x_q,
+            rowwise_scale_inv=x_scale,
+            columnwise_data=xt_q,
+            columnwise_scale_inv=xt_scale,
+            quantizer=quantizers,
+            requires_grad=False,
+        )
+
+        return output, None, None, None, None, None, None, None
+
+
+def mxfp8_unpermute(
+    permuted_tokens: torch.Tensor,
+    row_id_map: torch.Tensor,
+    row_id_index: torch.Tensor,
+    tokens_per_expert: torch.Tensor,
+    splits: List,
+    restore_shape: torch.Size,
+    quantizers,
+    cls,
+):
+    output = _MXFP8Unpermute.apply(
+        permuted_tokens,
+        row_id_map,
+        row_id_index,
+        tokens_per_expert,
+        splits,
+        restore_shape,
+        quantizers,
+        cls,
+    )
+    return output
