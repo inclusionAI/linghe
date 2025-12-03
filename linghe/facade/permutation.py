@@ -2,11 +2,13 @@ from typing import Optional, List
 import torch
 
 from linghe.utils.scatter import triton_unpermute_with_mask_map
-from linghe.utils.gather import (triton_permute_with_mask_map, 
-                                    triton_make_row_id_map, 
-                                    triton_make_row_id_map_and_index, 
-                                    triton_batch_block_pad_permute_with_indices)
-
+from linghe.utils.gather import (
+    triton_permute_with_mask_map,
+    triton_make_row_id_map,
+    triton_make_row_id_map_and_index,
+    triton_batch_block_pad_permute_with_indices,
+    triton_batch_mxfp8_permute_with_indices
+)
 
 
 class _PaddedPermute(torch.autograd.Function):
@@ -43,7 +45,6 @@ class _PaddedPermute(torch.autograd.Function):
         return output.view(ctx.shape), prob_output.view(ctx.prob_shape), None, None, None
 
 
-
 def padded_permute(
     tokens,
     routing_map,
@@ -69,7 +70,6 @@ def padded_permute(
                                                                       tokens_per_expert_cuda_tensor, 
                                                                       tokens_per_expert_list)
     return permuted_input, permuted_probs, row_id_map
-
 
 
 class _PaddedUnpermute(torch.autograd.Function):
@@ -195,7 +195,6 @@ def block_padded_permute(
     return permuted_input, permuted_probs, row_id_map, row_id_index
 
 
-
 class _BlockPaddedUnpermute(torch.autograd.Function):
     @staticmethod
     def forward(ctx, permuted_tokens, row_id_map, row_id_index, tokens_per_expert, splits, restore_shape, quantizers, cls):
@@ -248,7 +247,6 @@ class _BlockPaddedUnpermute(torch.autograd.Function):
         return output, None, None, None, None, None, None, None
 
 
-
 def block_padded_unpermute(
     permuted_tokens: torch.Tensor,
     row_id_map: torch.Tensor,
@@ -261,3 +259,71 @@ def block_padded_unpermute(
 ):
     output = _BlockPaddedUnpermute.apply(permuted_tokens, row_id_map, row_id_index, tokens_per_expert, splits, restore_shape, quantizers, cls) 
     return output
+
+
+class _MXFP8Permute(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, tokens, probs, routing_map, tokens_per_expert_cuda_tensor, tokens_per_expert_list, quantizers, cls):
+        """Forward function."""
+        num_tokens, hidden_dim = tokens.shape
+
+        num_out_tokens = sum(tokens_per_expert_list)
+        row_id_map, row_id_index = triton_make_row_id_map_and_index(routing_map, num_out_tokens)
+
+        ctx.num_tokens = num_tokens
+        ctx.hidden_dim = hidden_dim
+        ctx.prob_shape = probs.shape
+        ctx.shape = tokens.shape
+        ctx.cls = cls
+        x_q, x_scale, xt_q, xt_scale, permuted_probs = (
+            triton_batch_mxfp8_permute_with_indices(
+                tokens,
+                tokens_per_expert_cuda_tensor,
+                row_id_index,
+                tokens_per_expert_list,
+                probs=probs,
+            )
+        )
+
+        output = cls(
+            shape=x_q.shape,
+            dtype=tokens.dtype,
+            fp8_dtype=quantizers[0].dtype,
+            rowwise_data=x_q,
+            rowwise_scale_inv=x_scale,
+            columnwise_data=xt_q,
+            columnwise_scale_inv=xt_scale,
+            quantizer=quantizers,
+            requires_grad=tokens.requires_grad,
+        )
+        ctx.save_for_backward(row_id_map)
+        return output, permuted_probs, row_id_map, row_id_index
+
+    @staticmethod
+    def backward(ctx, grad_output, grad_prob, grad_map, grad_index):
+        """Backward function."""
+        row_id_map, = ctx.saved_tensors
+        output, prob_output = triton_unpermute_with_mask_map(grad_output, row_id_map, grad_prob)
+        return output.view(ctx.shape), prob_output.view(ctx.prob_shape), None, None, None, None, None
+
+
+def mxfp8_permute(
+    tokens,
+    routing_map,
+    tokens_per_expert_cuda_tensor,
+    tokens_per_expert_list,
+    quantizers,
+    cls,
+    probs: Optional[torch.Tensor] = None,
+):
+
+    permuted_input, permuted_probs, row_id_map, row_id_index = _MXFP8Permute.apply(
+        tokens,
+        probs,
+        routing_map,
+        tokens_per_expert_cuda_tensor,
+        tokens_per_expert_list,
+        quantizers,
+        cls,
+    )
+    return permuted_input, permuted_probs, row_id_map, row_id_index
