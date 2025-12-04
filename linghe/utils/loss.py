@@ -59,6 +59,7 @@ def triton_softmax_cross_entropy_forward(logits, labels):
     """
     M, N = logits.shape
     device = logits.device
+    assert logits.is_contiguous() and labels.is_contiguous()
     loss = torch.empty((M,), device=device, dtype=torch.float32)
     sum_exp = torch.empty((M,), device=device, dtype=torch.float32)
     max_logit = torch.empty((M,), device=device, dtype=torch.float32)
@@ -187,6 +188,7 @@ def triton_moe_z_loss_forward(logits, coef=1e-6):
     Returns:
         z loss
     """
+    assert logits.is_contiguous()
     shape = logits.shape
     if len(shape) == 3:
         L, B, D = logits.shape
@@ -240,6 +242,7 @@ def triton_moe_z_loss_backward(grads, logits, coef=1e-6):
     Returns:
         output_grad: [L, B, dim]
     """
+    assert grads.is_contiguous()
     device = logits.device
     shape = logits.shape
     if len(shape) == 3:

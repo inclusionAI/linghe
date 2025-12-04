@@ -90,6 +90,7 @@ def triton_transpose(x: torch.Tensor, inner=True):
     shape = x.shape
     rank = len(shape)
     assert rank <= 4
+    assert x.is_contiguous()
     if rank == 2:
         M, N = shape
         device = x.device
@@ -204,6 +205,7 @@ def triton_transpose_and_pad(x, out=None, pad=True):
         out: output tensor
     """
     # fat block, shape:[H,W]
+    assert x.is_contiguous()
     M, N = x.shape
     P = round_up(M, b=32) if pad else M
     device = x.device
@@ -252,6 +254,7 @@ def triton_batch_transpose(xs, xts=None):
     Returns:
         xts: output tensor list, [N,M]*expert
     """
+    assert all([x.is_contiguous() for x in xs])
     M, N = xs[0].shape
     n_experts = len(xs)
     device=xs[0].device
@@ -314,6 +317,7 @@ def triton_batch_transpose_and_pad(x, count_list, x_t=None, pad=True):
     Returns:
         x_t: output tensor
     """
+    assert x.is_contiguous()
     assert pad
     # block shape:[H,W]
     M, N = x.shape
@@ -377,6 +381,7 @@ def opt_transpose_kernel(x_ptr, t_ptr, M, N, D, H: tl.constexpr,
 
 
 def triton_opt_transpose(x):
+    assert x.is_contiguous()
     M, N = x.shape
     device = x.device
     D = 0 if x.dtype.itemsize == 1 else 1

@@ -46,6 +46,7 @@ def triton_split_and_cat(x, counts, indices, scales=None):
         - y: output tensor
         - output_scales: output scales if scales is not None
     """
+    assert x.is_contiguous()
     M, N = x.shape
     n_split = counts.shape[0]
     device = x.device

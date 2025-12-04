@@ -146,6 +146,7 @@ def triton_half_rope_forward(q, k, freqs, transposed=True):
         - qo: query output
         - ko: key output
     """
+    assert q.is_contiguous() and k.is_contiguous() and freqs.is_contiguous()
     if transposed:
         L, B, H, D = q.shape
     else:
@@ -270,6 +271,7 @@ def half_rope_backward_kernel(q_ptr, k_ptr, freqs_ptr,
 
 
 def triton_half_rope_backward(q_grad, k_grad, freqs, inplace=False, transposed=True):
+    assert q_grad.is_contiguous() and k_grad.is_contiguous()
     assert inplace
     if transposed:
         L, B, H, D = q_grad.shape
@@ -622,7 +624,8 @@ def triton_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weight,
         - ko: shape [B, S, h, head_dim]
         - vo: shape [B, S, h, head_dim]
     """
-    assert freqs.is_contiguous()
+    assert qkv.is_contiguous() and q_norm_weight.is_contiguous() 
+    assert k_norm_weight.is_contiguous() and freqs.is_contiguous()
     if transposed:
         L, B, Dim = qkv.shape
     else:
@@ -1533,6 +1536,8 @@ def triton_varlen_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weigh
         - ko: shape [B, S, h, head_dim]
         - vo: shape [B, S, h, head_dim]
     """
+    assert qkv.is_contiguous() and q_norm_weight.is_contiguous()
+    assert k_norm_weight.is_contiguous() and freqs.is_contiguous()
     T, Dim = qkv.shape
     stride = qkv.stride(0)  # qkv may be a slice of a tensor
     D = Dim // (H + 2 * h)
@@ -1852,6 +1857,7 @@ def triton_varlen_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
         - dqw: gradient of q_norm_weight
         - dkw: gradient of k_norm_weight
     """
+    assert gq.is_contiguous() and gk.is_contiguous() and gv.is_contiguous()
     T, H, D = gq.shape
     stride = qkv.stride(0)
     h = gk.shape[1]
@@ -1995,7 +2001,9 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
             vo_ptr + pid * H * 128 + 128 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :], v)
 
 
-def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0, transpose=False, cu_seqlens_q=None, cu_seqlens_kv=None, cp_rank=0, cp_size=1):
+def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
+                            transpose=False, cu_seqlens_q=None,
+                            cu_seqlens_kv=None, cp_rank=0, cp_size=1):
     """
     apply MLA-type rope to qkv
     Args:
@@ -2203,7 +2211,8 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
 
 
 
-def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, transposed=False, cu_seqlens_q=None, cu_seqlens_kv=None, cp_rank=0, cp_size=1):
+def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, transposed=False,
+                             cu_seqlens_q=None, cu_seqlens_kv=None, cp_rank=0, cp_size=1):
     assert q_grad.is_contiguous() and k_grad.is_contiguous() and v_grad.is_contiguous()
     VARLEN = cu_seqlens_q is not None
  

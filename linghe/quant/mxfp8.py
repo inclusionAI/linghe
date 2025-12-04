@@ -75,6 +75,7 @@ def triton_mxfp8_quant(x,
     m, N = x.shape
     M = (m + 127) // 128 * 128
     assert N % 128 == 0  # transposed scaled should be multiplier of 128
+    assert x.is_contiguous()
     device = x.device
     x_q = torch.empty((m, N), device=device, dtype=torch.float8_e4m3fn)
     x_scale = torch.empty((M, N // 32), device=device,
@@ -188,6 +189,7 @@ def triton_batch_mxfp8_quant(xs,
     """
     m, N = xs.shape
     assert N % 128 == 0
+    assert all([x.is_contiguous() for x in xs])
     n_experts = token_count_per_expert.size(0)
     device = xs.device
     M = sum([(x + 127) // 128 for x in splits]) * 128

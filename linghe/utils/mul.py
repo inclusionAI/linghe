@@ -36,6 +36,7 @@ def triton_dot(x, y):
     Returns:
         output of sum(x*y, 1)
     """
+    assert x.is_contiguous() and y.is_contiguous()
     M, N = x.shape
     H = 128
     W = 16
@@ -75,7 +76,7 @@ def triton_inplace_scale(x, scale):
     Returns:
         x
     """
-
+    assert x.is_contiguous()
     B = 512
     m = x.numel()
     grid = (triton.cdiv(m, B), )

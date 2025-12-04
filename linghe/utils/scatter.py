@@ -45,6 +45,7 @@ def triton_aligned_scatter_add(x: torch.Tensor,
     Returns:
         output tensor
     """
+    assert x.is_contiguous() and outputs.is_contiguous() and indices.is_contiguous()
     M, N = x.shape
     m = outputs.size(0)
 
@@ -106,6 +107,7 @@ def triton_scatter_add(x, outputs, indices):
     Returns:
         output tensor
     """
+    assert x.is_contiguous() and outputs.is_contiguous() and indices.is_contiguous()
     M, N = x.shape
 
     float_outputs = torch.zeros(outputs.shape, dtype=torch.float32,
@@ -189,6 +191,7 @@ def triton_unpermute_with_mask_map(
         - output: [num_tokens, hidden_size]
         - restore_probs: [num_tokens, num_experts]
     """
+    assert grad.is_contiguous() and row_id_map.is_contiguous()
     hidden_size = grad.shape[1]
     num_tokens, num_experts = row_id_map.shape  # not transposed
 
@@ -197,6 +200,7 @@ def triton_unpermute_with_mask_map(
 
     PROB = probs is not None
     if PROB:
+        assert probs.is_contiguous()
         restore_probs = torch.zeros((num_tokens, num_experts),
                                     dtype=probs.dtype,
                                     device="cuda")

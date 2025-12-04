@@ -69,6 +69,7 @@ def triton_make_row_id_map(
     Returns:
         row id map with shape [n_tokens, n_experts]
     """
+    assert routing_map.is_contiguous()
     n_tokens, n_experts = routing_map.shape
     T = 128
     block_counts = torch.empty((T, n_experts), dtype=torch.int32,
@@ -159,6 +160,7 @@ def triton_make_row_id_map_and_index(
         row_in_map: [n_tokens, n_experts]
         row_indices: [num_out_tokens]
     """
+    assert routing_map.is_contiguous()
     n_tokens, n_experts = routing_map.shape
     T = 128
     block_counts = torch.empty((T, n_experts), dtype=torch.int32,
@@ -227,7 +229,7 @@ def triton_index_select(x, indices, scale=None, out=None, scale_out=None):
         out: output of selected x
         scale_out: scale of selected scale
     """
-    # row-wise read, row-wise write
+    assert x.is_contiguous()
     M, N = x.shape
     E = indices.shape[0]
     device = x.device
@@ -352,6 +354,7 @@ def triton_permute_with_mask_map(
         permuted_probs: permuted router prob
 
     """
+    assert inp.is_contiguous()
     num_tokens, hidden_size = inp.shape
     num_tokens_, num_experts = row_id_map.shape  # not transposed
     assert num_tokens == num_tokens_
@@ -532,7 +535,7 @@ def triton_batch_transpose_smooth_permute_with_indices(x,
         x_q: [sum(roundup(tokens_per_experts)) * dim]
         x_scale: [sum(roundup(tokens_per_experts))]
     """
-    # row-wise read, row-wise write
+    assert x.is_contiguous()
     M, N = x.shape
     n_expert = len(splits)
     out_tokens = sum([(x + 31) // 32 for x in splits]) * 32
@@ -641,6 +644,7 @@ def triton_smooth_weighted_permute_with_indices(grads,
         x_scale: [bs*topk]
         x_sum: [bs*topk]
     """
+    assert grads.is_contiguous()
     M, N = grads.shape
     n_expert, n = smooth_scales.shape
     assert N == n, f'{N=} {n=}'
@@ -745,7 +749,7 @@ def triton_smooth_permute_with_indices(grad_data,
     Returns:
 
     """
-    # row-wise read, row-wise write
+    assert grad_data.is_contiguous()
     M, N = grad_data.shape
     n_expert, n = smooth_scales.shape
     assert 128 % n_expert == 0
@@ -860,6 +864,7 @@ def triton_smooth_permute_with_mask_map(
         - output: output tensor
         - permuted_scale: permuted scale if scale is not None
     """
+    assert inp.is_contiguous()
     assert row_id_map.shape[1] == num_experts
     output = torch.empty((num_out_tokens, hidden_size),
                          dtype=torch.float8_e4m3fn,
@@ -983,6 +988,7 @@ def triton_batch_block_pad_permute_with_indices(xs,
         prob_output: 
 
     """
+    assert xs.is_contiguous()
     m, N = xs.shape
     n_experts = token_count_per_expert.size(0)
     M = indices.shape[0]
@@ -1124,6 +1130,7 @@ def triton_batch_mxfp8_permute_with_indices(xs,
         prob_output: 
 
     """
+    assert xs.is_contiguous()
     bs, N = xs.shape
     n_experts = token_count_per_expert.size(0)
     m = indices.shape[0]

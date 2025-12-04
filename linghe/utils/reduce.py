@@ -59,6 +59,7 @@ def triton_abs_max(x, scale=None, smooth_scale=None, min_value=1e-30, axis=0):
     Returns:
         max tensor
     """
+    assert x.is_contiguous()
     assert axis == 0
     N = x.size(-1)
     M = x.numel() // N
@@ -114,6 +115,7 @@ def triton_batch_count_zero(xs):
     Returns:
         a single-value int64 tensor
     """
+    assert all([x.is_contiguous() for x in xs])
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs], 
                          dtype=torch.int64).cuda(device, non_blocking=True)
@@ -171,6 +173,7 @@ def triton_norm(x, ord=2, norm=True, scalar=True):
     Returns:
         a scalar if scalar=True else a single-value fp32 tensor
     """
+    assert x.is_contiguous()
     assert ord in (1, 2, -1)
     # assert all([x.is_contiguous() for x in xs])
     device = x.device
@@ -245,6 +248,7 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True):
     Returns:
         a scalar if scalar=True else a single-value fp32 tensor
     """
+    assert all([x.is_contiguous() for x in xs])
     assert ord in (1, 2, -1)
     # assert all([x.is_contiguous() for x in xs])
     device = xs[0].device

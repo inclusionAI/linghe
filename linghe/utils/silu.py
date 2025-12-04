@@ -47,13 +47,15 @@ def triton_weighted_silu_forward(x, weight=None, out=None):
     Returns:
         out: output tensor
     """
-    # row-wise read, row-wise write
+    assert x.is_contiguous()
     M, N = x.shape
     assert N <= 8192 and triton.next_power_of_2(N) == N
     device = x.device
     if out is None:
         out = torch.empty((M, N // 2), device=device, dtype=x.dtype)
     WEIGHT = weight is not None
+    if WEIGHT:
+        assert weight.is_contiguous()
     W = 8192 // N
     T = 8
     grid = (triton.cdiv(M, T * W),)
@@ -125,11 +127,12 @@ def triton_weighted_silu_backward(g: torch.Tensor,
         - dx: gradient of x
         - dw: gradient of weight
     """
-    # row-wise read, row-wise write
+    assert g.is_contiguous() and x.is_contiguous()
     M, N = x.shape
     assert N <= 8192 and triton.next_power_of_2(N) == N
     device = x.device
     if weight is not None:
+        assert weight.is_contiguous()
         dw = torch.empty(weight.shape, device=device, dtype=weight.dtype)
         WEIGHT = True
     else:
@@ -233,6 +236,7 @@ def triton_silu_and_block_quant_forward(x,
         - transpose_output: quantized tensor of transposed output
         - transpose_scale: quantization scale of transposed output
     """
+    assert x.is_contiguous()
     M, N = x.shape
     n = N // 2
     device = x.device
@@ -355,6 +359,7 @@ def triton_silu_and_block_quant_backward(g, x,
         - transpose_dx: quantized transposed gradient
         - transpose_dx_scale: scales of quantization transposed gradient
     """
+    assert g.is_contiguous()
     M, N = x.shape
     n = N // 2
     device = x.device
@@ -488,7 +493,7 @@ def triton_batch_weighted_silu_and_block_quant_forward(x,
         - transpose_scale: quantization scale of transposed output
     """
     assert splits is not None, 'batch mode need splits to launch kernels'
-    assert x.is_contiguous()
+    assert x.is_contiguous() and weight.is_contiguous()
     M, N = x.shape
     n = N // 2
     n_experts = counts.shape[0]
@@ -651,7 +656,6 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
         - transpose_dx: quantized transposed gradient
         - transpose_dx_scale: scales of quantization transposed gradient
     """
-    # row-wise read, row-wise write
     M, N = x.shape
     n = N // 2
     n_expert = counts.shape[0]
@@ -771,6 +775,7 @@ def triton_silu_and_mxfp8_quant_forward(x,
         - transpose_output: quantized tensor of transposed output
         - transpose_scale: quantization scale of transposed output
     """
+    assert x.is_contiguous()
     m, N = x.shape
     M = (m + 127) // 128 * 128
     n = N // 2
@@ -898,6 +903,7 @@ def triton_silu_and_mxfp8_quant_backward(g, x):
         - transpose_dx: columnwise quantized gradient
         - transpose_dx_scale: scales of columnwise quantized gradient
     """
+    assert g.is_contiguous()
     m, N = x.shape
     M = (m + 127) // 128 * 128
     n = N // 2
@@ -1024,6 +1030,7 @@ def triton_batch_weighted_silu_and_mxfp8_quant_forward(x,
         - transpose_output: quantized tensor of transposed output
         - transpose_scale: quantization scale of transposed output
     """
+    assert x.is_contiguous() and weight.is_contiguous()
     m, N = x.shape
     n = N // 2
     n_experts = counts.shape[0]
@@ -1184,7 +1191,7 @@ def triton_batch_weighted_silu_and_mxfp8_quant_backward(g, x, weight,
         - transpose_dx: quantized transposed gradient
         - transpose_dx_scale: scales of quantization transposed gradient
     """
-
+    assert g.is_contiguous()
     m, N = x.shape
     n = N // 2
     n_experts = counts.shape[0]
@@ -1227,9 +1234,6 @@ def triton_batch_weighted_silu_and_mxfp8_quant_backward(g, x, weight,
     )
     dw = dws.sum(1, keepdim=True).to(weight.dtype)
     return dx, dx_scale, dw, transpose_dx, transpose_dx_scale
-
-
-
 
 
 # n is power of 2
@@ -1325,6 +1329,7 @@ def triton_silu_and_smooth_quant_forward(x, smooth_scale=None, out=None, scale=N
                                   maxs=None, round_scale=False,
                                   calibrate=False):
     """"""
+    assert x.is_contiguous()
     M, N = x.shape
     n = N // 2
     device = x.device
@@ -1386,9 +1391,6 @@ def triton_silu_and_smooth_quant_forward(x, smooth_scale=None, out=None, scale=N
 
 
     return out, scale, maxs
-
-
-
 
 
 @triton.jit
@@ -1525,6 +1527,7 @@ def triton_silu_and_smooth_quant_backward(g, x,
                                    reverse=True,
                                    round_scale=False):
     """"""
+    assert g.is_contiguous()
     assert round_scale
     M, N = x.shape
     n = N // 2
@@ -1640,6 +1643,7 @@ def triton_batch_weighted_silu_and_smooth_quant_forward(x,
                                                         reverse=False,
                                                         calibrate=False):
     """"""
+    assert x.is_contiguous() and weight.is_contiguous()
     M, N = x.shape
     n = N // 2
     n_experts = counts.shape[0]
@@ -1891,6 +1895,7 @@ def triton_batch_weighted_silu_and_smooth_quant_backward(g, x, weight,
                                                          reverse=True,
                                                          round_scale=False):
     """"""
+    assert g.is_contiguous()
     assert round_scale
     M, N = x.shape
     n = N // 2

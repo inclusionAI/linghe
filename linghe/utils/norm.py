@@ -36,7 +36,7 @@ def rms_norm_forward_kernel(x_ptr,
         if REUSE:
             rms = tl.load(rms_ptr + pid * W * T + i * W + tl.arange(0, W), mask=pid * W * T + i * W + tl.arange(0, W)<M, other=1.0)
         else:
-            rms = 1/tl.sqrt(tl.sum(x * x, axis=1) / n + eps)
+            rms = tl.rsqrt(tl.sum(x * x, axis=1) / n + eps)
             tl.store(rms_ptr + pid * W * T + i * W + tl.arange(0, W), rms, mask=pid * W * T + i * W + tl.arange(0, W)<M)
 
         x = (x * rms[:, None]) * weight
@@ -59,6 +59,7 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None, rms=None):
         out: output tensor
         rms: 1/rms of input tensor
     """
+    assert x.is_contiguous() and weight.is_contiguous()
     M, n = x.shape
     N = triton.next_power_of_2(n)
     W = 8192 // N
@@ -121,7 +122,7 @@ def rms_norm_backward_kernel(
         if REUSE:
             r = tl.load(rms_ptr + pid * W * T + i * W + tl.arange(0, W), mask=pid * W * T + i * W + tl.arange(0, W)<M)[:, None]
         else:
-            r = 1.0/tl.sqrt(tl.sum(x * x, 1) / n + eps)[:, None]
+            r = tl.rsqrt(tl.sum(x * x, 1) / n + eps)[:, None]
         w_grad = x * g * r
         w_grads += tl.sum(w_grad, 0)
 
@@ -135,6 +136,7 @@ def rms_norm_backward_kernel(
 
 
 def triton_rms_norm_backward(grad_output, x, w, eps=1e-6, rms=None):
+    assert grad_output.is_contiguous()
     M, n = x.shape
     N = triton.next_power_of_2(n)
     assert N <= 8192
@@ -193,7 +195,7 @@ def rms_norm_and_block_quant_forward_kernel(x_ptr,
     for i in range(T):
         indices = pid * W * T + i * W + tl.arange(0, W)
         x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
-        rms = 1/tl.sqrt(tl.sum(x * x, axis=1) / N + eps)
+        rms = tl.rsqrt(tl.sum(x * x, axis=1) / N + eps)
         tl.store(rms_ptr + indices, rms, mask=indices < M)
         x = (x * rms[:, None]) * weight
         x = tl.reshape(x, [W, nb, 128])
@@ -226,7 +228,6 @@ def rms_norm_and_block_quant_forward_kernel(x_ptr,
         tl.store(transpose_output_ptr + toffs, tl.trans(x), mask=indices[None, :] < M)
         offs += H
         toffs += M * H
-
 
 
 # output non-transposed tensor only
@@ -338,6 +339,7 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
         - transpose_scale: quantization scale of transposed gradient.
     """
     # row-wise read, row-wise write
+    assert x.is_contiguous() and weight.is_contiguous()
     M, N = x.shape
     assert N <= 8192 and 8192 % N == 0
     device = x.device
@@ -460,173 +462,6 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
     return out, scale, rms, transpose_output, transpose_scale
 
 
-# TOOD(nanxiao): opt performance
-@triton.jit
-def group_rms_norm_gate_forward_kernel(x_ptr, gate_ptr, weight_ptr, out_ptr, eps, bs, length,
-                            DIM: tl.constexpr, 
-                            D: tl.constexpr, 
-                            GROUP_SIZE: tl.constexpr):
-    pid = tl.program_id(axis=0)
-    bid = pid // length 
-    sid = pid % length
-
-    weight = tl.load(weight_ptr + tl.arange(0, DIM))
-    weight = tl.reshape(weight, [GROUP_SIZE, D])
-
-    x_offs = pid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
-                                                            None, :]
-    x = tl.load(x_ptr + x_offs).to(tl.float32)
-    offs = sid * bs * DIM + bid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
-                                                            None, :]
-    g = tl.load(gate_ptr + offs).to(tl.float32)
-    rms = tl.sqrt(tl.sum(x * x, axis=1) / D + eps)
-
-    x = (x / rms[:, None]) * weight * tl.sigmoid(g)
-
-    tl.store(out_ptr + offs, x)
-
-
-def triton_group_rms_norm_gate_forward(x: torch.Tensor, 
-                                       gate: torch.Tensor, 
-                                       weight: torch.Tensor, 
-                                       eps=1e-6, 
-                                       group_size=4,
-                                       transpose=True):
-    """
-    norm and gate in linear attention
-    Args:
-        x: output of attn, [bs, length, n_heads, head_dim]
-        gate: gate tensor, [length, bs, dim] if transpose=True else [bs, length, dim]
-        weight: rms norm weight, [dim]
-        eps: epsilon of rms norm
-        group_size: group size of group rms norm
-        transpose: whether gate is transposed and output will be transposed
-
-    Returns:
-        output tensor, [length, bs, dim] if transpose=True else [bs, length, dim]
-    """
-    # row-wise read, row-wise write
-    if transpose:
-        length, bs, dim = gate.shape
-    else:
-        bs, length, dim = gate.shape
-    assert dim <= 8192 and triton.next_power_of_2(dim) == dim and triton.next_power_of_2(group_size) == group_size
-    d = dim // group_size
-    device = x.device
-    if transpose:
-        out = torch.empty((length, bs, dim), device=device, dtype=x.dtype)
-    else:
-        out = torch.empty((bs, length, dim), device=device, dtype=x.dtype)
-
-    grid = (bs*length,)
-    group_rms_norm_gate_forward_kernel[grid](
-        x,
-        gate,
-        weight,
-        out,
-        eps,
-        bs,
-        length,
-        dim, 
-        d,
-        group_size,
-        num_stages=3,
-        num_warps=4
-    )
-    return out
-
-
-@triton.jit
-def group_rms_gate_backward_kernel(
-        grad_output_ptr,
-        x_ptr,
-        gate_ptr,
-        w_ptr,
-        dx_ptr,
-        dg_ptr,
-        dw_ptr,
-        eps, 
-        bs, 
-        length,
-        DIM: tl.constexpr, 
-        D: tl.constexpr, 
-        GROUP_SIZE: tl.constexpr,
-        T: tl.constexpr
-):
-    pid = tl.program_id(0)
-    bid = pid * T // length 
-    sid = pid * T % length
-
-    w = tl.load(w_ptr + tl.arange(0, DIM))
-    w = tl.reshape(w, [GROUP_SIZE, D])
-
-    x_offs = pid * DIM * T + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
-                                                            None, :]
-    offs = sid * bs * DIM + bid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
-                                                            None, :]
-    dw = tl.zeros((GROUP_SIZE, D), dtype=tl.float32)
-    for i in range(T):
-        x = tl.load(x_ptr + x_offs).to(tl.float32)
-        g = tl.load(grad_output_ptr + offs).to(tl.float32)
-        gate = tl.load(gate_ptr + offs).to(tl.float32)
-        gate = tl.sigmoid(gate)
-        rms = tl.sqrt(tl.sum(x * x, 1) / D + eps)
-        r = 1.0 / rms[:, None]
-        w_grad = x * g * r * gate
-        dw += w_grad
-
-        dx = r * g * w * gate - r * r * r * x * tl.sum(x * g * w * gate, 1, keep_dims=True) / D
-
-        tl.store(dx_ptr + x_offs, dx)
-
-        dg = x * r * w * g * gate * (1 - gate)
-        tl.store(dg_ptr + offs, dg)
-
-        x_offs += DIM
-        offs += DIM * bs
-
-    dw = tl.reshape(dw, [DIM])
-    tl.store(dw_ptr + pid * DIM + tl.arange(0, DIM), dw)
-
-
-def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6, group_size=4, transpose=True):
-    if transpose:
-        length, bs, dim = gate.shape
-    else:
-        bs, length, dim = gate.shape
-    assert dim <= 8192 and triton.next_power_of_2(dim) == dim and triton.next_power_of_2(group_size) == group_size
-    d = dim // group_size
-    device = x.device
-    dx = torch.empty_like(x)
-    dg = torch.empty_like(gate)
-
-    T = 8
-    g = (bs*length)//T
-    tmp_dw = torch.empty(g, dim, dtype=torch.float32, device=device)
-    grid = (g,)
-    group_rms_gate_backward_kernel[grid](
-        grad_output,
-        x,
-        gate,
-        weight,
-        dx,
-        dg,
-        tmp_dw,
-        eps,
-        bs,
-        length,
-        dim, 
-        d,
-        group_size,
-        T,
-        num_stages=3,
-        num_warps=8
-    )
-    dw = tmp_dw.sum(dim=0)
-    return dx, dg, dw
-
-
-
 @triton.jit
 def rms_norm_and_smooth_quant_forward_kernel(x_ptr, weight_ptr, smooth_scale_ptr,
                                       out_ptr, scale_ptr, max_ptr, rms_ptr,
@@ -651,7 +486,7 @@ def rms_norm_and_smooth_quant_forward_kernel(x_ptr, weight_ptr, smooth_scale_ptr
     for i in range(T):
         indices = pid * W * T + i * W + tl.arange(0, W)
         x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
-        rms = 1/tl.sqrt(tl.sum(x * x, axis=1) / N + eps)
+        rms = tl.rsqrt(tl.sum(x * x, axis=1) / N + eps)
         if OUTPUT:
             tl.store(rms_ptr + indices, rms, mask=indices < M)
         x = x * rms[:, None] * weight
@@ -680,6 +515,7 @@ def triton_rms_norm_and_smooth_quant_forward(x, weight, smooth_scale=None,
                                              output_rms=False,
                                              round_scale=False):
     """"""
+    assert x.is_contiguous() and weight.is_contiguous()
     M, N = x.shape
     assert N <= 8192 and 8192 % N == 0
     device = x.device
@@ -889,7 +725,7 @@ def rms_norm_and_mxfp8_quant_forward_kernel(x_ptr,
 def triton_rms_norm_and_mxfp8_quant_forward(x, weight, eps=1e-6,
                                             out=None, scale=None, rms=None,
                                             output_mode=2):
-    # row-wise read, row-wise write
+    assert x.is_contiguous() and weight.is_contiguous()
     M, n = x.shape
     N = triton.next_power_of_2(n)
     # assert N <= 8192 and 8192 % N == 0
@@ -1076,6 +912,7 @@ def triton_rms_norm_fp32_gemm_block_quant_forward(x: torch.Tensor,
         - xt_q:
         - xt_s:
     """
+    assert x.is_contiguous() and norm_weight.is_contiguous() and route_weight.is_contiguous()
     assert output_mode in (0, 1)
     M, K = x.size()
     N, K = route_weight.size()

@@ -56,6 +56,7 @@ def triton_inplace_add(x: torch.Tensor, y: torch.Tensor, accum : bool = True):
     Returns:
         updated x
     """
+    assert x.is_contiguous() and y.is_contiguous()
     N = x.shape[-1]
     M = x.numel() // N
     # M, N = x.shape

@@ -42,6 +42,7 @@ def triton_block_quant(x,
         - y: quantized tensor, float8_e4m3fn
         - s: quantization scale, float32
     """
+    assert x.is_contiguous()
     M, N = x.size()
     y = torch.empty((M, N), dtype=torch.float8_e4m3fn, device=x.device)
     s = torch.empty(M // block_size, N // block_size,
@@ -132,7 +133,7 @@ def triton_blockwise_quant(x,
         xt_scale: 
     """
     M, N = x.shape
-    assert M%16 == 0
+    assert M%16 == 0 and x.is_contiguous()
     device = x.device
     x_q = torch.empty((M, N), device=device, dtype=torch.float8_e4m3fn)
     x_scale = torch.empty((N // 128, M), device=device,
@@ -159,8 +160,6 @@ def triton_blockwise_quant(x,
     )
 
     return x_q, x_scale, xt_q, xt_scale
-
-
 
 
 
@@ -238,6 +237,7 @@ def triton_batch_blockwise_quant(xs,
         - xt_scale: 
 
     """
+    assert all([x.is_contiguous() for x in xs])
     M, N = xs.shape
     n_experts = token_count_per_expert.size(0)
     device = xs.device

@@ -47,7 +47,8 @@ def triton_topk_forward(x, k, dim=-1):
     """
     device = x.device
     shape = x.shape 
-    assert dim == -1 and len(shape) <= 3 and x.is_contiguous()
+    assert dim == -1 and len(shape) <= 3
+    assert x.is_contiguous()
     if len(shape) == 3:
         M, B, N = shape
         g = M * B
@@ -94,7 +95,8 @@ def triton_topk_backward(grad_output, indices, N, dim=-1):
     """
     device = grad_output.device
     shape = grad_output.shape 
-    assert dim == -1 and len(shape) <= 3 and grad_output.is_contiguous()
+    assert dim == -1 and len(shape) <= 3
+    assert grad_output.is_contiguous()
     if len(shape) == 3:
         M, B, k = shape
         g = M * B
