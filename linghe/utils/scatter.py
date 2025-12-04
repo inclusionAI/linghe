@@ -9,7 +9,6 @@ import triton
 import triton.language as tl
 
 
-
 @triton.jit
 def aligned_scatter_add_kernel(x_ptr, o_ptr, indices_ptr, weights_ptr, M,
                                N: tl.constexpr, K: tl.constexpr,
@@ -70,7 +69,7 @@ def triton_aligned_scatter_add(x: torch.Tensor,
 
 
 # for deepep scatter_add
-# atomic_add supports fp16 and fp32, but not bf16 
+# atomic_add supports fp16 and fp32, but not bf16
 
 @triton.jit
 def scatter_add_kernel(x_ptr, o_ptr, indices_ptr, M, T, N: tl.constexpr):
@@ -140,37 +139,46 @@ def triton_scatter_add(x, outputs, indices):
 
 
 @triton.jit
-def unpermute_with_mask_map_kernel(grads_ptr, probs_ptr, mask_map_ptr,
-                                   output_ptr, output_probs_ptr,
-                                   num_experts: tl.constexpr, N: tl.constexpr,
-                                   PROB: tl.constexpr):
+def unpermute_with_mask_map_kernel(
+    grads_ptr,
+    probs_ptr,
+    mask_map_ptr,
+    output_ptr,
+    output_probs_ptr,
+    num_experts: tl.constexpr,
+    N: tl.constexpr,
+    N_2N: tl.constexpr,
+    PROB: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
 
-    sums = tl.zeros((N,), dtype=tl.float32)
+    # sums = tl.zeros((N,), dtype=tl.float32)
+    sums = tl.zeros((N_2N,), dtype=tl.float32)
 
-    indices = tl.load(
-        mask_map_ptr + pid * num_experts + tl.arange(0, num_experts))
+    indices = tl.load(mask_map_ptr + pid * num_experts + tl.arange(0, num_experts))
     count = tl.sum(tl.where(indices >= 0, 1, 0))
     mask_indices = tl.where(indices < 0, 2 ** 20, indices)
     idx = tl.argmin(mask_indices, 0)
     index = tl.min(mask_indices)
 
     for i in range(count):
-
-        mask = index >= 0
-        sums += tl.load(grads_ptr + index * N + tl.arange(0, N), mask=mask).to(
-            tl.float32)
+        load_mask = (index >= 0) & (tl.arange(0, N_2N) < N)
+        sums += tl.load(grads_ptr + index * N + tl.arange(0, N_2N), mask=load_mask).to(
+            tl.float32
+        )
 
         if PROB:
+            mask = index >= 0
             prob = tl.load(probs_ptr + index, mask=mask)
-            tl.store(output_probs_ptr + pid * num_experts + idx, prob,
-                     mask=mask)
+            tl.store(output_probs_ptr + pid * num_experts + idx, prob, mask=mask)
 
         mask_indices = tl.where(indices <= index, 2 ** 20, indices)
         idx = tl.argmin(mask_indices, 0)
         index = tl.min(mask_indices)
 
-    tl.store(output_ptr + pid * N + tl.arange(0, N), sums)
+    tl.store(
+        output_ptr + pid * N + tl.arange(0, N_2N), sums, mask=tl.arange(0, N_2N) < N
+    )
 
 
 def triton_unpermute_with_mask_map(
@@ -190,6 +198,7 @@ def triton_unpermute_with_mask_map(
         - restore_probs: [num_tokens, num_experts]
     """
     hidden_size = grad.shape[1]
+    hidden_size_2n = triton.next_power_of_2(hidden_size)
     num_tokens, num_experts = row_id_map.shape  # not transposed
 
     output = torch.empty((num_tokens, hidden_size), dtype=grad.dtype,
@@ -215,6 +224,7 @@ def triton_unpermute_with_mask_map(
         restore_probs,
         num_experts,
         hidden_size,
+        hidden_size_2n,
         PROB,
         num_stages=4,
         num_warps=4
