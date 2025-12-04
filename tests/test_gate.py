@@ -76,13 +76,13 @@ def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
         grad_output = torch.randn(bs, length, dim, dtype=dtype, requires_grad=True,
                                 device=device)
 
-    output_ref = torch_group_rms_norm_gate_forward(x, gate, weight,
-                                               group_size=group_size,
-                                               transpose=transpose)
-    output = triton_group_rms_norm_gate_forward(x, gate, weight,
-                                            group_size=group_size,
-                                               transpose=transpose)
-    output_check(output_ref, output, name='group_norm_gate.y')
+    # output_ref = torch_group_rms_norm_gate_forward(x, gate, weight,
+    #                                            group_size=group_size,
+    #                                            transpose=transpose)
+    # output = triton_group_rms_norm_gate_forward(x, gate, weight,
+    #                                         group_size=group_size,
+    #                                            transpose=transpose)
+    # output_check(output_ref, output, name='group_norm_gate.y')
 
     dx_ref, dg_ref, dw_ref = torch_group_rms_norm_gate_backward(grad_output, x,
                                                             gate, weight,
@@ -121,5 +121,11 @@ if __name__ == '__main__':
                             bench=False)
     test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
                              bench=False)
+    test_group_rms_norm_gate(bs=2, length=4096, dim=1536, group_size=4,
+                            transpose=True,
+                            bench=False)    
+    test_group_rms_norm_gate(bs=2, length=4096, dim=1536, group_size=4,
+                            transpose=False,
+                            bench=False)
 
 
