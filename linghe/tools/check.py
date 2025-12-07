@@ -6,7 +6,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 
 
-def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.0):
+def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.0, digest=4):
     org_out = org_out.detach()
     opt_out = opt_out.detach()
     assert org_out.dtype == opt_out.dtype, f"ref:{org_out.dtype} != out:{opt_out.dtype}"
@@ -79,11 +79,18 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.
                 opt_val = opt_out[mistake_mask]
                 mismatch_count = org_val.numel()
                 tot_cnt = org_out.numel()
-                itv = max(mismatch_count//3, 1)
+                itv = max(mismatch_count//digest, 1)
                 org_val = org_val[::itv].tolist()
                 opt_val = opt_val[::itv].tolist()
-                org_str = ', '.join([f'{x:.3g}' for x in org_val])
-                opt_str = ', '.join([f'{x:.3g}' for x in opt_val])
+                if org_dtype == torch.float64:
+                    org_str = ', '.join([f'{x:.8g}' for x in org_val])
+                    opt_str = ', '.join([f'{x:.8g}' for x in opt_val])
+                elif org_dtype == torch.float32:
+                    org_str = ', '.join([f'{x:.5g}' for x in org_val])
+                    opt_str = ', '.join([f'{x:.5g}' for x in opt_val])
+                else:
+                    org_str = ', '.join([f'{x:.3g}' for x in org_val])
+                    opt_str = ', '.join([f'{x:.3g}' for x in opt_val])
                 info = f"Mismatched elements: {mismatch_count} / {tot_cnt} ({mismatch_count/tot_cnt*100:.1f}%) " \
                        f"with {rtol} rtol and {atol} atol \n        org: {org_str} \n        opt: {opt_str} \n"
                 assert mismatch_count == 0, info

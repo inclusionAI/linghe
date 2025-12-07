@@ -14,8 +14,11 @@ from linghe.tools.check import output_check
 
 
 
+def torch_fp64_matmul(x, w):
+    return torch.nn.functional.linear(x.to(torch.float64), w.to(torch.float64)).to(torch.float32)
+
 def torch_fp32_matmul(x, w):
-    return torch.nn.functional.linear(x.float(), w.float())
+    return torch.nn.functional.linear(x.to(torch.float32), w.to(torch.float32))
 
 def torch_fp32_matmul_backward(dy, w):
     return (dy @ w).to(torch.bfloat16)
@@ -28,7 +31,6 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     # M, N, K = 4096, 256, 8192
     dtype = torch.bfloat16
     device = 'cuda:0'
-    n_repeat = 100
 
     x = torch.randn(M, K, dtype=dtype, device=device, requires_grad=True)
     w = torch.randn(N, K, dtype=dtype, device=device, requires_grad=True)
@@ -43,9 +45,9 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     dx = triton_fp32_gemm_for_backward(dy, w)
     dw = triton_fp32_gemm_for_update(dy, x)
 
-    output_check(y_ref, y, name='forward')
-    output_check(dx_ref, dx, name='backward', atol=0.1)
-    output_check(dw_ref.float(), dw, name='update', atol=0.1)
+    output_check(y_ref, y, name='forward', atol=5e-3, rtol=2e-3)
+    output_check(dx_ref, dx, name='backward', atol=2e-2, rtol=2e-2)
+    output_check(dw_ref, dw.to(dtype), name='update', atol=5e-2, rtol=2e-2)
 
     x.grad = None 
     w.grad = None
@@ -53,12 +55,13 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     y.backward(gradient=dy)
     dx = x.grad 
     dw = w.grad
-    output_check(y_ref, y, name='forward')
-    output_check(dx_ref, dx, name='backward', atol=0.1)
-    output_check(dw_ref, dw, name='update', atol=0.1)
+    output_check(y_ref, y, name='forward', atol=5e-3, rtol=2e-3)
+    output_check(dx_ref, dx, name='backward', atol=2e-2, rtol=2e-2)
+    output_check(dw_ref, dw.to(dtype), name='update', atol=5e-2, rtol=2e-2)
 
     if bench:
         print('\nbenchmark\n')
+        n_repeat = 100
         ref_time = benchmark_func(torch_fp32_matmul, x, w, n_repeat=n_repeat,
                                   ref_bytes=M * K * 6 + N * K * 6 + M * N * 4,
                                   ref_flops=2 * M * N * K)
@@ -84,7 +87,7 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
                        ref_flops=2 * M * N * K, ref_time=ref_time)
 
 
-def test_batch_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False):
+def test_BMK_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False):
     # M, N, K = 4096, 256, 8192
     dtype = torch.bfloat16
     device = 'cuda:0'
@@ -105,9 +108,9 @@ def test_batch_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False):
     y.backward(gradient=dy)
     dx = x.grad 
     dw = w.grad
-    output_check(y_ref, y, name='forward')
-    output_check(dx_ref, dx, name='backward', atol=0.1)
-    output_check(dw_ref, dw, name='update', atol=0.1)
+    output_check(y_ref, y, name='forward', atol=5e-3, rtol=2e-3)
+    output_check(dx_ref, dx, name='backward', atol=1e-1, rtol=2e-2)
+    output_check(dw_ref, dw, name='update', atol=1e-1, rtol=2e-2)
 
     
     if bench:
@@ -121,11 +124,11 @@ def test_batch_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False):
 
 
 if __name__ == '__main__':
-    test_fp32_matmul(M=2048, N=256, K=8192, bench=False)
-    test_fp32_matmul(M=2048, N=16, K=8192, bench=False)
-    test_fp32_matmul(M=128, N=16, K=128, bench=False)
-    test_batch_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False)
-    test_batch_fp32_matmul(B=2,M=2048, N=16, K=8192, bench=False)
-    test_batch_fp32_matmul(B=2,M=128, N=16, K=128, bench=False)
+    # test_fp32_matmul(M=2048, N=256, K=8192, bench=False)
+    # test_fp32_matmul(M=2048, N=16, K=8192, bench=False)
+    # test_fp32_matmul(M=128, N=16, K=128, bench=False)
+    test_BMK_fp32_matmul(B=2,M=2048, N=16, K=8192, bench=False)
+    test_BMK_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False)
+    test_BMK_fp32_matmul(B=2,M=128, N=16, K=128, bench=False)
 
 

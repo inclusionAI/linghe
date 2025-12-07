@@ -624,14 +624,15 @@ def triton_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weight,
         - ko: shape [B, S, h, head_dim]
         - vo: shape [B, S, h, head_dim]
     """
-    assert qkv.is_contiguous() and q_norm_weight.is_contiguous() 
-    assert k_norm_weight.is_contiguous() and freqs.is_contiguous()
+    assert qkv.is_contiguous() and freqs.is_contiguous()
+    assert k_norm_weight.is_contiguous() and q_norm_weight.is_contiguous() 
     if transposed:
         L, B, Dim = qkv.shape
     else:
         B, L, Dim = qkv.shape
     stride = qkv.stride(1)  # qkv may be a slice of a tensor
     D = Dim // (H + 2 * h)
+    assert freqs.size(0) == L and freqs.size(-1) == D // 2
     dtype = qkv.dtype
     device = qkv.device
     qo = torch.empty((B, L, H, D), dtype=dtype, device=device)
@@ -2054,8 +2055,8 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
             vo = torch.empty((L, B, H, 128), dtype=dtype, device=device)
         N = L * B 
         kpe_stride = k_pos_emb.stride(1)
-
     assert D == 192 and kv.shape[-1] == 256 and k_pos_emb.shape[-1] == 64
+    assert kv.stride(-2) == 256 and k_pos_emb.stride(-2) == 64
     num_stages = 2
     num_warps = 2
 
