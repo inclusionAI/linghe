@@ -26,7 +26,7 @@ def topk_forward_kernel(input_ptr, value_ptr, index_ptr,
         x = tl.where(x == val, -2e38, x)
 
     if tl.sum(tl.where(x<-1e38, 1, 0)) > K:
-        y = xo.to(tl.float64) * (1 - tl.arange(0, N).to(tl.float64) * 1e-12)
+        y = xo.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
         for i in range(K):
             val = tl.max(y, 0)
             idx = tl.argmax(y, 0)
@@ -160,7 +160,7 @@ def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
     tl.store(map_ptr + pid * N + tl.arange(0, N), map_idx)
 
     if tl.sum(map_idx) > K:
-        y = x.to(tl.float64) * (1 - tl.arange(0, N).to(tl.float64) * 1e-12)
+        y = x.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
         yb = tl.reshape(y + b, (G, GS))
         ybsort = tl.sort(yb, dim=1, descending=True)
         ysortmask = tl.where(array < k, ybsort, 0)

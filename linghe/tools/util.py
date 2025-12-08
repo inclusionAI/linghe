@@ -183,7 +183,7 @@ def torch_make_indices(logits, topk=8, bias=-0.01):
         torch.cumsum(route_map.T.contiguous().view(-1), 0), (n_experts, M)) - 1
     row_id_map[torch.logical_not(route_map.T)] = -1
     row_id_map = row_id_map.T.contiguous()
-    return probs, route_map, token_count_per_expert, indices, row_id_map
+    return probs.float(), route_map, token_count_per_expert, indices, row_id_map
 
 
 # quant with scaling to 448
