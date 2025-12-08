@@ -5,7 +5,7 @@ import transformer_engine as te
 
 from linghe.utils.reduce import triton_batch_norm
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 from transformer_engine.pytorch.optimizers import multi_tensor_applier, multi_tensor_l2norm
 
 

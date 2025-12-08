@@ -2,7 +2,7 @@
 import random
 import torch
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 from linghe.facade.rope import mla_rope
 
 
