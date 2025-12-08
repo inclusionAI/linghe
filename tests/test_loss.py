@@ -17,7 +17,7 @@ from linghe.facade.loss import moe_z_loss
 
 
 def torch_cross_entropy(logits, targets, grad):
-    float_logits = logits.to(torch.float64)
+    float_logits = logits.to(torch.float32)
     losses = torch.nn.functional.cross_entropy(
         float_logits.view(-1, logits.size()[-1]),
         targets.view(-1),
@@ -50,7 +50,7 @@ def test_triton_softmax_cross_entropy(M=4096, N=157184, coef=1.0, grad_coef=1.0,
 
     loss, sum_exp, max_logit = triton_softmax_cross_entropy_forward(logits,
                                                                     targets)
-    output_check(loss_ref, loss, name='loss', atol=1e-4, rtol=1e-4)
+    output_check(loss_ref, loss, name='loss', atol=1e-4, rtol=1e-5)
 
     grad = triton_softmax_cross_entropy_backward(logits, targets, sum_exp,
                                                  max_logit,
@@ -99,6 +99,6 @@ def test_z_loss(L=4096, B=2, N=256, coef=0.001, bench=False):
 if __name__ == '__main__':
     test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1.0, inplace=False, bench=False)
     test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1e-6, inplace=True, bench=False)
-    test_triton_softmax_cross_entropy(M=8192, N=175175, coef=100.0, grad_coef=100.0,inplace=False, bench=False)
+    test_triton_softmax_cross_entropy(M=8192, N=175175, coef=100.0, grad_coef=100.0, inplace=True, bench=False)
     test_triton_softmax_cross_entropy(M=4096, N=157175, coef=0.1, grad_coef=1.0, inplace=True, bench=False)
     test_z_loss(L=4096, B=2, N=256, coef=1e-6, bench=False)

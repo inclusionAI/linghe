@@ -22,6 +22,7 @@ from linghe.tools.check import output_check
 
 
 def torch_rms_forward(x, weight):
+    dtype = x.dtype
     x = x.float()
     weight = weight.float()
     N = x.shape[-1]
@@ -33,10 +34,11 @@ def torch_rms_forward(x, weight):
     )
     with torch.no_grad():
         rmsnorm.weight.copy_(weight)
-    return rmsnorm(x)
+    return rmsnorm(x).to(dtype)
 
 
 def torch_rms_backward(x, weight, dy):
+    dtype = x.dtype
     x = x.float()
     weight = weight.float()
     dy = dy.float()
@@ -52,7 +54,7 @@ def torch_rms_backward(x, weight, dy):
     x = x.clone().detach().requires_grad_()
     y = rmsnorm(x)
     y.backward(gradient=dy)
-    return x.grad, rmsnorm.weight.grad
+    return x.grad.to(dtype), rmsnorm.weight.grad.to(dtype)
 
 
 def torch_rms_and_smooth_quant_forward(x, weight, smooth_scale=None,
@@ -96,6 +98,7 @@ def torch_rms_and_block_quant_forward(x, weight, round_scale=False):
 
 
 def torch_rms_gemm_block_quant_forward(x, norm_weight, route_weight, round_scale=False):
+    dtype = x.dtype
     x = x.float()
     norm_weight = norm_weight.float()
     route_weight = route_weight.float()
@@ -114,7 +117,7 @@ def torch_rms_gemm_block_quant_forward(x, norm_weight, route_weight, round_scale
     y_q, y_scale = torch_group_quant(y, round_scale=round_scale)
     yt_q, yt_scale = torch_group_quant(y.t(), round_scale=round_scale)
 
-    return y,logits, y_q, y_scale, yt_q, yt_scale
+    return y.to(dtype),logits, y_q, y_scale, yt_q, yt_scale
 
 
 def split_rms_gemm_block_quant_forward(x, norm_weight, route_weight, round_scale=False):
@@ -150,19 +153,19 @@ def test_rmsnorm(M=4096, N=4096, bench=False):
 
     y_ref = torch_rms_forward(x, weight)
     y, rms = triton_rms_norm_forward(x, weight)
-    output_check(y_ref.float(), y.float(), 'y')
+    output_check(y_ref, y, 'y')
 
     y_with_rms, _ = triton_rms_norm_forward(x, weight, rms=rms)
-    output_check(y_ref.float(), y_with_rms.float(), 'y_with_rms')
+    output_check(y_ref, y_with_rms, 'y_with_rms')
 
     dx_ref, dw_ref = torch_rms_backward(x, weight, dy)
     dx, dw = triton_rms_norm_backward(dy, x, weight)
-    output_check(dx_ref.float(), dx.float(), name="dx")
-    output_check(dw_ref.float(), dw.float(), name='dw')
+    output_check(dx_ref, dx, name="dx")
+    output_check(dw_ref, dw.to(dtype), name='dw')
 
     dx_with_rms, dw_with_rms = triton_rms_norm_backward(dy, x, weight, rms=rms)
-    output_check(dx_ref.float(), dx_with_rms.float(), name="dx_with_rms")
-    output_check(dw_ref.float(), dw_with_rms.float(), name='dw_with_rms')
+    output_check(dx_ref, dx_with_rms, name="dx_with_rms")
+    output_check(dw_ref, dw_with_rms.to(dtype), name='dw_with_rms')
 
     if bench:
         benchmark_func(triton_rms_norm_forward, x, weight, ref_bytes=M * N * 3)
@@ -317,9 +320,9 @@ def test_rms_norm_fp32_gemm_block_quant_forward(M=8192, N=256, K=2048, bench=Fal
                                                                           route_weight,
                                                                           round_scale=round_scale,
                                                                           output_mode=0)
-    output_check(y_ref, y.float(), name="0.y")
-    output_check(logit_ref, logit, name='0.logit', atol=0.1)
-    output_check(q_ref, q, name="0.block.data", rtol=0.125)
+    output_check(y_ref, y, name="0.y")
+    output_check(logit_ref, logit, name='0.logit', atol=0.1, rtol=0.001)
+    output_check(q_ref, q, name="0.block.data")
     output_check(scale_ref.t(), scale, name='0.block.scale')
 
     y, rms, logit, q, scale, q_t, scale_t = triton_rms_norm_fp32_gemm_block_quant_forward(x, 
@@ -328,7 +331,7 @@ def test_rms_norm_fp32_gemm_block_quant_forward(M=8192, N=256, K=2048, bench=Fal
                                                                 rms=rms,
                                                                 round_scale=round_scale,
                                                                 output_mode=1)
-    output_check(qt_ref, q_t, name="1.block.data", rtol=0.125)
+    output_check(qt_ref, q_t, name="1.block.data")
     output_check(scale_t_ref.t(), scale_t, name='1.block.scale')
 
 
