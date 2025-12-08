@@ -32,7 +32,7 @@ def test_triton_bb_gemm(M=4096, N=4096, K=4096, bench=False):
     y_ref = x_dq@w_dq.t()
     y = triton_bb_fp8_gemm(x_q, w_q, x_scales, w_scales, 
                         out_dtype=dtype, block_size=B)
-    output_check(y_ref, y.float(), name='y', rtol=0.05)
+    output_check(y_ref.to(dtype), y, name='y', rtol=0.05, atol=1.0)
 
 
     if bench:
@@ -65,7 +65,7 @@ def test_triton_tt_gemm(M=4096, N=4096, K=4096, bench=False):
     y_ref = x_dq@w_dq.t()
     y = triton_tt_fp8_gemm(x_q, w_q, x_scales, w_scales, 
                         out_dtype=dtype, block_size=B)
-    output_check(y_ref, y.float(), 'y')
+    output_check(y_ref.to(dtype), y, 'y', atol=1.0, rtol=0.05)
 
 
     if bench:

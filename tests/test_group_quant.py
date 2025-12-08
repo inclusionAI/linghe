@@ -15,8 +15,8 @@ def test_group_quant(M=4096, N=4096, B=128, round_scale=False, bench=False):
     x = torch.randn((M, N), dtype=torch.bfloat16, device='cuda:0') ** 3
     xq_ref, x_scale_ref = torch_group_quant(x, B, round_scale=round_scale)
     xq, x_scale = triton_group_quant(x, group_size=B, round_scale=round_scale)
-    output_check(xq_ref.float(), xq.float(), name='data')
-    output_check(x_scale_ref.float(), x_scale.float(), name='scale')
+    output_check(xq_ref, xq, name='data')
+    output_check(x_scale_ref, x_scale, name='scale')
 
     if bench:
         n_repeat = 100

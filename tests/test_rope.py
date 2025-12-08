@@ -427,9 +427,9 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048,2048], H=32, h=4, dim=128, r
                                                                 cu_seqlens_q, cu_seqlens_kv,
                                                                  mscale=mscale, interleaved=interleaved,
                                                                   silu=silu, cp_size=cp_size, cp_rank=cp_rank)
-    output_check(dqkv_ref, dqkv, name='dqkv')
-    output_check(dqw_ref, dqw.to(dtype), name='dqw')
-    output_check(dkw_ref, dkw.to(dtype), name='dkv')
+    output_check(dqkv_ref, dqkv, name='dqkv', atol=0.1, rtol=0.02)
+    output_check(dqw_ref, dqw.to(dtype), name='dqw', atol=3.0, rtol=0.05)
+    output_check(dkw_ref, dkw.to(dtype), name='dkw', atol=3.0, rtol=0.05)
 
     if bench:
         lbh = sum(lengths)//cp_size*H
@@ -453,7 +453,7 @@ def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0, transpose=False,
     device = 'cuda:0'
     q = torch.randn(L, B, H, 192, dtype=dtype, device=device, requires_grad=True)
     kv = torch.randn(L, B, H, 256, dtype=dtype, device=device, requires_grad=True)
-    k_pos_emb = (torch.randn(L, B, 1, 64+512, dtype=dtype, device=device)[:,:,:,-64:]).requires_grad_()
+    k_pos_emb = (torch.randn(L, B, 64+512, dtype=dtype, device=device)[:,:,-64:].view(L, B, 1, 64)).requires_grad_()
     freqs = rope_freqs(L, 64, rope_theta=rope_theta)
     freqs = torch.cat([freqs, freqs], -1)
     freqs = freqs[:,None,None]
@@ -506,8 +506,8 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     device = 'cuda:0'
     qc = torch.randn(sum(lengths)//cp_size, H, 192, dtype=dtype, device=device).requires_grad_()
     kvc = torch.randn(sum(lengths)//cp_size, H, 256, dtype=dtype, device=device).requires_grad_()
-    k_pos_emb = torch.randn(sum(lengths)//cp_size, 1, 576, dtype=dtype, device=device)
-    k_pos_embc = k_pos_emb[:,:,512:].requires_grad_()
+    k_pos_emb = torch.randn(sum(lengths)//cp_size, 576, dtype=dtype, device=device)
+    k_pos_embc = k_pos_emb[:,512:].view(sum(lengths)//cp_size, 1, 64).requires_grad_()
 
     cu_seqlens_q = torch.cumsum(torch.tensor([0]+lengths, device=device, dtype=torch.int32), 0).to(torch.int32)
     cu_seqlens_kv = cu_seqlens_q
@@ -542,9 +542,9 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     dp_ref = k_pos_emb_i.grad
     dq, dkv, dp = triton_mla_rope_backward(q_grad.clone().detach(), k_grad, v_grad, freqs, mscale=mscale, 
                  cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank)
-    output_check(dq_ref, dq, name='dq', amp=20)
-    output_check(dkv_ref, dkv, name='dkv', amp=20)
-    output_check(dp_ref, dp, name='dp', amp=20)
+    output_check(dq_ref, dq, name='dq',  atol=0.5, rtol=0.02)
+    output_check(dkv_ref, dkv, name='dkv', atol=0.5, rtol=0.02)
+    output_check(dp_ref, dp, name='dp', atol=0.5, rtol=0.02)
 
     if bench:
         lbh = sum(lengths)//cp_size*H

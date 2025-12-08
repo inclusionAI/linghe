@@ -90,7 +90,6 @@ def triton_transpose(x: torch.Tensor, inner=True):
     shape = x.shape
     rank = len(shape)
     assert rank <= 4
-    assert x.is_contiguous()
     if rank == 2:
         M, N = shape
         device = x.device

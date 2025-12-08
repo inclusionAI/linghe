@@ -591,5 +591,5 @@ if __name__ == '__main__':
 
     test_triton_batch_transpose_smooth_permute_with_indices(M=16384, N=2048, n_experts=32, topk=2, bench=False)
     test_triton_batch_transpose_smooth_permute_with_indices(M=8192, N=4096, n_experts=32, topk=2, bench=False)
-    test_batch_block_pad_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=True)
-    test_batch_mxfp8_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=True)
+    test_batch_block_pad_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=False)
+    test_batch_mxfp8_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=False)

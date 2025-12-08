@@ -18,12 +18,15 @@ from linghe.facade.hadamard_quant_linear import HadamardQuantLinear
 
 # apply hadamard transformation and quantization for x
 def torch_hadamard_quant(x, hm, round_scale=False):
+    dtype = x.dtype
+    x = x.float()
+    hm = hm.float()
     xh = torch_hadamard_transform(x, hm, side='right')
     q, s = torch_row_quant(xh, round_scale=round_scale) 
     xht = torch_hadamard_transform(x.t().contiguous(), hm, side='right')
     qt, st = torch_row_quant(xht, round_scale=round_scale) 
 
-    return xh,xht,q,s,qt,st
+    return xh.to(dtype),xht.to(dtype),q,s,qt,st
 
 
 def test_hadamard_quant(M=8192, N=1024, K=2048, B=64, bench=False):

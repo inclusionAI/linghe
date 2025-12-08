@@ -21,6 +21,7 @@ def torch_tensor_quant(x, dtype=torch.float8_e4m3fn, round_scale=False):
 
 
 def torch_row_quant(x, dtype=torch.float8_e4m3fn, round_scale=False):
+    x = x.float()
     fmax = torch.finfo(dtype).max
     scale = torch.abs(x).amax(1) / fmax
     scale = torch.maximum(scale, 1e-30 * torch.ones((1,), dtype=torch.float32,

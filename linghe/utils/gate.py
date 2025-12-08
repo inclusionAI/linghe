@@ -73,7 +73,6 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
     else:
         bs, length, dim = gate.shape
     assert (dim <= 8192 
-            and triton.next_power_of_2(dim) == dim 
             and triton.next_power_of_2(group_size) == group_size)
     assert x.is_contiguous() and gate.is_contiguous() and weight.is_contiguous()
     wd = weight.shape[0]
@@ -205,9 +204,7 @@ def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6, 
         length, bs, dim = gate.shape
     else:
         bs, length, dim = gate.shape
-    assert (dim <= 8192 
-            and triton.next_power_of_2(dim) == dim 
-            and triton.next_power_of_2(group_size) == group_size)
+    assert dim <= 8192 and triton.next_power_of_2(group_size) == group_size
     assert grad_output.is_contiguous()
     d = dim // group_size
     wd = weight.shape[0]
