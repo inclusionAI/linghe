@@ -472,13 +472,6 @@ def test_silu_and_block_quant(M=4096, N=4096, bench=False):
     round_scale = False
     y_q_ref, y_scale_ref, yt_q_ref, yt_scale_ref = torch_silu_and_block_quant_forward(
         x, round_scale=round_scale)
-    y_q, y_scale, yt_q, yt_scale = triton_silu_and_block_quant_forward(x,
-                                                                       round_scale=round_scale,
-                                                                       output_mode=2)
-    output_check(y_q_ref, y_q, 'block.2.y_q', rtol=0.125)
-    output_check(y_scale_ref, y_scale.t(), 'block.2.y_scale')
-    output_check(yt_q_ref, yt_q, 'block.2.yt_q', rtol=0.125)
-    output_check(yt_scale_ref, yt_scale.t(), 'block.2.yt_scale')
 
     y_q, y_scale, yt_q, yt_scale = triton_silu_and_block_quant_forward(x,
                                                                        round_scale=round_scale,
@@ -491,6 +484,14 @@ def test_silu_and_block_quant(M=4096, N=4096, bench=False):
                                                                        output_mode=1)
     output_check(yt_q_ref, yt_q, 'block.1.yt_q', rtol=0.125)
     output_check(yt_scale_ref, yt_scale.t(), 'block.1.yt_scale')
+
+    y_q, y_scale, yt_q, yt_scale = triton_silu_and_block_quant_forward(x,
+                                                                       round_scale=round_scale,
+                                                                       output_mode=2)
+    output_check(y_q_ref, y_q, 'block.2.y_q', rtol=0.125)
+    output_check(y_scale_ref, y_scale.t(), 'block.2.y_scale')
+    output_check(yt_q_ref, yt_q, 'block.2.yt_q', rtol=0.125)
+    output_check(yt_scale_ref, yt_scale.t(), 'block.2.yt_scale')
 
     dx_q_ref, dx_scale_ref, dxt_q_ref, dxt_scale_ref = torch_silu_and_block_quant_backward(
         grad_output, x,
@@ -505,6 +506,13 @@ def test_silu_and_block_quant(M=4096, N=4096, bench=False):
 
     if bench:
         benchmark_func(triton_silu_and_block_quant_forward, x,
+                       round_scale=round_scale, output_mode=0,
+                       n_repeat=100, ref_bytes=M * N * 3)
+        benchmark_func(triton_silu_and_block_quant_forward, x,
+                       round_scale=round_scale, output_mode=1,
+                       n_repeat=100, ref_bytes=M * N * 3)
+        benchmark_func(triton_silu_and_block_quant_forward, x,
+                       round_scale=round_scale, output_mode=2,
                        n_repeat=100, ref_bytes=M * N * 3)
         benchmark_func(triton_silu_and_block_quant_backward, grad_output, x,
                        n_repeat=100, ref_bytes=M * N * 5)
@@ -679,6 +687,11 @@ def test_triton_batch_weighted_silu_and_block_quant(M=1024, N=4096,
         benchmark_func(triton_batch_weighted_silu_and_block_quant_forward, x,
                        weight,
                        counts, round_scale=True, splits=count_list,
+                       output_mode=1, n_repeat=100,
+                       ref_bytes=n_experts * M * N * 3, ref_time=ref_time)
+        benchmark_func(triton_batch_weighted_silu_and_block_quant_forward, x,
+                       weight,
+                       counts, round_scale=True, splits=count_list,
                        output_mode=2, n_repeat=100,
                        ref_bytes=n_experts * M * N * 3, ref_time=ref_time)
         benchmark_func(triton_batch_weighted_silu_and_block_quant_backward,
@@ -716,20 +729,20 @@ def test_triton_batch_weighted_silu_and_mxfp8_quant(M=1024, N=4096,
         output_mode=2)
 
     rtol = 2
-    output_check(x_q_ref, x_q, 'block.q', rtol=rtol)
-    output_check(x_scale_ref, x_scale, 'block.scale', itol=1)
-    output_check(xt_q_ref, xt_q, 'block.qt', rtol=rtol)
-    output_check(xt_scale_ref, xt_scale, 'block.t_scale', itol=1)
+    output_check(x_q_ref, x_q, 'mxfp8.q', rtol=rtol)
+    output_check(x_scale_ref, x_scale, 'mxfp8.scale', itol=1)
+    output_check(xt_q_ref, xt_q, 'mxfp8.qt', rtol=rtol)
+    output_check(xt_scale_ref, xt_scale, 'mxfp8.t_scale', itol=1)
 
     dx_ref, dx_scale_ref, dw_ref, dxt_ref, dxt_scale_ref = torch_batch_weighted_silu_and_mxfp8_quant_backward(
         grad_output, x, weight, counts)
     dx, dx_scale, dw, dxt, dxt_scale = triton_batch_weighted_silu_and_mxfp8_quant_backward(
         grad_output, x, weight, counts, splits=count_list)
-    output_check(dx_ref, dx, 'block.dx', rtol=rtol)
-    output_check(dx_scale_ref, dx_scale, 'block.dx_scale', itol=1)
-    output_check(dw_ref, dw, 'block.dw', rtol=1e-3, atol=1e-3)
-    output_check(dxt_ref, dxt, 'block.dxt', rtol=rtol)
-    output_check(dxt_scale_ref, dxt_scale, 'block.dxt_scale', itol=1)
+    output_check(dx_ref, dx, 'mxfp8.dx', rtol=rtol)
+    output_check(dx_scale_ref, dx_scale, 'mxfp8.dx_scale', itol=1)
+    output_check(dw_ref, dw, 'mxfp8.dw', rtol=1e-3, atol=1e-3)
+    output_check(dxt_ref, dxt, 'mxfp8.dxt', rtol=rtol)
+    output_check(dxt_scale_ref, dxt_scale, 'mxfp8.dxt_scale', itol=1)
 
     if bench:
         ref_time = None
@@ -758,6 +771,7 @@ if __name__ == '__main__':
     test_silu_and_smooth_quant(M=4096, N=5120, bench=False)
 
     test_silu_and_block_quant(M=16384, N=1024, bench=False)
+    test_silu_and_block_quant(M=8192, N=4096, bench=False)
     test_silu_and_block_quant(M=16384, N=1536, bench=False)
     test_silu_and_block_quant(M=4096, N=1536*8, bench=False)
 

@@ -122,10 +122,10 @@ def triton_batch_count_zero(xs):
     ptrs = torch.tensor([x.data_ptr() for x in xs], 
                         dtype=torch.int64).cuda(device, non_blocking=True)
 
-    sm = torch.cuda.get_device_properties(device).multi_processor_count
+    sm = 256
     tensor_count = len(xs)
     counts = torch.empty((tensor_count, sm), device=device, dtype=torch.int64)
-    B = 4096
+    B = 1024
     grid = (tensor_count, sm)
     batch_count_zero_kernel[grid](
         ptrs,
@@ -133,7 +133,7 @@ def triton_batch_count_zero(xs):
         counts,
         B,
         num_stages=2,
-        num_warps=4
+        num_warps=2
     )
     count = counts.sum()
     return count

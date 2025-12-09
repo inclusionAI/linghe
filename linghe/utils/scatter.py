@@ -112,7 +112,7 @@ def triton_scatter_add(x, outputs, indices):
     float_outputs = torch.zeros(outputs.shape, dtype=torch.float32,
                                 device=outputs.device)
 
-    sm = torch.cuda.get_device_properties(x.device).multi_processor_count
+    sm = 512
     T = triton.cdiv(M, sm)
 
     num_stages = 5

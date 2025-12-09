@@ -237,7 +237,7 @@ def triton_index_select(x, indices, scale=None, out=None, scale_out=None):
         out = torch.empty((E, N), device=device, dtype=x.dtype)
     if scale is not None and scale_out is None:
         scale_out = torch.empty((E,), device=device, dtype=scale.dtype)
-    sm = torch.cuda.get_device_properties(device).multi_processor_count
+    sm = 2048
     T = triton.cdiv(E, sm)
     SCALE = scale is not None
     grid = (sm,)
@@ -250,7 +250,7 @@ def triton_index_select(x, indices, scale=None, out=None, scale_out=None):
         E, T, N,
         SCALE,
         num_stages=3,
-        num_warps=8
+        num_warps=4
     )
     return out, scale_out
 
@@ -877,7 +877,7 @@ def triton_smooth_permute_with_mask_map(
         (num_out_tokens,), dtype=torch.float32, device=inp.device
     )
 
-    sm = torch.cuda.get_device_properties(inp.device).multi_processor_count
+    sm = 128
     T = triton.cdiv(num_tokens, sm)
     grid = (num_experts, sm)
     smooth_permute_with_mask_map_kernel[grid](
