@@ -90,22 +90,22 @@ def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
                                                transpose=transpose)
     dx, dg, dw = triton_group_rms_norm_gate_backward(grad_output, x, gate, weight,
                                                  group_size=group_size,
-                                               transpose=transpose)
+                                                 transpose=transpose)
     output_check(dx_ref, dx, name='group_norm_gate.dx')
     output_check(dg_ref, dg, name='group_norm_gate.dg')
     output_check(dw_ref, dw.to(dtype), name='group_norm_gate.dw')
 
     if bench:
         benchmark_func(torch_group_rms_norm_gate_forward, x, gate, weight,
-                       group_size=group_size,
+                       group_size=group_size, transpose=transpose,
                        ref_bytes=bs * length * dim * 6)
 
         benchmark_func(triton_group_rms_norm_gate_forward, x, gate, weight,
-                       group_size=group_size,
+                       group_size=group_size, transpose=transpose,
                        ref_bytes=bs * length * dim * 6)
 
         benchmark_func(triton_group_rms_norm_gate_backward, grad_output, x, gate,
-                       weight, group_size=group_size,
+                       weight, group_size=group_size, transpose=transpose,
                        ref_bytes=bs * length * dim * 10)
 
 

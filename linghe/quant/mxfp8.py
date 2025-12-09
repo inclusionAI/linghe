@@ -198,6 +198,7 @@ def triton_batch_mxfp8_quant(xs, token_count_per_expert, splits, output_mode=2):
         - xt_scale:
 
     """
+    assert xs.is_contiguous()
     m, N = xs.shape
     assert N % 128 == 0
     n_experts = token_count_per_expert.size(0)

@@ -94,6 +94,7 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.
                 info = f"Mismatched elements: {mismatch_count} / {tot_cnt} ({mismatch_count/tot_cnt*100:.1f}%) " \
                        f"with {rtol} rtol and {atol} atol \n        org: {org_str} \n        opt: {opt_str} \n"
                 assert mismatch_count == 0, info
+        return rel_error
     else:
         # int dtype
         diff = (opt_out - org_out).abs()
@@ -105,7 +106,7 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.
         max_error = diff.max()
         print(f'\n{name:<16}  diff:{diff_err_str} max:{max_error}')
         assert mismatch_count == 0, f"Mismatched elements: {mismatch_count} with {itol} itol"
-
+        return mismatch_count
 
 def quant_check(org_out, xq, wq, opt_out, mode):
     abs_error = (opt_out.float() - org_out.float()).abs().mean().item()

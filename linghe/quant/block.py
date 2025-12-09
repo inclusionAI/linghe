@@ -237,7 +237,7 @@ def triton_batch_blockwise_quant(xs,
         - xt_scale: 
 
     """
-    assert all([x.is_contiguous() for x in xs])
+    assert xs.is_contiguous()
     M, N = xs.shape
     n_experts = token_count_per_expert.size(0)
     device = xs.device

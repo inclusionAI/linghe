@@ -662,54 +662,57 @@ def triton_batch_weighted_silu_and_block_quant_forward(x,
             num_warps=2
         )
     else:
-        # grid = (n_experts, triton.cdiv(max(splits), 128), n // 128)
-        # batch_weighted_silu_and_block_quant_forward_kernel[grid](
-        #     x,
-        #     weight,
-        #     out,
-        #     scale,
-        #     transpose_output,
-        #     transpose_scale,
-        #     counts,
-        #     accums,
-        #     n,
-        #     len(splits),
-        #     round_scale,
-        #     num_stages=2,
-        #     num_warps=8
-        # )
-        B = 32
-        grid = (n_experts, triton.cdiv(max(splits), B), n // 128)
-        batch_weighted_silu_and_block_quant_forward_n_kernel[grid](
+        # it is faster than the split one in h800
+        grid = (n_experts, triton.cdiv(max(splits), 128), n // 128)
+        batch_weighted_silu_and_block_quant_forward_kernel[grid](
             x,
             weight,
             out,
             scale,
-            counts,
-            accums,
-            n,
-            B,
-            len(splits),
-            round_scale,
-            num_stages=2,
-            num_warps=2
-        )
-        B = 32
-        grid = (n_experts, triton.cdiv(max(splits), 128), n // B)
-        batch_weighted_silu_and_block_quant_forward_t_kernel[grid](
-            x,
-            weight,
             transpose_output,
             transpose_scale,
             counts,
             accums,
             n,
-            B,
             len(splits),
             round_scale,
             num_stages=2,
-            num_warps=2
+            num_warps=8
         )
+
+        # it is faster than the fused one in h20
+        # B = 32
+        # grid = (n_experts, triton.cdiv(max(splits), B), n // 128)
+        # batch_weighted_silu_and_block_quant_forward_n_kernel[grid](
+        #     x,
+        #     weight,
+        #     out,
+        #     scale,
+        #     counts,
+        #     accums,
+        #     n,
+        #     B,
+        #     len(splits),
+        #     round_scale,
+        #     num_stages=2,
+        #     num_warps=2
+        # )
+        # B = 32
+        # grid = (n_experts, triton.cdiv(max(splits), 128), n // B)
+        # batch_weighted_silu_and_block_quant_forward_t_kernel[grid](
+        #     x,
+        #     weight,
+        #     transpose_output,
+        #     transpose_scale,
+        #     counts,
+        #     accums,
+        #     n,
+        #     B,
+        #     len(splits),
+        #     round_scale,
+        #     num_stages=2,
+        #     num_warps=2
+        # )
     return out, scale, transpose_output, transpose_scale
 
 
@@ -995,7 +998,6 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
         dw = torch.empty_like(weight)
         return dx, dx_scale, dw, transpose_dx, transpose_dx_scale
 
-    
     # grid = (n_expert, triton.cdiv(max(splits), 128), N // 256)
     # dws = torch.empty((M, N // 256), device=device, dtype=torch.float32)
     # batch_weighted_silu_and_block_quant_backward_kernel[grid](
@@ -1017,7 +1019,7 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
     # )
     # dw = dws.sum(1, keepdim=True).to(weight.dtype)
 
-    B = 32
+    B = 16
     grid = (n_expert, triton.cdiv(max(splits), B), N // 256)
     dws = torch.empty((M, N // 256), device=device, dtype=torch.float32)
     batch_weighted_silu_and_block_quant_backward_n_kernel[grid](
@@ -1034,11 +1036,10 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
         n_expert,
         round_scale,
         num_stages=2,
-        num_warps=4
+        num_warps=2
     )
-    dw = dws.sum(1, keepdim=True).to(weight.dtype)
 
-    B = 16
+    B = 32
     grid = (n_expert, triton.cdiv(max(splits), 128), N // 2 // B)
     batch_weighted_silu_and_block_quant_backward_t_kernel[grid](
         g,
@@ -1055,6 +1056,7 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
         num_stages=2,
         num_warps=2
     )
+    dw = dws.sum(1, keepdim=True).to(weight.dtype)
 
     return dx, dx_scale, dw, transpose_dx, transpose_dx_scale
 

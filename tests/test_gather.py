@@ -525,7 +525,10 @@ def test_batch_block_pad_permute_with_indices(M=16384, N=2048, n_experts=32, top
                        tokens_per_expert=token_count_per_expert,
                        ref_bytes=num_out_tokens * N * 4)
         xs = x[indices]
-        benchmark_func(triton_batch_blockwise_quant, xs, token_count_per_expert,  token_count_per_expert_list,
+        benchmark_func(triton_batch_blockwise_quant, 
+                       xs,
+                       token_count_per_expert,
+                       token_count_per_expert_list,
                        round_scale=True,
                        ref_bytes=num_out_tokens * N * 4)
 
@@ -591,5 +594,5 @@ if __name__ == '__main__':
 
     test_triton_batch_transpose_smooth_permute_with_indices(M=16384, N=2048, n_experts=32, topk=2, bench=False)
     test_triton_batch_transpose_smooth_permute_with_indices(M=8192, N=4096, n_experts=32, topk=2, bench=False)
-    test_batch_block_pad_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=False)
+    test_batch_block_pad_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=True)
     test_batch_mxfp8_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=False)
