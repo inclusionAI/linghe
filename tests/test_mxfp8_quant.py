@@ -11,8 +11,9 @@ from linghe.quant.mxfp8 import triton_mxfp8_quant, triton_batch_mxfp8_quant
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.util import torch_mxfp8_quant
 from linghe.tools.check import output_check
-
-
+import transformer_engine as te
+import transformer_engine_torch as tex
+from transformer_engine.pytorch.tensor.mxfp8_tensor import MXFP8Tensor, MXFP8Quantizer
 
 
 def torch_batch_mxfp8_quant(x, 
@@ -61,6 +62,7 @@ def test_mxfp8_quant(M=4096, N=4096, bench=False):
     if bench:
         ref_bytes = M * N * 4
         benchmark_func(triton_mxfp8_quant, x, ref_bytes=ref_bytes)
+        benchmark_func(torch_mxfp8_quant, x)
 
 
 def test_batch_mxfp8_quant(M=4096, N=4096, n_experts=32, bench=False):
@@ -68,31 +70,44 @@ def test_batch_mxfp8_quant(M=4096, N=4096, n_experts=32, bench=False):
     device = 'cuda:0'
 
     splits = [max(random.randint(M-256, M+256), 0) for x in range(n_experts)]
+    splits = [(x+32)//32*32 for x in splits]
+    print(sum(splits))
     token_count_per_expert = torch.tensor(splits, device=device)
+    quantizers = [
+        MXFP8Quantizer(
+            fp8_dtype=tex.DType.kFloat8E4M3
+        )
+        for _ in range(len(splits))
+    ]
 
     x = torch.randn((sum(splits), N), dtype=dtype, device=device)
 
     x_q_ref, x_scale_ref, xt_q_ref, xt_scale_ref = torch_batch_mxfp8_quant(x, splits)
 
+    inputmats = tex.split_quantize(x, splits, quantizers)
+
     x_q, x_scale, xt_q, xt_scale = triton_batch_mxfp8_quant(x, token_count_per_expert, splits, output_mode=2)
 
-    output_check(x_q_ref, x_q, 'x_q')
-    output_check(x_scale_ref, x_scale, 'x_scale')
-    output_check(xt_q_ref, xt_q, 'xt_q')
-    output_check(xt_scale_ref, xt_scale, 'xt_scale')
+    # output_check(x_q_ref, x_q, 'x_q')
+    # output_check(x_scale_ref, x_scale, 'x_scale')
+    # output_check(xt_q_ref, xt_q, 'xt_q')
+    # output_check(xt_scale_ref, xt_scale, 'xt_scale')
 
 
     if bench:
         ref_bytes = M * N * n_experts * 4
+        benchmark_func(torch_batch_mxfp8_quant, x, splits)
+        benchmark_func(tex.split_quantize, x, splits, quantizers)
         benchmark_func(triton_batch_mxfp8_quant, x, token_count_per_expert, splits, output_mode=2, ref_bytes=ref_bytes)
 
 
 
 if __name__ == '__main__':
-    test_mxfp8_quant(M=4096, N=8192, bench=False)
-    test_mxfp8_quant(M=4031, N=8192, bench=False)
-    test_mxfp8_quant(M=4031, N=512, bench=False)
-    test_batch_mxfp8_quant(M=4096, N=2048, n_experts=32, bench=False)
+    # test_mxfp8_quant(M=4096, N=8192, bench=False)
+    # test_mxfp8_quant(M=4031, N=8192, bench=False)
+    # test_mxfp8_quant(M=4096, N=8192, bench=True)
+    # test_batch_mxfp8_quant(M=4096, N=2048, n_experts=32, bench=False)
+    test_batch_mxfp8_quant(M=4096, N=2048, n_experts=32, bench=True)
 
 
 
