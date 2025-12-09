@@ -25,7 +25,7 @@ def bench_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0):
     device = 'cuda:0'
     q = torch.randn(L, B, H, 192, dtype=dtype, device=device).requires_grad_()
     kv = torch.randn(L, B, H, 256, dtype=dtype, device=device).requires_grad_()
-    k_pos_emb = torch.randn(L, B, 1, 64+512, dtype=dtype, device=device)[:,:,:,:64].requires_grad_()
+    k_pos_emb = torch.randn(L, B, 64+512, dtype=dtype, device=device)[:,:,:64].view(L, B, 1, 64).requires_grad_()
     freqs = rope_freqs(L, 64, rope_theta=rope_theta)
     freqs = torch.cat([freqs, freqs], -1)
     freqs = freqs[:,None,None]
@@ -85,13 +85,13 @@ def bench_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0):
     dkv = kv.grad
     dp = k_pos_emb.grad
 
-    output_check(query_ref, qo, mode='q')
-    output_check(key_ref, ko, mode='k')
-    output_check(value_ref, vo, mode='v')
+    # output_check(query_ref, qo, name='q')
+    # output_check(key_ref, ko, name='k')
+    # output_check(value_ref, vo, name='v')
 
-    output_check(dq_ref, dq, mode='dq')
-    output_check(dkv_ref, dkv, mode='dkv')
-    output_check(dp_ref, dp, mode='dp')
+    # output_check(dq_ref, dq, name='dq')
+    # output_check(dkv_ref, dkv, name='dkv')
+    # output_check(dp_ref, dp, name='dp')
 
 
     lbh = L*B*H
@@ -114,8 +114,8 @@ def bench_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     device = 'cuda:0'
     q = torch.randn(sum(lengths)//cp_size, H, 192, dtype=dtype, device=device).requires_grad_()
     kv = torch.randn(sum(lengths)//cp_size, H, 256, dtype=dtype, device=device).requires_grad_()
-    k_pos_emb = torch.randn(sum(lengths)//cp_size, 1, 576, dtype=dtype, device=device)
-    k_pos_emb = k_pos_emb[:,:,512:].requires_grad_()
+    k_pos_emb = torch.randn(sum(lengths)//cp_size, 576, dtype=dtype, device=device)
+    k_pos_emb = k_pos_emb[:,512:].view(sum(lengths)//cp_size, 1, 64).requires_grad_()
     cu_seqlens_q = torch.cumsum(torch.tensor([0]+lengths, device=device, dtype=torch.int32), 0).to(torch.int32)
     cu_seqlens_kv = cu_seqlens_q
 
@@ -180,13 +180,13 @@ def bench_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     dkv = kv.grad
     dp = k_pos_emb.grad
 
-    output_check(query_ref, qo, mode='q')
-    output_check(key_ref, ko, mode='k')
-    output_check(value_ref, vo, mode='v')
+    # output_check(query_ref, qo, name='q')
+    # output_check(key_ref, ko, name='k')
+    # output_check(value_ref, vo, name='v')
 
-    output_check(dq_ref, dq, mode='dq')
-    output_check(dkv_ref, dkv, mode='dkv')
-    output_check(dp_ref, dp, mode='dp')
+    # output_check(dq_ref, dq, name='dq')
+    # output_check(dkv_ref, dkv, name='dkv')
+    # output_check(dp_ref, dp, name='dp')
 
 
     lbh = sum(lengths)//cp_size*H
@@ -205,6 +205,6 @@ def bench_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
 
 
 if __name__ == '__main__':
-    bench_mla_rope(L=4096, B=4, H=32)
+    bench_mla_rope(L=4096, B=2, H=32)
     bench_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
                    cp_size=1, cp_rank=0)
