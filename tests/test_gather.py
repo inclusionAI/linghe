@@ -354,7 +354,7 @@ def test_triton_smooth_permute_with_mask_map(M=4096, N=4096, n_experts=32,
     out_tokens = sum(token_count_per_expert_list)
 
     B = 128
-    grad_data = torch.randn((M, N), dtype=torch.bfloat16, device=device).to(
+    grad_data = torch.randn((M, N), dtype=dtype, device=device).to(
         torch.float8_e4m3fn)
     grad_scale = 1 + torch.rand((M, N // B), dtype=torch.float32, device=device)
     q_ref, scale_ref = torch_smooth_permute_with_indices(grad_data, grad_scale,
@@ -370,8 +370,8 @@ def test_triton_smooth_permute_with_mask_map(M=4096, N=4096, n_experts=32,
                                                                  x_scale=None,
                                                                  reverse=False,
                                                                  round_scale=round_scale)
-    output_check(q_ref.float(), y_q.float(), name='data', rtol=0.125)
-    output_check(scale_ref.float(), y_scale.float(), name='scale')
+    output_check(q_ref, y_q, name='data', rtol=0.125)
+    output_check(scale_ref, y_scale, name='scale')
 
 
 
@@ -525,10 +525,7 @@ def test_batch_block_pad_permute_with_indices(M=16384, N=2048, n_experts=32, top
                        tokens_per_expert=token_count_per_expert,
                        ref_bytes=num_out_tokens * N * 4)
         xs = x[indices]
-        benchmark_func(triton_batch_blockwise_quant, 
-                       xs,
-                       token_count_per_expert,
-                       token_count_per_expert_list,
+        benchmark_func(triton_batch_blockwise_quant, xs, token_count_per_expert,  token_count_per_expert_list,
                        round_scale=True,
                        ref_bytes=num_out_tokens * N * 4)
 
@@ -594,5 +591,5 @@ if __name__ == '__main__':
 
     test_triton_batch_transpose_smooth_permute_with_indices(M=16384, N=2048, n_experts=32, topk=2, bench=False)
     test_triton_batch_transpose_smooth_permute_with_indices(M=8192, N=4096, n_experts=32, topk=2, bench=False)
-    test_batch_block_pad_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=True)
+    test_batch_block_pad_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=False)
     test_batch_mxfp8_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=False)

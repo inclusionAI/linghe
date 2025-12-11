@@ -60,6 +60,6 @@ def test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=False):
 
 
 if __name__ == '__main__':
-    test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=True)
+    test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=False)
     test_scatter(M=2467, N=4096, n_experts=32, topk=2, bias=-0.1, bench=False)
     test_scatter(M=2467, N=1536, n_experts=32, topk=2, bias=-0.1, bench=False)

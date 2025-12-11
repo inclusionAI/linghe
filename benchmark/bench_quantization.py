@@ -87,12 +87,12 @@ def bench_batch_mxfp8_quant(M=4096, N=4096, n_experts=32, bench=False):
 
 if __name__ == '__main__':
     bench_blockwise_quantization(M=8192, N=4096, round_scale=True)
-    bench_blockwise_quantization(M=8192, N=4096, round_scale=False)
-    bench_blockwise_quantization(M=16, N=4096, round_scale=True)
-    bench_blockwise_quantization(M=16, N=4096, round_scale=False)
-    bench_block_quantization(M=128, N=4096, round_scale=True)
-    bench_block_quantization(M=128, N=4096, round_scale=False)
-    bench_batch_mxfp8_quant(M=4096, N=2048, n_experts=32, bench=False)
-    bench_batch_mxfp8_quant(M=4096, N=2048, n_experts=32, bench=True)
+    # bench_blockwise_quantization(M=8192, N=4096, round_scale=False)
+    # bench_blockwise_quantization(M=16, N=4096, round_scale=True)
+    # bench_blockwise_quantization(M=16, N=4096, round_scale=False)
+    # bench_block_quantization(M=128, N=4096, round_scale=True)
+    # bench_block_quantization(M=128, N=4096, round_scale=False)
+    # bench_batch_mxfp8_quant(M=4096, N=2048, n_experts=32, bench=False)
+    # bench_batch_mxfp8_quant(M=4096, N=2048, n_experts=32, bench=True)
 
 

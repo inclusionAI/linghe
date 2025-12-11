@@ -59,7 +59,7 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.
         atol = atol * amp
         diff = (opt_out - org_out).abs()
         abs_error = diff.mean().item()
-        rel_error = abs_error / max(org_out.abs().mean().item(), 1e-38)
+        rel_error = abs_error / max(org_out.abs().mean().item(), 1e-30)
         if rel_error >= 0.005:
             rel_err_str = f"\033[91m {rel_error:.6f}\033[00m"
         else:

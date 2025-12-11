@@ -1349,6 +1349,24 @@ def _get_varlen_token_idx(cu_seqlens, pid_m, seq_num, cp_rank, cp_size):
     return token_idx
 
 
+# no used
+@triton.jit
+def _get_fixlen_token_idx(num_tokens, pid_m, seq_num, cp_rank, cp_size, transpose):
+    L = num_tokens // seq_num
+    if transpose:
+        token_idx = pid_m % L
+    else:
+        token_idx = pid_m // seq_num
+    if cp_size > 1:
+        if token_idx < L // 2:
+            token_idx = token_idx + cp_rank * L // 2
+        else:
+            token_idx = (token_idx - L // 2) + (
+                2 * cp_size - cp_rank - 1
+            ) * L // 2
+    return token_idx
+
+
 @triton.jit
 def varlen_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                                          q_norm_weight_ptr, k_norm_weight_ptr,
@@ -1368,6 +1386,7 @@ def varlen_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                                          INTERLEAVED: tl.constexpr,
                                          SILU: tl.constexpr,
                                          CP_SIZE: tl.constexpr,
+                                         REUSE: tl.constexpr
                                          ):
     pid = tl.program_id(0)
 
@@ -1425,7 +1444,7 @@ def varlen_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
     k_weight_0 = tl.load(k_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
     k_weight_1 = tl.load(k_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
 
-    if CP_SIZE > 1:
+    if not REUSE:
         pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, CP_SIZE)
         freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D)).to(tl.float32)
         cos = tl.cos(freqs) * mscale
@@ -1508,7 +1527,8 @@ def triton_varlen_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weigh
                                          silu=False, 
                                          cp_rank=0, 
                                          cp_size=1,
-                                         mscale=1.0
+                                         mscale=1.0,
+                                         reuse=False
                                          ):
 
     """
@@ -1565,6 +1585,7 @@ def triton_varlen_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weigh
         interleaved,
         silu,
         cp_size,
+        reuse,
         num_stages=num_stages,
         num_warps=num_warps
     )
@@ -1592,7 +1613,8 @@ def varlen_qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
                                           d: tl.constexpr,
                                           INTERLEAVED: tl.constexpr,
                                           SILU: tl.constexpr,
-                                          CP_SIZE: tl.constexpr
+                                          CP_SIZE: tl.constexpr,
+                                          REUSE: tl.constexpr
                                           ):
     pid = tl.program_id(0)
     DD = 2 * D
@@ -1686,7 +1708,7 @@ def varlen_qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
     tl.store(dqw_ptr + pid * D * 2 + tl.arange(0, D), dqw_0)
     tl.store(dqw_ptr + pid * D * 2 + D + tl.arange(0, D), dqw_1)
 
-    if CP_SIZE > 1:
+    if not REUSE:
         pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, CP_SIZE)
         freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D)).to(tl.float32)
         cos = tl.cos(freqs) * mscale
@@ -1825,7 +1847,8 @@ def triton_varlen_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
                                           silu=False,
                                           cp_rank=0, 
                                           cp_size=1,
-                                          mscale=1.0):
+                                          mscale=1.0,
+                                          reuse=False):
     """
     backward kernel of triton_qk_norm_and_half_rope_forward
     Args:
@@ -1886,6 +1909,7 @@ def triton_varlen_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
         interleaved,
         silu,
         cp_size,
+        reuse,
         num_stages=num_stages,
         num_warps=num_warps
     )
@@ -1908,7 +1932,8 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
                             cp_size: tl.constexpr,
                             H: tl.constexpr,
                             VARLEN: tl.constexpr,
-                            TRANSPOSE: tl.constexpr
+                            TRANSPOSE: tl.constexpr,
+                            REUSE: tl.constexpr
                             ):
     pid = tl.program_id(0)
     num_tokens = tl.num_programs(0)
@@ -1954,7 +1979,7 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
     k = tl.load(
         k_pos_emb_ptr + pid * kpe_stride + tl.arange(0, 64)).to(tl.float32)
 
-    if cp_size > 1:
+    if VARLEN and not REUSE:
         pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, cp_size)
         freqs = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 64))
         cos = tl.cos(freqs) * mscale
@@ -1993,7 +2018,8 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
 
 def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
                             transpose=False, cu_seqlens_q=None,
-                            cu_seqlens_kv=None, cp_rank=0, cp_size=1):
+                            cu_seqlens_kv=None, cp_rank=0, cp_size=1,
+                            reuse=False):
     """
     apply MLA-type rope to qkv
     Args:
@@ -2068,13 +2094,13 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
         H,
         VARLEN,
         transpose,
+        reuse,
         num_stages=num_stages,
         num_warps=num_warps
     )
     if not transpose:
         qo = q
     return qo, ko, vo
-
 
 
 @triton.jit
@@ -2090,7 +2116,8 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
                              cp_size: tl.constexpr,
                              H: tl.constexpr,
                              VARLEN: tl.constexpr,
-                             TRANSPOSED: tl.constexpr
+                             TRANSPOSED: tl.constexpr,
+                             REUSE: tl.constexpr
                             ):
     pid = tl.program_id(0)
     num_tokens = tl.num_programs(0)
@@ -2151,7 +2178,7 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
     # q = q * cos + qr * sin
     # q = tl.reshape(tl.permute(tl.reshape(q, (H, 2, 32)), (0, 2, 1)), (H, 64))
 
-    if cp_size > 1:
+    if VARLEN and not REUSE:
         pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, cp_size)
 
         freqs0 = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 32)).to(tl.float32)
@@ -2200,9 +2227,9 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
             dkv_ptr + pid * H * 256 + 128 + 256 * tl.arange(0, H)[:, None] + tl.arange(0, 128)[None, :], v)
 
 
-
 def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, transposed=False,
-                             cu_seqlens_q=None, cu_seqlens_kv=None, cp_rank=0, cp_size=1):
+                             cu_seqlens_q=None, cu_seqlens_kv=None, cp_rank=0, cp_size=1,
+                             reuse=False):
     assert q_grad.is_contiguous() and k_grad.is_contiguous() and v_grad.is_contiguous()
     VARLEN = cu_seqlens_q is not None
  
@@ -2250,6 +2277,7 @@ def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, transpos
         H,
         VARLEN,
         transposed,
+        reuse,
         num_stages=num_stages,
         num_warps=num_warps
     )
