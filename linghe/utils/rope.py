@@ -632,6 +632,10 @@ def triton_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weight,
         B, L, Dim = qkv.shape
     stride = qkv.stride(1)  # qkv may be a slice of a tensor
     D = k_norm_weight.size(0)
+    tp = (H + 2 * h) * D // Dim
+    if tp > 1:
+        H = H // tp
+        h = h // tp
     # D = Dim // (H + 2 * h)  # error with tp
     assert freqs.size(0) == L and freqs.size(-1) == D // 2, f'{freqs.shape=} {L=} {D=}'
     dtype = qkv.dtype
