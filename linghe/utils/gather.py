@@ -908,7 +908,7 @@ def batch_block_pad_permute_with_indices_kernel(x_ptr,
                                         xtq_ptr,
                                         xts_ptr, 
                                         output_prob_ptr,
-                                        N: tl.constexpr,
+                                        N,
                                         E: tl.constexpr,
                                         ROUND: tl.constexpr,
                                         PROB: tl.constexpr
@@ -923,6 +923,7 @@ def batch_block_pad_permute_with_indices_kernel(x_ptr,
     if rid >= tl.cdiv(count, 128):
         return
 
+    N = N.to(tl.int64)
     nb = N // 128
 
     padding_count = tl.cdiv(count, 16) * 16

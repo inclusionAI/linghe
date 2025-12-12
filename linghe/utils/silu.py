@@ -404,7 +404,7 @@ def batch_weighted_silu_and_block_quant_forward_kernel(x_ptr, weight_ptr,
                                                        transpose_scale_ptr,
                                                        count_ptr,
                                                        accum_ptr,
-                                                       n: tl.constexpr,
+                                                       n,
                                                        E: tl.constexpr,
                                                        ROUND: tl.constexpr):
     eid = tl.program_id(axis=0)
@@ -419,6 +419,7 @@ def batch_weighted_silu_and_block_quant_forward_kernel(x_ptr, weight_ptr,
     if rid >= c:
         return
 
+    n = n.to(tl.int64)
     nb = n // 128
 
     counts = tl.load(count_ptr + tl.arange(0, E))
@@ -474,7 +475,7 @@ def batch_weighted_silu_and_block_quant_forward_n_kernel(x_ptr, weight_ptr,
                                                        scale_ptr,
                                                        count_ptr,
                                                        accum_ptr,
-                                                       n: tl.constexpr,
+                                                       n,
                                                        B: tl.constexpr,
                                                        E: tl.constexpr,
                                                        ROUND: tl.constexpr):
@@ -489,7 +490,7 @@ def batch_weighted_silu_and_block_quant_forward_n_kernel(x_ptr, weight_ptr,
 
     if rid >= c:
         return
-
+    n = n.to(tl.int64)
     nb = n // 128
 
     offs = si * n * 2 + rid * B * n * 2 + cid * 128 + tl.arange(0, B)[:,
@@ -526,7 +527,7 @@ def batch_weighted_silu_and_block_quant_forward_t_kernel(x_ptr, weight_ptr,
                                                        transpose_scale_ptr,
                                                        count_ptr,
                                                        accum_ptr,
-                                                       n: tl.constexpr,
+                                                       n,
                                                        B: tl.constexpr,
                                                        E: tl.constexpr,
                                                        ROUND: tl.constexpr):
@@ -542,6 +543,7 @@ def batch_weighted_silu_and_block_quant_forward_t_kernel(x_ptr, weight_ptr,
     if rid >= c:
         return
 
+    n = n.to(tl.int64)
     counts = tl.load(count_ptr + tl.arange(0, E))
     n_blocks = tl.cdiv(counts, 128)
     transpose_scale_off = tl.sum(tl.where(tl.arange(0, E) < eid, n_blocks, 0))
@@ -723,7 +725,7 @@ def batch_weighted_silu_and_block_quant_backward_kernel(g_ptr, x_ptr,
                                                         transpose_dx_ptr,
                                                         transpose_dx_scale_ptr,
                                                         dw_ptr,
-                                                        n: tl.constexpr,
+                                                        n,
                                                         E: tl.constexpr,
                                                         ROUND: tl.constexpr):
     eid = tl.program_id(axis=0)
@@ -738,6 +740,7 @@ def batch_weighted_silu_and_block_quant_backward_kernel(g_ptr, x_ptr,
     if rid >= tl.cdiv(count, 128):
         return
 
+    n = n.to(tl.int64)
     nb = n // 128
     transpose_off = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(
         tl.load(count_ptr + tl.arange(0, E)), 128), 0))
@@ -821,7 +824,7 @@ def batch_weighted_silu_and_block_quant_backward_n_kernel(g_ptr, x_ptr,
                                                         dx_ptr,
                                                         dx_scale_ptr,
                                                         dw_ptr,
-                                                        n: tl.constexpr,
+                                                        n,
                                                         B: tl.constexpr,
                                                         E: tl.constexpr,
                                                         ROUND: tl.constexpr):
@@ -837,6 +840,7 @@ def batch_weighted_silu_and_block_quant_backward_n_kernel(g_ptr, x_ptr,
     if rid >= tl.cdiv(count, B):
         return
 
+    n = n.to(tl.int64)
     nb = n // 128
 
     offs = si * n * 2 + rid * B * n * 2 + cid * 128 + tl.arange(0, B)[:,
@@ -885,7 +889,7 @@ def batch_weighted_silu_and_block_quant_backward_t_kernel(g_ptr, x_ptr,
                                                         accum_ptr,
                                                         transpose_dx_ptr,
                                                         transpose_dx_scale_ptr,
-                                                        n: tl.constexpr,
+                                                        n,
                                                         B: tl.constexpr,
                                                         E: tl.constexpr,
                                                         ROUND: tl.constexpr):
@@ -901,6 +905,7 @@ def batch_weighted_silu_and_block_quant_backward_t_kernel(g_ptr, x_ptr,
     if rid >= tl.cdiv(count, 128):
         return
 
+    n = n.to(tl.int64)
     transpose_off = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(
         tl.load(count_ptr + tl.arange(0, E)), 128), 0))
 

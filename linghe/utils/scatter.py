@@ -147,13 +147,13 @@ def unpermute_with_mask_map_kernel(
     mask_map_ptr,
     output_ptr,
     output_probs_ptr,
-    num_experts: tl.constexpr,
-    N: tl.constexpr,
+    N,
     N_2N: tl.constexpr,
+    num_experts: tl.constexpr,
     PROB: tl.constexpr,
 ):
     pid = tl.program_id(axis=0)
-
+    N = N.to(tl.int64)
     # sums = tl.zeros((N,), dtype=tl.float32)
     sums = tl.zeros((N_2N,), dtype=tl.float32)
 
@@ -226,9 +226,9 @@ def triton_unpermute_with_mask_map(
         row_id_map,
         output,
         restore_probs,
-        num_experts,
         hidden_size,
         hidden_size_2n,
+        num_experts,
         PROB,
         num_stages=4,
         num_warps=4

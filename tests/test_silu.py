@@ -639,7 +639,9 @@ def test_triton_batch_weighted_silu_and_block_quant(M=1024, N=4096,
     bs = sum(count_list)
 
     x = torch.randn((bs, N), dtype=torch.bfloat16,
-                    device='cuda:0') ** 3 / 10
+                    device='cuda:0')
+    if bs > 3:
+        x[:3] = 0.0
     weight = torch.randn((bs, 1), dtype=torch.float32, device='cuda:0')
 
     grad_output = torch.randn((bs, N // 2), dtype=torch.bfloat16,
@@ -662,6 +664,26 @@ def test_triton_batch_weighted_silu_and_block_quant(M=1024, N=4096,
 
     output_check(x_q_ref, x_q, 'block.q', rtol=rtol)
     output_check(x_scale_ref, x_scale.view(-1), 'block.scale')
+    output_check(xt_q_ref, xt_q.view(-1), 'block.qt', rtol=rtol)
+    output_check(xt_scale_ref, xt_scale.view(-1), 'block.t_scale')
+
+    x_q, x_scale, xt_q, xt_scale = triton_batch_weighted_silu_and_block_quant_forward(
+        x,
+        weight,
+        counts,
+        count_list,
+        round_scale=round_scale,
+        output_mode=0)
+    output_check(x_q_ref, x_q, 'block.q', rtol=rtol)
+    output_check(x_scale_ref, x_scale.view(-1), 'block.scale')
+
+    x_q, x_scale, xt_q, xt_scale = triton_batch_weighted_silu_and_block_quant_forward(
+        x,
+        weight,
+        counts,
+        count_list,
+        round_scale=round_scale,
+        output_mode=1)
     output_check(xt_q_ref, xt_q.view(-1), 'block.qt', rtol=rtol)
     output_check(xt_scale_ref, xt_scale.view(-1), 'block.t_scale')
 
@@ -763,28 +785,29 @@ def test_triton_batch_weighted_silu_and_mxfp8_quant(M=1024, N=4096,
 
 
 if __name__ == '__main__':
-    test_weighted_silu(M=16384, N=1024, bench=False)
+    # test_weighted_silu(M=16384, N=1024, bench=False)
 
-    test_silu_and_smooth_quant(M=16384, N=1024, bench=False)
-    test_silu_and_smooth_quant(M=8192, N=2048, bench=False)
-    test_silu_and_smooth_quant(M=4096, N=10240, bench=False)
-    test_silu_and_smooth_quant(M=4096, N=5120, bench=False)
+    # test_silu_and_smooth_quant(M=16384, N=1024, bench=False)
+    # test_silu_and_smooth_quant(M=8192, N=2048, bench=False)
+    # test_silu_and_smooth_quant(M=4096, N=10240, bench=False)
+    # test_silu_and_smooth_quant(M=4096, N=5120, bench=False)
 
-    test_silu_and_block_quant(M=16384, N=1024, bench=False)
-    test_silu_and_block_quant(M=8192, N=4096, bench=False)
-    test_silu_and_block_quant(M=16384, N=1536, bench=False)
-    test_silu_and_block_quant(M=4096, N=1536*8, bench=False)
+    # test_silu_and_block_quant(M=16384, N=1024, bench=False)
+    # test_silu_and_block_quant(M=8192, N=4096, bench=False)
+    # test_silu_and_block_quant(M=16384, N=1536, bench=False)
+    # test_silu_and_block_quant(M=4096, N=1536*8, bench=False)
 
-    test_silu_and_mxfp8_quant(M=16384, N=1024, bench=False)
-    test_silu_and_mxfp8_quant(M=2345, N=1024, bench=False)
+    # test_silu_and_mxfp8_quant(M=16384, N=1024, bench=False)
+    # test_silu_and_mxfp8_quant(M=2345, N=1024, bench=False)
 
-    test_triton_batch_weighted_silu_and_smooth_quant(M=2048, N=2048,
-                                                     n_experts=32, bench=False)
-    test_triton_batch_weighted_silu_and_smooth_quant(M=800, N=2048, n_experts=32, bench=False)
-    test_triton_batch_weighted_silu_and_smooth_quant(M=0, N=2048, n_experts=32, bench=False)
+    # test_triton_batch_weighted_silu_and_smooth_quant(M=2048, N=2048,
+    #                                                  n_experts=32, bench=False)
+    # test_triton_batch_weighted_silu_and_smooth_quant(M=800, N=2048, n_experts=32, bench=False)
+    # test_triton_batch_weighted_silu_and_smooth_quant(M=0, N=2048, n_experts=32, bench=False)
 
-    test_triton_batch_weighted_silu_and_block_quant(M=4096, N=2048,
-                                                    n_experts=32, bench=True)
-    test_triton_batch_weighted_silu_and_block_quant(M=1008, N=2048, n_experts=32, bench=False)
-    test_triton_batch_weighted_silu_and_mxfp8_quant(M=2048, N=2048, n_experts=32, bench=False)
-    test_triton_batch_weighted_silu_and_mxfp8_quant(M=0, N=2048, n_experts=32, bench=False)
+    # test_triton_batch_weighted_silu_and_block_quant(M=4096, N=2048,
+    #                                                 n_experts=32, bench=False)
+    test_triton_batch_weighted_silu_and_block_quant(M=12080, N=8192, n_experts=32, bench=False)
+    
+    # test_triton_batch_weighted_silu_and_mxfp8_quant(M=2048, N=2048, n_experts=32, bench=False)
+    # test_triton_batch_weighted_silu_and_mxfp8_quant(M=0, N=2048, n_experts=32, bench=False)
