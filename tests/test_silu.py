@@ -784,8 +784,7 @@ if __name__ == '__main__':
     test_triton_batch_weighted_silu_and_smooth_quant(M=0, N=2048, n_experts=32, bench=False)
 
     test_triton_batch_weighted_silu_and_block_quant(M=4096, N=2048,
-                                                    n_experts=32, bench=False)
+                                                    n_experts=32, bench=True)
     test_triton_batch_weighted_silu_and_block_quant(M=1008, N=2048, n_experts=32, bench=False)
-
     test_triton_batch_weighted_silu_and_mxfp8_quant(M=2048, N=2048, n_experts=32, bench=False)
     test_triton_batch_weighted_silu_and_mxfp8_quant(M=0, N=2048, n_experts=32, bench=False)

@@ -31,7 +31,7 @@ def softmax_cross_entropy_forward_kernel(logit_ptr, label_ptr, loss_ptr,
 
     retry = sum_exp > 3.389e38
     # triton 3.2.0 will raise pass error
-    max_logit = tl.where(retry, max_logit, sample_max_logit)
+    # max_logit = tl.where(retry, max_logit, sample_max_logit)
     retry_sum_exp = 0.0
     retry_sum_exp = retry_sum_exp.to(tl.float64)
     if retry:
@@ -40,6 +40,8 @@ def softmax_cross_entropy_forward_kernel(logit_ptr, label_ptr, loss_ptr,
                             mask=i * B + tl.arange(0, B) < N, other=-1e10).to(
                 tl.float32)
             retry_sum_exp += tl.sum(tl.exp(logit - max_logit))
+    else:
+        max_logit = sample_max_logit
     sum_exp = tl.where(retry, retry_sum_exp, sum_exp)
     tl.store(sum_exp_ptr + pid, sum_exp)
     target_logit = tl.load(logit_ptr + pid * N + label)
