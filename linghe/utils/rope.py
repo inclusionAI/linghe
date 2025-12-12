@@ -631,8 +631,9 @@ def triton_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weight,
     else:
         B, L, Dim = qkv.shape
     stride = qkv.stride(1)  # qkv may be a slice of a tensor
-    D = Dim // (H + 2 * h)
-    assert freqs.size(0) == L and freqs.size(-1) == D // 2, f'{freqs.shape=}'
+    D = k_norm_weight.size(0)
+    # D = Dim // (H + 2 * h)  # error with tp
+    assert freqs.size(0) == L and freqs.size(-1) == D // 2, f'{freqs.shape=} {L=} {D=}'
     dtype = qkv.dtype
     device = qkv.device
     qo = torch.empty((B, L, H, D), dtype=dtype, device=device)
