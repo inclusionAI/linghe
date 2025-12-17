@@ -468,6 +468,106 @@ def batch_weighted_silu_and_block_quant_forward_kernel(x_ptr, weight_ptr,
                 mask=indices[None, :] < count)
 
 
+@triton.jit
+def batch_weighted_silu_and_block_quant_forward_nt_kernel(x_ptr, weight_ptr,
+                                                       out_ptr,
+                                                       scale_ptr,
+                                                       transpose_output_ptr,
+                                                       transpose_scale_ptr,
+                                                       count_ptr,
+                                                       accum_ptr,
+                                                       n,
+                                                       B: tl.constexpr,
+                                                       E: tl.constexpr,
+                                                       ROUND: tl.constexpr):
+    eid = tl.program_id(axis=0)
+    rid = tl.program_id(axis=1)
+    cid = tl.program_id(axis=2)
+
+    count = tl.load(count_ptr + eid)
+    ei = tl.load(accum_ptr + eid)
+    si = ei - count
+    c = tl.cdiv(count, 128)
+
+    if rid >= c:
+        return
+
+    n = n.to(tl.int64)
+    nb = n // 128
+    I : tl.constexpr = 128 // B
+
+    offs = si * n * 2 + rid * 128 * n * 2 + cid * 128 + tl.arange(0, B)[:,
+                                                        None] * n * 2 + tl.arange(
+        0, 128)[None, :]
+    hoffs = si * n + rid * 128 * n + cid * 128 + tl.arange(0, B)[:,
+                                                None] * n + tl.arange(0, 128)[
+                                                            None, :]
+    soffs = si * nb + cid * count + rid * 128 + tl.arange(0, B)
+    indices = rid * 128 + tl.arange(0, B)
+    for i in range(I):
+        mask = indices[:, None] < count
+        w = tl.load(weight_ptr + si + indices, mask=indices < count).to(
+            tl.float32)
+        x1 = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+        x2 = tl.load(x_ptr + n + offs, mask=mask).to(
+            tl.float32)
+
+        x = x1 * tl.sigmoid(x1) * x2 * w[:, None]
+
+        scale = tl.maximum(tl.max(tl.abs(x), 1) / 448, 1e-30)
+        if ROUND:
+            scale = tl.exp2(tl.ceil(tl.log2(scale)))
+        tl.store(
+            scale_ptr + soffs,
+            scale, mask=indices < count)
+
+        xq = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
+
+        tl.store(out_ptr + hoffs, xq, mask=mask)
+        offs += B * n * 2
+        hoffs += B * n
+        soffs += B
+        indices += B
+
+    # transpose
+    counts = tl.load(count_ptr + tl.arange(0, E))
+    n_blocks = tl.cdiv(counts, 128)
+    transpose_soff = tl.sum(tl.where(tl.arange(0, E) < eid, n_blocks, 0))
+    offs = si * n * 2 + rid * 128 * n * 2 + cid * 128 + tl.arange(0, 128)[:,
+                                                        None] * n * 2 + tl.arange(
+        0, B)[None, :]
+    toffs = si * n + rid * 128 + cid * count * 128 + tl.arange(0, B)[:,
+                                                    None] * count + tl.arange(
+        0, 128)[
+                                                                    None, :]
+    tsoffs = transpose_soff * n + rid * n + cid * 128 + tl.arange(
+                0, B)
+    indices = rid * 128 + tl.arange(0, 128)
+    for i in range(I):
+        mask = indices[:, None] < count
+        w = tl.load(weight_ptr + si + indices, mask=indices < count).to(
+            tl.float32)
+        x1 = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+        x2 = tl.load(x_ptr + n + offs, mask=mask).to(
+            tl.float32)
+
+        x = x1 * tl.sigmoid(x1) * x2 * w[:, None]
+
+        scale = tl.maximum(tl.max(tl.abs(x), 0) / 448, 1e-30)
+        if ROUND:
+            scale = tl.exp2(tl.ceil(tl.log2(scale)))
+        tl.store(
+            transpose_scale_ptr + tsoffs, scale)
+
+        xq = tl.trans((x / scale).to(transpose_output_ptr.dtype.element_ty))
+
+        tl.store(transpose_output_ptr + toffs, xq,
+                    mask=indices[None, :] < count)
+        offs += B
+        toffs += count * B
+        tsoffs += B
+
+
 
 @triton.jit
 def batch_weighted_silu_and_block_quant_forward_n_kernel(x_ptr, weight_ptr,
@@ -664,8 +764,26 @@ def triton_batch_weighted_silu_and_block_quant_forward(x,
             num_warps=2
         )
     else:
+        grid = (n_experts, triton.cdiv(max(splits), 128), n // 128)
+        batch_weighted_silu_and_block_quant_forward_kernel[grid](
+            x,
+            weight,
+            out,
+            scale,
+            transpose_output,
+            transpose_scale,
+            counts,
+            accums,
+            n,
+            len(splits),
+            round_scale,
+            num_stages=2,
+            num_warps=8
+        )
+
+        # B = 16
         # grid = (n_experts, triton.cdiv(max(splits), 128), n // 128)
-        # batch_weighted_silu_and_block_quant_forward_kernel[grid](
+        # batch_weighted_silu_and_block_quant_forward_nt_kernel[grid](
         #     x,
         #     weight,
         #     out,
@@ -675,43 +793,45 @@ def triton_batch_weighted_silu_and_block_quant_forward(x,
         #     counts,
         #     accums,
         #     n,
+        #     B,
         #     len(splits),
         #     round_scale,
         #     num_stages=2,
         #     num_warps=8
         # )
-        B = 32
-        grid = (n_experts, triton.cdiv(max(splits), B), n // 128)
-        batch_weighted_silu_and_block_quant_forward_n_kernel[grid](
-            x,
-            weight,
-            out,
-            scale,
-            counts,
-            accums,
-            n,
-            B,
-            len(splits),
-            round_scale,
-            num_stages=2,
-            num_warps=2
-        )
-        B = 32
-        grid = (n_experts, triton.cdiv(max(splits), 128), n // B)
-        batch_weighted_silu_and_block_quant_forward_t_kernel[grid](
-            x,
-            weight,
-            transpose_output,
-            transpose_scale,
-            counts,
-            accums,
-            n,
-            B,
-            len(splits),
-            round_scale,
-            num_stages=2,
-            num_warps=2
-        )
+
+        # B = 32
+        # grid = (n_experts, triton.cdiv(max(splits), B), n // 128)
+        # batch_weighted_silu_and_block_quant_forward_n_kernel[grid](
+        #     x,
+        #     weight,
+        #     out,
+        #     scale,
+        #     counts,
+        #     accums,
+        #     n,
+        #     B,
+        #     len(splits),
+        #     round_scale,
+        #     num_stages=2,
+        #     num_warps=2
+        # )
+        # B = 32
+        # grid = (n_experts, triton.cdiv(max(splits), 128), n // B)
+        # batch_weighted_silu_and_block_quant_forward_t_kernel[grid](
+        #     x,
+        #     weight,
+        #     transpose_output,
+        #     transpose_scale,
+        #     counts,
+        #     accums,
+        #     n,
+        #     B,
+        #     len(splits),
+        #     round_scale,
+        #     num_stages=2,
+        #     num_warps=2
+        # )
     return out, scale, transpose_output, transpose_scale
 
 
@@ -734,6 +854,7 @@ def batch_weighted_silu_and_block_quant_backward_kernel(g_ptr, x_ptr,
 
     count = tl.load(count_ptr + eid)
     si = tl.load(accum_ptr + eid) - count
+    # very slow with triton 3.3.1, fix in 3.5.1 
     # counts = tl.load(count_ptr + tl.arange(0, E))
     # si = tl.sum(tl.where(tl.arange(0, E) < eid, counts, 0))
 
@@ -1043,7 +1164,7 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
     )
     dw = dws.sum(1, keepdim=True).to(weight.dtype)
 
-    B = 16
+    B = 32
     grid = (n_expert, triton.cdiv(max(splits), 128), N // 2 // B)
     batch_weighted_silu_and_block_quant_backward_t_kernel[grid](
         g,
@@ -1058,7 +1179,7 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
         n_expert,
         round_scale,
         num_stages=2,
-        num_warps=2
+        num_warps=4
     )
 
     return dx, dx_scale, dw, transpose_dx, transpose_dx_scale
@@ -2324,4 +2445,3 @@ def triton_batch_weighted_silu_and_smooth_quant_backward(g, x, weight,
                                 num_warps=2)
 
     return dx, dx_scale, dw, transpose_dx, transpose_dx_scale
-

@@ -70,12 +70,9 @@ def batch_clip_kernel(input_ptrs, size_ptr, clip_value,
     t = tl.cdiv(size, B * T)
     offs = bid.to(tl.int64) * t * B + tl.arange(0, B)
     for i in range(t):
-        x = tl.load(input_ptr + offs, mask=offs < size, other=0)
-        # clip value is a large value, so we do not need to clip for most cause
-        max_val = tl.max(tl.abs(x))
-        if max_val > clip_value:
-            x = tl.minimum(tl.maximum(x, -clip_value), clip_value)
-            tl.store(input_ptr + offs, x, mask=offs < size)
+        x = tl.load(input_ptr + offs, mask=offs < size)
+        xc = tl.minimum(tl.maximum(x, -clip_value), clip_value)
+        tl.store(input_ptr + offs, xc, mask=(offs < size) & (tl.abs(x) > clip_value ))
         offs += B
 
 
