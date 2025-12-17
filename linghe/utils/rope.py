@@ -2097,7 +2097,7 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
         cp_size,
         H,
         VARLEN,
-        transpose,
+        False if VARLEN else transpose,
         reuse,
         num_stages=num_stages,
         num_warps=num_warps
