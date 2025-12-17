@@ -2055,7 +2055,7 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
     device = q.device
     if VARLEN:
         assert cu_seqlens_kv is not None
-        assert not transpose
+        transpose = False
         N, H, D = q.shape 
         B = cu_seqlens_q.shape[0] - 1
         assert B <= 128

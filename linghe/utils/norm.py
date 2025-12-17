@@ -60,14 +60,19 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None, rms=None):
         rms: 1/rms of input tensor
     """
     assert x.is_contiguous() and weight.is_contiguous()
-    M, n = x.shape
+    shape = x.shape
+    assert len(shape) in (2, 3)
+    if len(shape) == 3:
+        M, n = shape[0] * shape[1], shape[2]
+    else:
+        M, n = x.shape
     N = triton.next_power_of_2(n)
     W = 8192 // N
     T = 4
     assert N <= 8192
     device = x.device
     if out is None:
-        out = torch.empty((M, n), device=device, dtype=x.dtype)
+        out = torch.empty_like(x)
     REUSE = rms is not None
     if not REUSE:
         rms = torch.empty((M, ), device=device, dtype=torch.float32)
@@ -137,11 +142,15 @@ def rms_norm_backward_kernel(
 
 def triton_rms_norm_backward(grad_output, x, w, eps=1e-6, rms=None):
     assert grad_output.is_contiguous()
-    M, n = x.shape
+    shape = x.shape
+    if len(shape) == 3:
+        M, n = shape[0] * shape[1], shape[2]
+    else:
+        M, n = x.shape
     N = triton.next_power_of_2(n)
     assert N <= 8192
 
-    dx = torch.empty(M, n, dtype=x.dtype, device=x.device)
+    dx = torch.empty_like(x)
     REUSE = rms is not None
 
     W = 8192 // N
@@ -344,7 +353,7 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
     assert N <= 8192 and 8192 % N == 0
     device = x.device
 
-    if out is None and  output_mode in (0, 2):
+    if out is None and output_mode in (0, 2):
         out = torch.empty((M, N), device=device, dtype=torch.float8_e4m3fn)
 
     if scale is None and output_mode in (0, 2):
