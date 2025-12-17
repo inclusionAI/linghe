@@ -169,7 +169,7 @@ class MXFP8RMSNorm(torch.autograd.Function):
         dx, dw = triton_rms_norm_backward(grad_output, input, weight, eps=ctx.eps)
         dx = dx.view(*shape)
 
-        return dx, dw, None, None, None
+        return dx, dw, None, None, None, None
 
 
 def mxfp8_rms_norm(input, weight, quantizer, cls, eps=1e-6, is_recomputing=None):
