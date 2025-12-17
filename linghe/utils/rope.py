@@ -2291,7 +2291,7 @@ def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, transpos
         cp_size,
         H,
         VARLEN,
-        transposed,
+        False if VARLEN else transposed,
         reuse,
         num_stages=num_stages,
         num_warps=num_warps
