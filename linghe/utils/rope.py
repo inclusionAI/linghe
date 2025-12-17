@@ -2109,6 +2109,8 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
             qo = q.transpose(0, 1)
             ko = ko.transpose(0, 1)
             vo = vo.transpose(0, 1)
+        else:
+            qo = q
     else:
         if not transpose:
             qo = q
