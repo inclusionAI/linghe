@@ -2244,12 +2244,12 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
 def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, transposed=False,
                              cu_seqlens_q=None, cu_seqlens_kv=None, cp_rank=0, cp_size=1,
                              reuse=False):
-    assert q_grad.is_contiguous() and k_grad.is_contiguous() and v_grad.is_contiguous()
     VARLEN = cu_seqlens_q is not None
  
     dtype = q_grad.dtype 
     device = q_grad.device
     if VARLEN:
+        print(f'{q_grad.shape=} {q_grad.stride()=} {k_grad.shape=} {k_grad.stride()=} {v_grad.shape=} {v_grad.stride()=}')
         assert cu_seqlens_kv is not None
         N, H, D = q_grad.shape
         B = cu_seqlens_q.shape[0] - 1
@@ -2258,6 +2258,7 @@ def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, transpos
         dkv = torch.empty((N, H, 256), dtype=dtype, device=device)
         dp = torch.empty((N, 1, 64), dtype=dtype, device=device)
     else:
+        assert q_grad.is_contiguous() and k_grad.is_contiguous() and v_grad.is_contiguous()
         if transposed:
             B, L, H, D = q_grad.shape
             N = L * B
