@@ -453,7 +453,7 @@ def batch_smooth_transpose_smooth_permute_kernel(x_ptr, scale_ptr, oss_ptr,
 
     count = tl.load(count_ptr + eid)
     counts = tl.load(count_ptr + tl.arange(0, E))
-    si = tl.load(accum_ptr + eid) - count
+    si = (tl.load(accum_ptr + eid) - count).to(tl.int64)
 
     pad = tl.cdiv(count, 32) * 32
     loop = tl.cdiv(pad, H)
@@ -595,7 +595,7 @@ def smooth_weighted_permute_with_indices_kernel(grads_ptr,
         smooth_scale = 1.0 / smooth_scale
     count = tl.load(count_ptr + pid)
     ei = tl.load(accum_ptr + pid)
-    si = ei - count
+    si = (ei - count).to(tl.int64)
     for i in range(count):
         index = tl.load(index_ptr + si + i)
         x = tl.load(grads_ptr + index * N + tl.arange(0, N)).to(tl.float32)
@@ -1045,7 +1045,7 @@ def batch_mxfp8_permute_with_indices_kernel(x_ptr,
                                         xtq_ptr,
                                         xts_ptr, 
                                         output_prob_ptr,
-                                        N: tl.constexpr,
+                                        N,
                                         E: tl.constexpr,
                                         B: tl.constexpr,
                                         PROB: tl.constexpr,
@@ -1061,6 +1061,8 @@ def batch_mxfp8_permute_with_indices_kernel(x_ptr,
 
     if rid >= tl.cdiv(count, 128) * 4:
         return
+
+    N = N.to(tl.int64)
 
     m_block = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 128), 0)) * 4
     si = tl.sum(tl.where(tl.arange(0, E) < eid, counts, 0))

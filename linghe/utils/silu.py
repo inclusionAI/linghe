@@ -1424,7 +1424,7 @@ def batch_weighted_silu_and_mxfp8_quant_forward_kernel(x_ptr, weight_ptr,
                                                        transpose_scale_ptr,
                                                        count_ptr,
                                                        accum_ptr,
-                                                       n: tl.constexpr,
+                                                       n,
                                                        E: tl.constexpr,
                                                        OUTPUT_MODE: tl.constexpr):
     eid = tl.program_id(axis=0)
@@ -1439,6 +1439,7 @@ def batch_weighted_silu_and_mxfp8_quant_forward_kernel(x_ptr, weight_ptr,
     if rid >= c * 4:
         return
 
+    n = n.to(tl.int64)
     nb = n // 32
 
     counts = tl.load(count_ptr + tl.arange(0, E))
@@ -1567,7 +1568,7 @@ def batch_weighted_silu_and_mxfp8_quant_backward_kernel(g_ptr, x_ptr,
                                                         transpose_dx_ptr,
                                                         transpose_dx_scale_ptr,
                                                         dw_ptr,
-                                                        n: tl.constexpr,
+                                                        n,
                                                         E: tl.constexpr):
     eid = tl.program_id(axis=0)
     rid = tl.program_id(axis=1)
@@ -1578,6 +1579,8 @@ def batch_weighted_silu_and_mxfp8_quant_backward_kernel(g_ptr, x_ptr,
 
     if rid >= tl.cdiv(count, 128) * 4:
         return
+
+    n = n.to(tl.int64)
 
     nb = n // 32
     scale_off = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(
@@ -2059,7 +2062,8 @@ def batch_weighted_silu_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
                                                         out_ptr,
                                                         scale_ptr, max_ptr,
                                                         count_ptr,
-                                                        accum_ptr, M,
+                                                        accum_ptr, 
+                                                        M,
                                                         n: tl.constexpr,
                                                         W: tl.constexpr,
                                                         ROUND: tl.constexpr,
@@ -2071,7 +2075,7 @@ def batch_weighted_silu_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
 
     count = tl.load(count_ptr + eid)
     ei = tl.load(accum_ptr + eid)
-    si = ei - count
+    si = (ei - count).to(tl.int64)
     c = tl.cdiv(count, sm * W)
 
     row_offs = si * n + tid * c * W * n + tl.arange(0, W)[:, None] * n
@@ -2203,7 +2207,7 @@ def batch_weighted_silu_and_smooth_quant_backward_kernel(g_ptr, x_ptr,
 
     count = tl.load(count_ptr + eid)
     round_count = tl.cdiv(count, 32) * 32
-    si = tl.load(accum_ptr + eid) - count
+    si = (tl.load(accum_ptr + eid) - count).to(tl.int64)
 
     if pid >= tl.cdiv(count, T):
         return
