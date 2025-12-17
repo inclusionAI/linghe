@@ -519,6 +519,7 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
                                                 mscale=mscale, cp_size=cp_size, cp_rank=cp_rank)
     qo, ko, vo = triton_mla_rope_forward(qc.clone().detach(), kvc, k_pos_embc, freqs, mscale=mscale, 
                                         cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, 
+                                        transpose=False,
                                         cp_size=cp_size, cp_rank=cp_rank)
     output_check(q_ref, qo, name='q', amp=20)
     output_check(k_ref, ko, name='k', amp=20)
@@ -540,19 +541,24 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
     dkv_ref = kv_i.grad
     dp_ref = k_pos_emb_i.grad
     dq, dkv, dp = triton_mla_rope_backward(q_grad.clone().detach(), k_grad, v_grad, freqs, mscale=mscale, 
-                 cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank)
+                 cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank,
+                 transposed=False)
     output_check(dq_ref, dq, name='dq',  atol=0.1, rtol=0.02)
     output_check(dkv_ref, dkv, name='dkv', atol=0.1, rtol=0.02)
     output_check(dp_ref, dp, name='dp', atol=0.2, rtol=0.02)
+
+
 
     if bench:
         lbh = sum(lengths)//cp_size*H
         benchmark_func(triton_mla_rope_forward, qc, kvc, k_pos_embc, freqs, mscale=mscale, 
                         cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank,
+                        transpose=False,
                        ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
                        n_profile=0)
         benchmark_func(triton_mla_rope_backward, q_grad, k_grad, v_grad, freqs, mscale=mscale, 
                        cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank,
+                       transpose=False,
                        ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
                        n_profile=0)
 
