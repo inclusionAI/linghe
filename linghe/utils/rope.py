@@ -2055,7 +2055,6 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
     device = q.device
     if VARLEN:
         assert cu_seqlens_kv is not None
-        transpose = False
         N, H, D = q.shape 
         B = cu_seqlens_q.shape[0] - 1
         assert B <= 128
@@ -2103,8 +2102,16 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
         num_stages=num_stages,
         num_warps=num_warps
     )
-    if not transpose:
-        qo = q
+    if VARLEN:
+        if transpose:
+            # we transpose here just to match the afterwards transpose,
+            # i.e., we use transpose(0, 1) if use linghe in the next steps
+            qo = q.transpose(0, 1)
+            ko = ko.transpose(0, 1)
+            vo = vo.transpose(0, 1)
+    else:
+        if not transpose:
+            qo = q
     return qo, ko, vo
 
 
