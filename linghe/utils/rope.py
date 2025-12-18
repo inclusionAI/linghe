@@ -1337,8 +1337,8 @@ def triton_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
 
 
 @triton.jit
-def _get_varlen_token_idx(cu_seqlens, pid_m, seq_num, cp_rank, cp_size):
-    cus = tl.load(cu_seqlens + tl.arange(0, 128), mask=tl.arange(0, 128)<=seq_num) // cp_size
+def _get_varlen_token_idx(cu_seqlens, pid_m, seq_num, padded_seq_num, cp_rank, cp_size):
+    cus = tl.load(cu_seqlens + tl.arange(0, padded_seq_num), mask=tl.arange(0, padded_seq_num)<=seq_num) // cp_size
     cu = tl.max(tl.where(cus > pid_m, 0, cus), 0)
     cun = tl.min(tl.where(cus <= cu, 2**24, cus), 0)
     length = cun - cu
@@ -1384,6 +1384,7 @@ def varlen_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                                          mscale,
                                          cp_rank,
                                          B,
+                                         PB: tl.constexpr,
                                          H: tl.constexpr,
                                          h: tl.constexpr,
                                          D: tl.constexpr,
@@ -1395,7 +1396,7 @@ def varlen_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                                          ):
     pid = tl.program_id(0)
 
-    pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, cp_rank, CP_SIZE)
+    pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, PB, cp_rank, CP_SIZE)
 
     DD = D * 2
 
@@ -1450,7 +1451,7 @@ def varlen_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
     k_weight_1 = tl.load(k_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
 
     if not REUSE:
-        pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, CP_SIZE)
+        pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, PB, cp_rank, CP_SIZE)
         freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D)).to(tl.float32)
         cos = tl.cos(freqs) * mscale
         sin = tl.sin(freqs) * mscale
@@ -1562,6 +1563,7 @@ def triton_varlen_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weigh
     stride = qkv.stride(0)  # qkv may be a slice of a tensor
     D = Dim // (H + 2 * h)
     B = cu_seqlens_q.size(0) - 1
+    PB = max(triton.next_power_of_2(B), 128)  # reduce jit
     dtype = qkv.dtype
     device = qkv.device
     qo = torch.empty((T, H, D), dtype=dtype, device=device)
@@ -1583,6 +1585,7 @@ def triton_varlen_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weigh
         mscale,
         cp_rank,
         B,
+        PB,
         H,
         h,
         D // 2,
@@ -1612,6 +1615,7 @@ def varlen_qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
                                           eps,
                                           mscale,
                                           cp_rank,
+                                          PB: tl.constexpr,
                                           H: tl.constexpr,
                                           h: tl.constexpr,
                                           D: tl.constexpr,
@@ -1625,7 +1629,7 @@ def varlen_qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
     DD = 2 * D
     w = H // h
 
-    pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, cp_rank, CP_SIZE)
+    pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, PB, cp_rank, CP_SIZE)
 
     freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D)).to(tl.float32)
     cos = tl.cos(freqs) * mscale
@@ -1714,7 +1718,7 @@ def varlen_qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
     tl.store(dqw_ptr + pid * D * 2 + D + tl.arange(0, D), dqw_1)
 
     if not REUSE:
-        pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, CP_SIZE)
+        pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, PB, cp_rank, CP_SIZE)
         freqs = tl.load(freqs_ptr + pos * D + tl.arange(0, D)).to(tl.float32)
         cos = tl.cos(freqs) * mscale
         sin = tl.sin(freqs) * mscale
@@ -1880,6 +1884,7 @@ def triton_varlen_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
     stride = qkv.stride(0)
     h = gk.shape[1]
     B = cu_seqlens_q.size(0) - 1
+    PB = max(triton.next_power_of_2(B), 128)
     num_stages = 5
     num_warps = 1
 
@@ -1907,6 +1912,7 @@ def triton_varlen_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
         eps,
         mscale,
         cp_rank,
+        PB,
         H,
         h,
         D // 2,
@@ -1934,6 +1940,7 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
                             kpe_stride,
                             B, 
                             cp_rank,
+                            PB: tl.constexpr,
                             cp_size: tl.constexpr,
                             H: tl.constexpr,
                             VARLEN: tl.constexpr,
@@ -1944,7 +1951,7 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
     num_tokens = tl.num_programs(0)
     
     if VARLEN:
-        pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, cp_rank, cp_size)
+        pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, PB, cp_rank, cp_size)
         L = num_tokens
         bid = 0
     else:
@@ -1985,7 +1992,7 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
         k_pos_emb_ptr + pid * kpe_stride + tl.arange(0, 64)).to(tl.float32)
 
     if VARLEN and not REUSE:
-        pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, cp_size)
+        pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, PB, cp_rank, cp_size)
         freqs = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 64))
         cos = tl.cos(freqs) * mscale
         sin = tl.sin(freqs) * mscale
@@ -2057,13 +2064,14 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
         assert cu_seqlens_kv is not None
         N, H, D = q.shape 
         B = cu_seqlens_q.shape[0] - 1
-        assert B <= 128
+        PB = max(triton.next_power_of_2(B), 128)
         qo = None
         ko = torch.empty((N, H, 192), dtype=dtype, device=device)
         vo = torch.empty((N, H, 128), dtype=dtype, device=device)
         kpe_stride = k_pos_emb.stride(0)
     else:
         L, B, H, D = q.shape
+        PB = 1
         if transpose:
             qo = torch.empty((B, L, H, 192), dtype=dtype, device=device)
             ko = torch.empty((B, L, H, 192), dtype=dtype, device=device)
@@ -2094,6 +2102,7 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
         kpe_stride,
         B,
         cp_rank,
+        PB,
         cp_size,
         H,
         VARLEN,
@@ -2117,6 +2126,7 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
                              mscale,
                              B, 
                              cp_rank,
+                             PB: tl.constexpr,
                              cp_size: tl.constexpr,
                              H: tl.constexpr,
                              VARLEN: tl.constexpr,
@@ -2127,7 +2137,7 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
     num_tokens = tl.num_programs(0)
 
     if VARLEN:
-        pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, cp_rank, cp_size)
+        pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, PB, cp_rank, cp_size)
         L = num_tokens
         bid = 0
     else:
@@ -2182,7 +2192,7 @@ def mla_rope_backward_kernel(q_ptr, k_ptr, v_ptr, freqs_ptr,
     # q = tl.reshape(tl.permute(tl.reshape(q, (H, 2, 32)), (0, 2, 1)), (H, 64))
 
     if VARLEN and not REUSE:
-        pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, cp_rank, cp_size)
+        pos = _get_varlen_token_idx(cu_seqlens_kv_ptr, pid, B, PB, cp_rank, cp_size)
 
         freqs0 = tl.load(freqs_ptr + pos * 64 + tl.arange(0, 32)).to(tl.float32)
         freqs1 = tl.load(freqs_ptr + pos * 64 + 32 + tl.arange(0, 32)).to(tl.float32)
@@ -2242,6 +2252,7 @@ def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, transpos
         assert cu_seqlens_kv is not None
         N, H, D = q_grad.shape
         B = cu_seqlens_q.shape[0] - 1
+        PB = max(triton.next_power_of_2(B), 128)
         assert B <= 128
         dq = None
         dkv = torch.empty((N, H, 256), dtype=dtype, device=device)
@@ -2259,6 +2270,7 @@ def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, transpos
             dq = None
             dkv = torch.empty((L, B, H, 256), dtype=dtype, device=device)
             dp = torch.empty((L, B, 1, 64), dtype=dtype, device=device)
+        PB = 1
 
     num_stages = 2
     num_warps = 2
@@ -2276,6 +2288,7 @@ def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0, transpos
         mscale,
         B,
         cp_rank,
+        PB,
         cp_size,
         H,
         VARLEN,
