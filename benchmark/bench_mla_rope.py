@@ -128,12 +128,12 @@ def bench_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
         k_pos_emb = torch.randn(sum(lengths)//cp_size, 576, dtype=dtype, device=device)
         k_pos_emb = k_pos_emb[:,512:].view(sum(lengths)//cp_size, 1, 64).requires_grad_()
     else:
-        k_pos_emb = torch.randn(sum(lengths)//cp_size, 1, 576, dtype=dtype, device=device)
+        k_pos_emb = torch.randn(sum(lengths)//cp_size, 1, 64, dtype=dtype, device=device).requires_grad_()
     cu_seqlens_q = torch.cumsum(torch.tensor([0]+lengths, device=device, dtype=torch.int32), 0).to(torch.int32)
     cu_seqlens_kv = cu_seqlens_q
 
-    freqs = rope_freqs(max(lengths), 64, rope_theta=rope_theta)
-    freqs = torch.cat([freqs, freqs], -1)
+    freqs = rope_freqs((max(lengths)-1)//32*32+32, 64, rope_theta=rope_theta)
+    freqs = torch.cat([freqs, freqs], -1)[:,None,None]
 
     q_grad = torch.randn(sum(lengths)//cp_size, H, 192, dtype=dtype, device=device)
     k_grad = torch.randn(sum(lengths)//cp_size, H, 192, dtype=dtype, device=device)
@@ -221,7 +221,6 @@ def bench_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
                     n_profile=0)
 
 
-
 if __name__ == '__main__':
     bench_mla_rope(L=4096, B=2, H=32, transpose=True)
     bench_mla_rope(L=4096, B=2, H=16, transpose=True)
@@ -230,6 +229,10 @@ if __name__ == '__main__':
     bench_mla_rope(L=4096, B=1, H=16, transpose=True)
     bench_mla_rope(L=4096, B=1, H=16, transpose=False)
     bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=16, rope_theta=10000.0,
-                   cp_size=1, cp_rank=0, transpose=True)
-    bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=100000.0,
-                   cp_size=1, cp_rank=0, transpose=False)
+                   cp_size=1, cp_rank=0, stride=True, transpose=True)
+    bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
+                   cp_size=1, cp_rank=0, stride=False, transpose=False)
+    bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
+                   cp_size=1, cp_rank=0, stride=False, transpose=True)
+    bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
+                   cp_size=1, cp_rank=0, stride=True, transpose=False)

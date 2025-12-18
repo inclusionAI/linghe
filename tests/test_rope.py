@@ -604,9 +604,13 @@ if __name__ == '__main__':
                    bench=False)
     test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0, transpose=True,
                    bench=False)
-    test_varlen_mla_rope(lengths=[4096,4096], H=32, rope_theta=10000.0, cp_size=2, cp_rank=0, 
+    test_varlen_mla_rope(lengths=[4096,4096], H=16, rope_theta=10000.0, cp_size=1, cp_rank=0, 
                    bench=False)
     test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0, cp_size=4, cp_rank=0,
                    bench=False)
     test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0, cp_size=4, cp_rank=1,
+                   bench=False)
+    test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0, cp_size=4, cp_rank=2,
+                   bench=False)
+    test_varlen_mla_rope(lengths=[4096*4,2048*4,2048*4], H=32, rope_theta=10000.0, cp_size=4, cp_rank=3,
                    bench=False)

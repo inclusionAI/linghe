@@ -1230,7 +1230,7 @@ def silu_and_mxfp8_quant_forward_kernel(x_ptr,
         scale = tl.exp2(log_scale)
         tl.store(transpose_scale_ptr + rid * n + cid * B + tl.arange(0, B),
                  log_scale + 127)
-        xq = (x / scale).to(out_ptr.dtype.element_ty)
+        xq = (x / scale).to(transpose_output_ptr.dtype.element_ty)
         tl.store(transpose_output_ptr + rid * 32 * n + \
              cid * B + tl.arange(0, 32)[:, None] * n + \
                  tl.arange(0, B)[None, :],
@@ -1343,7 +1343,7 @@ def silu_and_mxfp8_quant_backward_kernel(g_ptr,
         transpose_dx_scale_ptr + rid * n * 2 + cid * 32 + tl.arange(0, 32),
         log_scale1 + 127)
 
-    qdx1 = (dx1 / scale1[None, :]).to(dx_ptr.dtype.element_ty)
+    qdx1 = (dx1 / scale1[None, :]).to(transpose_dx_ptr.dtype.element_ty)
     tl.store(transpose_dx_ptr + offs, qdx1, mask=mask)
 
     dx2 = sigmoid * g * x1
@@ -1366,7 +1366,7 @@ def silu_and_mxfp8_quant_backward_kernel(g_ptr,
                                                                               32),
              log_scale2 + 127)
 
-    qdx2 = (dx2 / scale2[None, :]).to(dx_ptr.dtype.element_ty)
+    qdx2 = (dx2 / scale2[None, :]).to(transpose_dx_ptr.dtype.element_ty)
     tl.store(transpose_dx_ptr + n + offs, qdx2,
              mask=mask)
 
@@ -1482,7 +1482,7 @@ def batch_weighted_silu_and_mxfp8_quant_forward_kernel(x_ptr, weight_ptr,
             transpose_scale_ptr + scale_off * 4 * n + rid * n + cid * 32 + tl.arange(
                 0, 32), log_scale + 127)
 
-        xq = (x / scale).to(out_ptr.dtype.element_ty)
+        xq = (x / scale).to(transpose_output_ptr.dtype.element_ty)
         tl.store(transpose_output_ptr + hoffs, xq,
                  mask=mask)
 
@@ -1625,7 +1625,7 @@ def batch_weighted_silu_and_mxfp8_quant_backward_kernel(g_ptr, x_ptr,
         transpose_dx_scale_ptr + scale_off * n * 8 + rid * n * 2 + cid * 32 + tl.arange(
             0, 32), log_scale + 127)
 
-    qdx = (dx / scale[None, :]).to(dx_ptr.dtype.element_ty)
+    qdx = (dx / scale[None, :]).to(transpose_dx_ptr.dtype.element_ty)
     # tl.store(transpose_dx_ptr + toffs, qdx, mask=idx[None, :] < count)
     tl.store(transpose_dx_ptr + si * n * 2 + rid * 32 * n * 2 + cid * 32 +
              tl.arange(0, 32)[:, None] * n * 2 +
@@ -1647,7 +1647,7 @@ def batch_weighted_silu_and_mxfp8_quant_backward_kernel(g_ptr, x_ptr,
         tl.max(dx.abs(), 0) / 448, 1e-30)
     log_scale = tl.ceil(tl.log2(scale))
     scale = tl.exp2(log_scale)
-    qdx = (dx / scale[None, :]).to(dx_ptr.dtype.element_ty)
+    qdx = (dx / scale[None, :]).to(transpose_dx_ptr.dtype.element_ty)
     tl.store(
         transpose_dx_scale_ptr + scale_off * n * 8 + rid * n * 2 + n + cid * 32 + tl.arange(
             0, 32), log_scale + 127)

@@ -238,10 +238,4 @@ def mla_rope(q: torch.Tensor,
                                 cp_size,
                                 cp_rank,
                                 reuse)
-    if cu_seqlens_q is not None and transpose:  # VARLEN
-        # we transpose here just to match the afterwards transpose,
-        # i.e., we use transpose(0, 1) if use linghe in the next steps
-        q = q.transpose(0, 1)
-        k = k.transpose(0, 1)
-        v = v.transpose(0, 1)
     return q, k, v
