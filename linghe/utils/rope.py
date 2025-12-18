@@ -2073,7 +2073,7 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
             ko = torch.empty((L, B, H, 192), dtype=dtype, device=device)
             vo = torch.empty((L, B, H, 128), dtype=dtype, device=device)
         N = L * B 
-        kpe_stride = k_pos_emb.stride(1)
+        kpe_stride = k_pos_emb.stride(0) if B == 1 else k_pos_emb.stride(1)
     assert D == 192 and kv.shape[-1] == 256 and k_pos_emb.shape[-1] == 64
     assert kv.stride(-2) == 256 and k_pos_emb.stride(-2) == 64, f"{kv.stride()=} {k_pos_emb.stride()=}"
     num_stages = 2
