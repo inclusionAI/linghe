@@ -1813,8 +1813,6 @@ def compatible_silu_and_smooth_quant_forward_kernel(x_ptr, smooth_scale_ptr, out
         col_offs += B
 
 
-
-
 # used in shared expert
 def triton_silu_and_smooth_quant_forward(x, smooth_scale=None, out=None, scale=None,
                                   maxs=None, round_scale=False,

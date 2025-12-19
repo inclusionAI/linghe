@@ -411,7 +411,8 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
                                     num_warps=4)
     
     elif output_mode == 2:  # output non-transposed and transposed tensor together
-        assert rms is None
+        # we force set output_mode=2 when recompute qkv, but it has rms
+        # assert rms is None
         rms = torch.empty((M,), dtype=torch.float32, device=device)
         if M >= 1048576:  # not used
             W = 4096 // N
