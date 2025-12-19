@@ -143,10 +143,12 @@ def test_batch_transpose(M=4096, N=4096, k=32, bench=False):
         torch.randn((M, N), dtype=dtype, device=device).to(torch.float8_e4m3fn)
         for _ in range(k)]
     xts = triton_batch_transpose(xs)
+    xts = torch.cat([x.view(-1) for x in xts])
 
     x_t_ref = triton_sequence_transpose(xs)
-    for i in range(len(xs)):
-        output_check(x_t_ref[i].float(), xts[i].float(), f'batch_transpose_{i}')
+    x_t_ref = torch.cat([x.view(-1) for x in x_t_ref])
+
+    output_check(x_t_ref, xts, f'batch_transpose')
 
     if bench:
         n_repeat = 100
@@ -163,12 +165,13 @@ def test_batch_transpose_and_pad(M=4096, N=4096, k=32, bench=False):
     xs = torch.randn((sum(count_list), N), dtype=dtype, device=device).to(
         torch.float8_e4m3fn)
     x_t = triton_batch_transpose_and_pad(xs, count_list, x_t=None, pad=True)
+    x_t = torch.cat([x.view(-1) for x in x_t])
 
     x_t_ref = triton_split_transpose(xs, count_list)
+    x_t_ref = torch.cat([x.view(-1) for x in x_t_ref])
 
-    for i in range(len(count_list)):
-        output_check(x_t_ref[i].float(), x_t[i].float(),
-                     f'batch_transpose_and_pad_{i}')
+    output_check(x_t_ref, x_t,
+                     f'batch_transpose_and_pad')
 
     if bench:
         n_repeat = 100
