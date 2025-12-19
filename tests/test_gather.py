@@ -144,6 +144,15 @@ def torch_batch_block_pad_permute_with_indices(x,
                                       token_count_per_expert_list,
                                       round_scale=True):
     M, DIM = x.shape
+    if M == 0:
+        device = x.device
+        q_ref = torch.empty((0,), device=device, dtype=torch.float8_e4m3fn)
+        s_ref = torch.empty((0,), device=device, dtype=torch.float32)
+        qt_ref = torch.empty((0,), device=device, dtype=torch.float8_e4m3fn)
+        st_ref = torch.empty((0,), device=device, dtype=torch.float32)
+        probs_refs = torch.empty((0,), device=device, dtype=torch.float32)
+        return q_ref, s_ref,qt_ref,st_ref,probs_refs
+
     q_refs = []
     s_refs = []
     qt_refs = [] 
@@ -185,6 +194,15 @@ def torch_batch_mxfp8_permute_with_indices(x,
                                       probs,
                                       token_count_per_expert_list):
     M, DIM = x.shape
+    if M == 0:
+        device = x.device
+        q_ref = torch.empty((0, DIM), device=device, dtype=torch.float8_e4m3fn)
+        s_ref = torch.empty((0, DIM//32), device=device, dtype=torch.float32)
+        qt_ref = torch.empty((0, DIM), device=device, dtype=torch.float8_e4m3fn)
+        st_ref = torch.empty((0, DIM), device=device, dtype=torch.float32)
+        probs_refs = torch.empty((0,), device=device, dtype=torch.float32)
+        return q_ref, s_ref,qt_ref,st_ref,probs_refs
+
     q_refs = []
     s_refs = []
     qt_refs = [] 
@@ -580,16 +598,21 @@ def test_batch_mxfp8_permute_with_indices(M=16384, N=2048, n_experts=32, topk=2,
 
 if __name__ == '__main__':
     test_make_id_map(M=4098, n_experts=32, topk=2, bias=0.0, bench=False)
+
     test_triton_permute_with_mask_map(M=16384, N=2048, n_experts=32, topk=8, bench=False)
     test_triton_permute_with_mask_map(M=8192, N=4096, n_experts=32, topk=8, bench=False)
     test_triton_permute_with_mask_map(M=7628, N=2048, n_experts=32, topk=8, bench=False)
 
-    test_triton_smooth_permute_with_mask_map(M=4096, N=4096, n_experts=32,
-                                             topk=8)
-    test_triton_smooth_permute_with_mask_map(M=7628, N=2048, n_experts=32,
-                                             topk=8)
+    test_triton_smooth_permute_with_mask_map(M=4096, N=4096, n_experts=32, topk=8)
+    test_triton_smooth_permute_with_mask_map(M=7628, N=2048, n_experts=32, topk=8)
 
     test_triton_batch_transpose_smooth_permute_with_indices(M=16384, N=2048, n_experts=32, topk=2, bench=False)
     test_triton_batch_transpose_smooth_permute_with_indices(M=8192, N=4096, n_experts=32, topk=2, bench=False)
+
     test_batch_block_pad_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=False)
-    test_batch_mxfp8_permute_with_indices(M=8192*2, N=2048, n_experts=32, topk=2, bench=False)
+    test_batch_block_pad_permute_with_indices(M=0, N=2048, n_experts=32, topk=2, bench=False)
+    test_batch_block_pad_permute_with_indices(M=8192, N=1536, n_experts=32, topk=2, bench=False)
+
+    test_batch_mxfp8_permute_with_indices(M=3095, N=2048, n_experts=32, topk=2, bench=False)
+    test_batch_mxfp8_permute_with_indices(M=0, N=2048, n_experts=32, topk=2, bench=False)
+    test_batch_mxfp8_permute_with_indices(M=1024, N=1536, n_experts=32, topk=2, bench=False)

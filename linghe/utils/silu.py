@@ -10,31 +10,31 @@ import triton.language as tl
 
 
 
+
 @triton.jit
-def weighted_silu_forward_kernel(x_ptr, weight_ptr, out_ptr, M, T,
-                                 N: tl.constexpr,
-                                 n: tl.constexpr,
+def weighted_silu_forward_kernel(x_ptr, weight_ptr, out_ptr, M,
+                                 N,
+                                 H: tl.constexpr,
                                  W: tl.constexpr,
                                  WEIGHT: tl.constexpr):
-    pid = tl.program_id(axis=0)
+    rid = tl.program_id(axis=0)
+    cid = tl.program_id(axis=1)
+    n = N // 2
 
-    row_offs = pid * W * T * n + tl.arange(0, W)[:, None] * n
-    col_offs = tl.arange(0, n)[None, :]
-
-    for i in range(T):
-        indices = pid * W * T + i * W + tl.arange(0, W)
-        mask = indices[:, None] < M
-        x1 = tl.load(x_ptr + row_offs * 2 + col_offs, mask=mask).to(tl.float32)
-        x2 = tl.load(x_ptr + n + row_offs * 2 + col_offs, mask=mask).to(
-            tl.float32)
-        if WEIGHT:
-            w = tl.load(weight_ptr + indices, mask=indices < M).to(tl.float32)[:,
-                None]
-            x = x1 * tl.sigmoid(x1) * x2 * w
-        else:
-            x = x1 * tl.sigmoid(x1) * x2
-        tl.store(out_ptr + row_offs + col_offs, x, mask=mask)
-        row_offs += n * W
+    offs = rid * H * N + cid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
+    indices = rid * H + tl.arange(0, H)
+    mask = indices[:, None] < M
+    x1 = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+    x2 = tl.load(x_ptr + n + offs, mask=mask).to(
+        tl.float32)
+    if WEIGHT:
+        w = tl.load(weight_ptr + indices, mask=indices < M).to(tl.float32)[:,
+            None]
+        x = x1 * tl.sigmoid(x1) * x2 * w
+    else:
+        x = x1 * tl.sigmoid(x1) * x2
+    offs = rid * H * n + cid * W + tl.arange(0, H)[:, None] * n + tl.arange(0, W)[None, :]
+    tl.store(out_ptr + offs, x, mask=mask)
 
 
 # used in bf16 moe
@@ -49,23 +49,23 @@ def triton_weighted_silu_forward(x, weight=None, out=None):
     """
     assert x.is_contiguous()
     M, N = x.shape
-    assert N <= 8192 and triton.next_power_of_2(N) == N
     device = x.device
     if out is None:
         out = torch.empty((M, N // 2), device=device, dtype=x.dtype)
     WEIGHT = weight is not None
     if WEIGHT:
         assert weight.is_contiguous()
-    W = 8192 // N
-    T = 8
-    grid = (triton.cdiv(M, T * W),)
+    H = 32
+    W = 128
+    assert N % (W * 2) == 0
+    grid = (triton.cdiv(M, H), N//W//2)
     weighted_silu_forward_kernel[grid](
         x,
         weight,
         out,
-        M, T,
+        M,
         N,
-        N // 2,
+        H,
         W,
         WEIGHT,
         num_stages=3,
@@ -75,27 +75,31 @@ def triton_weighted_silu_forward(x, weight=None, out=None):
 
 
 @triton.jit
-def weighted_silu_backward_kernel(g_ptr, x_ptr, weight_ptr, dx_ptr, dw_ptr, M,
-                                  T,
-                                  N: tl.constexpr,
-                                  n: tl.constexpr,
+def weighted_silu_backward_kernel(g_ptr, x_ptr, weight_ptr, dx_ptr, dw_ptr, 
+                                  M,
+                                  N,
+                                  H: tl.constexpr,
                                   W: tl.constexpr,
                                   WEIGHT: tl.constexpr):
     pid = tl.program_id(axis=0)
+    n = N // 2
 
-    offs = pid * W * T * N + tl.arange(0, W)[:, None] * N + tl.arange(0, n)[
+    offs = pid * H * N + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[
                                                             None, :]
-    hoffs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, n)[
+    hoffs = pid * H * n + tl.arange(0, H)[:, None] * n + tl.arange(0, W)[
                                                              None, :]
-    for i in range(T):
-        mask = pid * W * T + i * W + tl.arange(0, W)
+    mask = pid * H + tl.arange(0, H)
+    if WEIGHT:
+        w = tl.load(weight_ptr + mask, mask=mask < M).to(tl.float32)[:, None]
+
+    dw = tl.zeros((H,), dtype=tl.float32)
+    for i in range(n//W):
         x1 = tl.load(x_ptr + offs, mask=mask[:, None] < M).to(tl.float32)
         x2 = tl.load(x_ptr + offs + n, mask=mask[:, None] < M).to(tl.float32)
         g = tl.load(g_ptr + hoffs, mask=mask[:, None] < M).to(tl.float32)
         if WEIGHT:
-            w = tl.load(weight_ptr + mask, mask=mask < M).to(tl.float32)[:, None]
             sigmoid = tl.sigmoid(x1)
-            dw = tl.sum(x1 * sigmoid * x2 * g, 1)
+            dw += tl.sum(x1 * sigmoid * x2 * g, 1)
             tl.store(dw_ptr + mask, dw, mask=mask < M)
             dx1 = g * x2 * w * sigmoid * (1 + x1 * (1 - sigmoid))
             tl.store(dx_ptr + offs, dx1, mask=mask[:, None] < M)
@@ -109,8 +113,8 @@ def weighted_silu_backward_kernel(g_ptr, x_ptr, weight_ptr, dx_ptr, dw_ptr, M,
 
             dx2 = g * x1 * sigmoid
             tl.store(dx_ptr + offs + n, dx2, mask=mask[:, None] < M)
-        offs += N * W
-        hoffs += n * W
+        offs += W
+        hoffs += W
 
 
 def triton_weighted_silu_backward(g: torch.Tensor,
@@ -129,7 +133,9 @@ def triton_weighted_silu_backward(g: torch.Tensor,
     """
     assert g.is_contiguous() and x.is_contiguous()
     M, N = x.shape
-    assert N <= 8192 and triton.next_power_of_2(N) == N
+    H = 8 if M <= 4096 else 16
+    W = 128
+    assert N % (W * 2) == 0
     device = x.device
     if weight is not None:
         assert weight.is_contiguous()
@@ -139,18 +145,17 @@ def triton_weighted_silu_backward(g: torch.Tensor,
         dw = None
         WEIGHT = False
     dx = torch.empty((M, N), device=device, dtype=x.dtype)
-    W = 8192 // N
-    T = 8
-    grid = (triton.cdiv(M, W*T),)
+
+    grid = (triton.cdiv(M, H),)
     weighted_silu_backward_kernel[grid](
         g,
         x,
         weight,
         dx,
         dw,
-        M, T,
+        M,
         N,
-        N // 2,
+        H,
         W,
         WEIGHT,
         num_stages=3,
@@ -255,6 +260,7 @@ def triton_silu_and_block_quant_forward(x,
         H, W, num_warps = 128, 64, 4
     else:
         H, W, num_warps = 128, 128, 8
+    assert n % W == 0
     grid = (triton.cdiv(M, H), n // W)
     silu_and_block_quant_forward_kernel[grid](
         x,
@@ -1101,7 +1107,7 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
     M, N = x.shape
     n = N // 2
     n_expert = counts.shape[0]
-    assert N <= 8192 and 8192 % N == 0
+    assert n % 128 == 0
     assert g.is_contiguous()
     assert splits is not None, 'batch mode need splits to launch kernels'
 
@@ -1122,7 +1128,7 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
         return dx, dx_scale, dw, transpose_dx, transpose_dx_scale
 
     
-    # grid = (n_expert, triton.cdiv(max(splits), 128), N // 256)
+    # grid = (n_expert, triton.cdiv(max(splits), 128), n // 128)
     # dws = torch.empty((M, N // 256), device=device, dtype=torch.float32)
     # batch_weighted_silu_and_block_quant_backward_kernel[grid](
     #     g,
@@ -1144,7 +1150,7 @@ def triton_batch_weighted_silu_and_block_quant_backward(g, x, weight,
     # dw = dws.sum(1, keepdim=True).to(weight.dtype)
 
     B = 32
-    grid = (n_expert, triton.cdiv(max(splits), B), N // 256)
+    grid = (n_expert, triton.cdiv(max(splits), B), n // 128)
     dws = torch.empty((M, N // 256), device=device, dtype=torch.float32)
     batch_weighted_silu_and_block_quant_backward_n_kernel[grid](
         g,
@@ -2132,7 +2138,7 @@ def triton_batch_weighted_silu_and_smooth_quant_forward(x,
     M, N = x.shape
     n = N // 2
     n_experts = counts.shape[0]
-    assert N <= 8192
+    assert N <= 8192 and triton.next_power_of_2(N) == N
     device = x.device
     if out is None:
         out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)

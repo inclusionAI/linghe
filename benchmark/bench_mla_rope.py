@@ -119,7 +119,7 @@ def bench_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0, transpose=True):
 
 
 def bench_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
-                   cp_size=1, cp_rank=0, transpose=True, stride=True):
+                   cp_size=1, cp_rank=0, stride=True):
     dtype = torch.bfloat16
     device = 'cuda:0'
     q = torch.randn(sum(lengths)//cp_size, H, 192, dtype=dtype, device=device).requires_grad_()
@@ -185,11 +185,7 @@ def bench_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
                             mscale = mscale,
                             cp_size = cp_size,
                             cp_rank = cp_rank,
-                            transpose=transpose)
-    if transpose:
-        qo = qo.transpose(0, 1)
-        ko = ko.transpose(0, 1)
-        vo = vo.transpose(0, 1)
+                            transpose=False)
 
     qo.backward(gradient=q_grad.clone().detach(), retain_graph=True)
     ko.backward(gradient=k_grad, retain_graph=True)
@@ -220,19 +216,25 @@ def bench_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
                     ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
                     n_profile=0)
 
+    benchmark_func(query_ref.backward, q_grad, retain_graph=True,
+                    ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
+                    n_profile=0)
+    benchmark_func(key_ref.backward, k_grad, retain_graph=True, 
+                    ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
+                    n_profile=0)
+    benchmark_func(qo.backward, q_grad, retain_graph=True,
+                    ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
+                    n_profile=0)
+
 
 if __name__ == '__main__':
-    bench_mla_rope(L=4096, B=2, H=32, transpose=True)
-    bench_mla_rope(L=4096, B=2, H=16, transpose=True)
-    bench_mla_rope(L=4096, B=2, H=64, transpose=True)
-    bench_mla_rope(L=4096, B=2, H=16, transpose=True)
-    bench_mla_rope(L=4096, B=1, H=16, transpose=True)
-    bench_mla_rope(L=4096, B=1, H=16, transpose=False)
+    # bench_mla_rope(L=4096, B=2, H=32, transpose=True)
+    # bench_mla_rope(L=4096, B=2, H=16, transpose=True)
+    # bench_mla_rope(L=4096, B=2, H=64, transpose=True)
+    # bench_mla_rope(L=4096, B=2, H=16, transpose=True)
+    # bench_mla_rope(L=4096, B=1, H=16, transpose=True)
+    # bench_mla_rope(L=4096, B=1, H=16, transpose=False)
     bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=16, rope_theta=10000.0,
-                   cp_size=1, cp_rank=0, stride=True, transpose=True)
-    bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
-                   cp_size=1, cp_rank=0, stride=False, transpose=False)
-    bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
-                   cp_size=1, cp_rank=0, stride=False, transpose=True)
-    bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
-                   cp_size=1, cp_rank=0, stride=True, transpose=False)
+                   cp_size=1, cp_rank=0, stride=True)
+    # bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
+    #                cp_size=1, cp_rank=0, stride=False)

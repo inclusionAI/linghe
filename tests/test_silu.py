@@ -316,7 +316,7 @@ def torch_batch_weighted_silu_and_block_quant_backward(grad_output, x, weight,
         dx_scale = torch.empty((0,), device=device, dtype=torch.float32)
         dw = torch.empty_like(weight)
         qts = torch.empty((0,), device=device, dtype=torch.float8_e4m3fn)
-        qtscales = torch.zeros((N * len(counts),), device=device,
+        qtscales = torch.zeros((0,), device=device,
                                dtype=torch.float32)
         return dx_q, dx_scale, dw, qts, qtscales
 
@@ -785,7 +785,8 @@ def test_triton_batch_weighted_silu_and_mxfp8_quant(M=1024, N=4096,
 
 
 if __name__ == '__main__':
-    test_weighted_silu(M=16384, N=1024, bench=False)
+    test_weighted_silu(M=16384, N=4096, bench=True)
+    test_weighted_silu(M=8192, N=1536, bench=True)
 
     test_silu_and_smooth_quant(M=16384, N=1024, bench=False)
     test_silu_and_smooth_quant(M=8192, N=2048, bench=False)
@@ -799,13 +800,15 @@ if __name__ == '__main__':
 
     test_silu_and_mxfp8_quant(M=16384, N=1024, bench=False)
     test_silu_and_mxfp8_quant(M=2345, N=1024, bench=False)
+    test_silu_and_mxfp8_quant(M=2345, N=1536, bench=False)
 
     test_triton_batch_weighted_silu_and_smooth_quant(M=2048, N=2048, n_experts=32, bench=False)
-    test_triton_batch_weighted_silu_and_smooth_quant(M=800, N=2048, n_experts=32, bench=False)
     test_triton_batch_weighted_silu_and_smooth_quant(M=0, N=2048, n_experts=32, bench=False)
 
     test_triton_batch_weighted_silu_and_block_quant(M=2048, N=8192, n_experts=32, bench=False)
-    test_triton_batch_weighted_silu_and_block_quant(M=12080, N=8192, n_experts=32, bench=False)
-    
+    test_triton_batch_weighted_silu_and_block_quant(M=12080, N=1536, n_experts=32, bench=False)
+    test_triton_batch_weighted_silu_and_block_quant(M=0, N=1536, n_experts=32, bench=False)
+ 
     test_triton_batch_weighted_silu_and_mxfp8_quant(M=2048, N=2048, n_experts=32, bench=False)
+    test_triton_batch_weighted_silu_and_mxfp8_quant(M=2048, N=1536, n_experts=32, bench=False)
     test_triton_batch_weighted_silu_and_mxfp8_quant(M=0, N=2048, n_experts=32, bench=False)

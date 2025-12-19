@@ -220,16 +220,8 @@ def test_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
     q_ref, scale_ref, qt_ref, scale_t_ref = torch_rms_and_block_quant_forward(x,
                                                                               weight,
                                                                               round_scale=True)
-    q, scale, rms, q_t, scale_t = triton_rms_norm_and_block_quant_forward(x,
-                                                                          weight,
-                                                                          round_scale=True,
-                                                                          output_mode=2)
-    output_check(q_ref, q, name="2.block.data", rtol=0.125)
-    output_check(scale_ref.t(), scale, name='2.block.scale')
-    output_check(qt_ref, q_t, name='2.block.t_data', rtol=0.125)
-    output_check(scale_t_ref.t(), scale_t, name="2.block.t_scale")
 
-    q, scale, _, _, _ = triton_rms_norm_and_block_quant_forward(x, weight,
+    q, scale, rms, _, _ = triton_rms_norm_and_block_quant_forward(x, weight,
                                                                 round_scale=True,
                                                                 output_mode=0)
     output_check(q_ref, q, name="0.block.data", rtol=0.125)
@@ -239,8 +231,18 @@ def test_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
                                                                     round_scale=True,
                                                                     rms=rms,
                                                                     output_mode=1)
-    output_check(qt_ref, q_t, name='0.block.t_data', rtol=0.125)
-    output_check(scale_t_ref.t(), scale_t, name="0.block.t_scale")
+    output_check(qt_ref, q_t, name='1.block.t_data', rtol=0.125)
+    output_check(scale_t_ref.t(), scale_t, name="1.block.t_scale")
+
+    q, scale, rms, q_t, scale_t = triton_rms_norm_and_block_quant_forward(x,
+                                                                          weight,
+                                                                          round_scale=True,
+                                                                          output_mode=2)
+    output_check(q_ref, q, name="2.block.data", rtol=0.125)
+    output_check(scale_ref.t(), scale, name='2.block.scale')
+    output_check(qt_ref, q_t, name='2.block.t_data', rtol=0.125)
+    output_check(scale_t_ref.t(), scale_t, name="2.block.t_scale")
+
 
     if bench:
         benchmark_func(triton_rms_norm_and_block_quant_forward, x, weight,
@@ -360,15 +362,16 @@ if __name__ == '__main__':
     test_rmsnorm(M=8192, N=4096, bench=False)
     test_rmsnorm(M=4096, N=8192, bench=False)
 
-    test_rmsnorm_and_smooth_quant(M=16384, N=2048, bench=False)
-    test_rmsnorm_and_smooth_quant(M=8192, N=4096, bench=False)
-    test_rmsnorm_and_smooth_quant(M=4096, N=8192, bench=False)
-
-    test_rmsnorm_and_block_quant(M=16384, N=2048, bench=False)
-    test_rmsnorm_and_block_quant(M=8192, N=4096, bench=False)
+    test_rmsnorm_and_block_quant(M=4096, N=2048, bench=False)
+    test_rmsnorm_and_block_quant(M=8192, N=1536, bench=False)
+    test_rmsnorm_and_block_quant(M=16384, N=1536, bench=True)
 
     test_rmsnorm_and_mxfp8_quant(M=2048, N=1664, bench=False)
     test_rmsnorm_and_mxfp8_quant(M=8192, N=4096, bench=False)
+
+    test_rmsnorm_and_smooth_quant(M=16384, N=2048, bench=False)
+    test_rmsnorm_and_smooth_quant(M=8192, N=4096, bench=False)
+    test_rmsnorm_and_smooth_quant(M=4096, N=8192, bench=False)
 
     test_rms_norm_fp32_gemm_block_quant_forward(M=8192*2, N=256, K=2048, bench=False)
 
