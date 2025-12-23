@@ -236,5 +236,9 @@ if __name__ == '__main__':
     # bench_mla_rope(L=4096, B=1, H=16, transpose=False)
     bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=16, rope_theta=10000.0,
                    cp_size=1, cp_rank=0, stride=True)
-    # bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
-    #                cp_size=1, cp_rank=0, stride=False)
+    bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
+                   cp_size=2, cp_rank=0, stride=False)
+    bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
+                   cp_size=2, cp_rank=1, stride=False)
+    bench_varlen_mla_rope(lengths=[444, 503, 434, 433, 472, 483, 557, 770], H=32, rope_theta=10000.0,
+                   cp_size=4, cp_rank=3, stride=False)

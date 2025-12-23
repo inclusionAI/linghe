@@ -11,9 +11,7 @@ from linghe.utils.emb import triton_embedding_forward, triton_embedding_backward
 class EmbeddingLookup(torch.autograd.Function):
     """"""
     @staticmethod
-    def forward(ctx, x, dummy_tensor, w_ptr, g_ptr, grad_dtype):
-        dim = dummy_tensor.size(-1)
-        dtype = dummy_tensor.dtype
+    def forward(ctx, x, w_ptr, g_ptr, dim, dtype, grad_dtype, dummy_tensor):
         ctx.grad_dtype = grad_dtype
         ctx.g_ptr = g_ptr
         ctx.save_for_backward(x)
@@ -23,10 +21,10 @@ class EmbeddingLookup(torch.autograd.Function):
     def backward(ctx, grad_output):
         x, = ctx.saved_tensors
         triton_embedding_backward(grad_output, x, ctx.g_ptr, ctx.grad_dtype)
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None
 
 
-def embedding_lookup(x: torch.Tensor, dummy_tensor, w_ptr, g_ptr, grad_dtype):
+def embedding_lookup(x: torch.Tensor, w_ptr, g_ptr, dim, dtype, grad_dtype, dummy_tensor):
     """
     embedding lookup
     Args:
@@ -39,4 +37,4 @@ def embedding_lookup(x: torch.Tensor, dummy_tensor, w_ptr, g_ptr, grad_dtype):
     Returns:
         lookup output
     """
-    return EmbeddingLookup.apply(x, dummy_tensor, w_ptr, g_ptr, grad_dtype)
+    return EmbeddingLookup.apply(x, w_ptr, g_ptr, dim, dtype, grad_dtype, dummy_tensor)
