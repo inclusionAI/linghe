@@ -93,7 +93,8 @@ def triton_inplace_scale(x, scale):
 
 @triton.jit
 def batch_scale_kernel(input_ptrs, size_ptr, scale, 
-                              B: tl.constexpr):
+                       B: tl.constexpr,
+                       ZERO: tl.constexpr,):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1)
     T = tl.num_programs(axis=1)
@@ -104,7 +105,10 @@ def batch_scale_kernel(input_ptrs, size_ptr, scale,
     offs = bid.to(tl.int64) * t * B + tl.arange(0, B)
     for i in range(t):
         x = tl.load(input_ptr + offs, mask=offs < size, other=0).to(tl.float32)
-        x = x * scale
+        if ZERO:
+            x = tl.where(tl.abs(x) == float('inf'), 1.0, 0.0)
+        else:
+            x = x * scale
         tl.store(input_ptr + offs, x, mask=offs < size)
         offs += B
 
@@ -129,12 +133,14 @@ def triton_batch_scale(xs, scale):
     T = 256
     tensor_count = len(xs)
     B = 512
+    ZERO = scale == 0.0
     grid = (tensor_count, T)
     batch_scale_kernel[grid](
         ptrs,
         sizes,
         scale,
         B,
+        ZERO,
         num_stages=2,
         num_warps=2
     )

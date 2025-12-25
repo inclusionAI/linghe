@@ -71,6 +71,12 @@ def test_batch_scale(M=4096, N=2048, k=128, scale=1.0, bench=False):
     #                       dtype=dtype, device='cuda:0'))
     xs1 = [x.clone().detach() for x in xs]
     xs2 = [x.clone().detach() for x in xs]
+    if scale == 0.0:
+        xs1[0][:10] = float('inf')
+        xs1[0][10:20] = -float('inf')
+        xs2[0][:10] = float('inf')
+        xs2[0][10:20] = -float('inf')
+
 
     sum_ref = torch_batch_scale(xs1, scale)
     sums = triton_batch_scale(xs2, scale)

@@ -209,7 +209,7 @@ def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr,
                               ORD: tl.constexpr,
                               HP: tl.constexpr):
     tid = tl.program_id(axis=0)
-    bid = tl.program_id(axis=1)
+    bid = tl.program_id(axis=1).to(tl.int64)
     sm = tl.num_programs(axis=1)
     if HP:
         sums = tl.zeros((B, ), dtype=tl.float64)
