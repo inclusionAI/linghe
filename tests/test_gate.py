@@ -57,7 +57,8 @@ def torch_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6,
 
 
 def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
-                               transpose=True, share=False,
+                               transpose=True, share=False, coef=1.0,
+                               grad_coef=1.0,
                                bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
@@ -66,15 +67,15 @@ def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
     weight = torch.randn(dim//group_size if share else dim, dtype=dtype, 
                          requires_grad=True, device=device)
     if transpose:
-        gate = torch.randn(length, bs, dim, dtype=dtype, requires_grad=True,
-                        device=device)
-        grad_output = torch.randn(length, bs, dim, dtype=dtype, requires_grad=True,
-                                device=device)
+        gate = (torch.randn(length, bs, dim, dtype=dtype,
+                        device=device)*coef).requires_grad_()
+        grad_output = torch.randn(length, bs, dim, dtype=dtype,
+                                device=device)*grad_coef
     else:
-        gate = torch.randn(bs, length, dim, dtype=dtype, requires_grad=True,
-                        device=device)
-        grad_output = torch.randn(bs, length, dim, dtype=dtype, requires_grad=True,
-                                device=device)
+        gate = (torch.randn(bs, length, dim, dtype=dtype,
+                        device=device)*coef).requires_grad_()
+        grad_output = torch.randn(bs, length, dim, dtype=dtype,
+                                device=device)*grad_coef
 
     output_ref = torch_group_rms_norm_gate_forward(x, gate, weight,
                                                group_size=group_size,
@@ -126,6 +127,12 @@ if __name__ == '__main__':
                             bench=False)    
     test_group_rms_norm_gate(bs=2, length=4096, dim=1536, group_size=4,
                             transpose=False,
+                            coef=10000.0,
+                            grad_coef=10000.0,
                             bench=False)
-
+    test_group_rms_norm_gate(bs=2, length=4096, dim=1536, group_size=4,
+                            transpose=False,
+                            coef=0.0,
+                            grad_coef=0.0,
+                            bench=False)
 

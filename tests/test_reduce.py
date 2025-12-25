@@ -65,8 +65,8 @@ def test_count_zero(M=4096, N=8192, k=32, bench=False):
 
 
 
-def test_norm(M=4096, N=8192, bench=False):
-    x = torch.randn(M, N, dtype=torch.float32, device='cuda:0')
+def test_norm(M=4096, N=8192, coef=1.0, bench=False):
+    x = torch.randn(M, N, dtype=torch.float32, device='cuda:0') * 1.0
 
     sum_ref = x.norm(p=2)
     sums = triton_norm(x, ord=2, norm=True, scalar=True)
@@ -85,8 +85,9 @@ def test_norm(M=4096, N=8192, bench=False):
                        n_repeat=n_repeat,
                        ref_bytes=ref_bytes, ref_time=ref_time)
 
-def test_batch_norm(M=4096, N=8192, k=32, bench=False):
-    xs = [torch.randn(random.randint(1,int(M**0.5))**2, N, dtype=torch.float32, device='cuda:0') for i in range(k)]
+def test_batch_norm(M=4096, N=8192, k=32, coef=1.0, bench=False):
+    bs = [random.randint(1,int(M**0.5))**2 for i in range(k)]
+    xs = [torch.randn(bs[i], N, dtype=torch.float32, device='cuda:0') * coef for i in range(k)]
 
     sum_ref = torch_sum(xs, ord=2, norm=False)
     sums = triton_batch_norm(xs, ord=2, norm=False)
@@ -115,4 +116,4 @@ if __name__ == '__main__':
     test_norm(M=100000, N=8192, bench=False)
     test_batch_norm(M=4096, N=1024, k=16, bench=False)
     test_batch_norm(M=4096, N=1024, k=64, bench=False)
-    test_batch_norm(M=4096, N=1024, k=256, bench=False)
+    test_batch_norm(M=4096, N=2048, k=1024, coef=1e12, bench=True)

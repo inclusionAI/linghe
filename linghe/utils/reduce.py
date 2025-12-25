@@ -206,18 +206,26 @@ def triton_norm(x, ord=2, norm=True, scalar=True):
 @triton.jit
 def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr, 
                               B: tl.constexpr,
-                              ORD: tl.constexpr):
+                              ORD: tl.constexpr,
+                              HP: tl.constexpr):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1)
     sm = tl.num_programs(axis=1)
-    sums = tl.zeros((B, ), dtype=tl.float32)
+    if HP:
+        sums = tl.zeros((B, ), dtype=tl.float64)
+    else:
+        sums = tl.zeros((B, ), dtype=tl.float32)
 
     size = tl.load(size_ptr + tid)
     input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
     t = tl.cdiv(size, B * sm)
     offs = bid * t * B + tl.arange(0, B)
     for i in range(t):
-        x = tl.load(input_ptr + offs, mask=offs < size, other=0).to(tl.float32)
+        x = tl.load(input_ptr + offs, mask=offs < size, other=0)
+        if HP:
+            x = x.to(tl.float64)
+        else:
+            x = x.to(tl.float32)
         if ORD == 2:
             sums += x * x
         elif ORD == 1:
@@ -234,7 +242,7 @@ def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr,
 
 
 
-def triton_batch_norm(xs, ord=2, norm=True, scalar=True):
+def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
     """
     treat multiple tensors as a single tensor and calculate norm.
     Args:
@@ -259,7 +267,8 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True):
 
     sm = 256
     tensor_count = len(xs)
-    tmp = torch.empty((tensor_count, sm), device=device, dtype=torch.float32)
+    tmp = torch.empty((tensor_count, sm), device=device, 
+                      dtype=torch.float64 if high_precision else torch.float32)
     B = 128
     grid = (tensor_count, sm)
     batch_norm_kernel[grid](
@@ -268,15 +277,21 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True):
         tmp,
         B,
         ord,
+        high_precision,
         num_stages=2,
         num_warps=2
     )
     if ord == -1:
         output = tmp.max()
-    else:
+    elif ord == 1:
         output = tmp.sum()
-        if ord == 2 and norm:
-            output = torch.sqrt(output)
+    else:
+        if norm:
+            output = torch.sqrt(tmp.sum())
+        else:
+            output = tmp.sum()
     if not scalar:
         output = output.unsqueeze(0)
+    if high_precision:
+        output = output.float()
     return output
