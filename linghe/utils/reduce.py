@@ -256,6 +256,8 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
     Returns:
         a scalar if scalar=True else a single-value fp32 tensor
     """
+    if len(xs) == 0:
+        return torch.zeros(() if scalar else (1,), device='cuda', dtype=torch.float32)
     assert all([x.is_contiguous() for x in xs])
     assert ord in (1, 2, -1)
     # assert all([x.is_contiguous() for x in xs])

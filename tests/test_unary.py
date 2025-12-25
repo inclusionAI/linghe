@@ -49,10 +49,16 @@ def test_calculate_smooth_scale(N=4096, bench=False):
 
 
 
-def test_batch_clip(M=2048, N=1024, k=1024, clip_value=1.0, bench=False):
-    xs = [torch.randn(random.randint(1,int(M**0.5))**2, random.randint(1,int(N**0.5))**2, dtype=torch.float32, device='cuda:0') for i in range(k)]
+def test_batch_clip(M=2048, N=1024, k=1024, clip_value=1.0, inf=False, bench=False):
+    shapes1 = [random.randint(1,int(M**0.5))**2 for i in range(k)]
+    shapes2 = [random.randint(1,int(N**0.5))**2 for i in range(k)]
+    xs = [torch.randn(shapes1[i], shapes2[i], dtype=torch.float32, device='cuda:0') for i in range(k)]
     xs1 = [x.clone().detach() for x in xs]
     xs2 = [x.clone().detach() for x in xs]
+
+    if inf:
+        xs1[0][:100] = float('inf')
+        xs2[0][:100] = float('inf')
 
     sum_ref = torch_batch_clip(xs1, clip_value)
     sums = triton_batch_clip(xs2, clip_value)
@@ -75,10 +81,10 @@ def test_batch_clip(M=2048, N=1024, k=1024, clip_value=1.0, bench=False):
 
 
 if __name__ == '__main__':
-    test_calculate_smooth_scale(N=4096*32)
-    test_calculate_smooth_scale(N=4096*32-1897)
-    test_batch_clip(M=2048, N=8192, k=128, clip_value=0.1, bench=False)
-    test_batch_clip(M=2048, N=1024, k=128, clip_value=1.0, bench=False)
-    test_batch_clip(M=2048, N=1024, k=128, clip_value=100.0, bench=False)
+    # test_calculate_smooth_scale(N=4096*32)
+    # test_calculate_smooth_scale(N=4096*32-1897)
+    # test_batch_clip(M=2048, N=8192, k=128, clip_value=0.1, bench=False)
+    # test_batch_clip(M=2048, N=1024, k=128, clip_value=1.0, bench=False)
+    test_batch_clip(M=2048, N=1024, k=128, clip_value=100.0, inf=True, bench=False)
 
 
