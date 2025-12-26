@@ -8,7 +8,54 @@ import torch
 import triton
 import triton.language as tl
 
+@triton.jit
+def exp2(x):
+    return tl.inline_asm_elementwise(
+        "ex2.approx.ftz.f32 $0, $1;",
+        "=r, r",
+        [x],
+        dtype=tl.float32,
+        is_pure=True,
+        pack=1,
+    )
 
+@triton.jit
+def weighted_silu_forward_asm_kernel(
+    x_ptr,
+    weight_ptr,
+    out_ptr,
+    M,
+    N,
+    H: tl.constexpr,
+    W: tl.constexpr,
+    WEIGHT: tl.constexpr,
+):
+    rid = tl.program_id(axis=0)
+    cid = tl.program_id(axis=1)
+    n = N // 2
+
+    offs = (
+        rid * H * N + cid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
+    )
+    indices = rid * H + tl.arange(0, H)
+    mask = indices[:, None] < M
+    x1 = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+    x2 = tl.load(x_ptr + n + offs, mask=mask).to(tl.float32)
+    if WEIGHT:
+        w = tl.load(weight_ptr + indices, mask=indices < M).to(tl.float32)[:, None]
+        # x = x1 * tl.sigmoid(x1) * x2 * w
+        log2_e: tl.constexpr = 1.4426950408889634
+        sigx = x1 / (1 + exp2((-log2_e) * x1))
+        x = sigx * x2 * w
+    else:
+        # x = x1 * tl.sigmoid(x1) * x2
+        log2_e: tl.constexpr = 1.4426950408889634
+        sigx = x1 / (1 + exp2((-log2_e) * x1))
+        x = sigx * x2
+    offs = (
+        rid * H * n + cid * W + tl.arange(0, H)[:, None] * n + tl.arange(0, W)[None, :]
+    )
+    tl.store(out_ptr + offs, x, mask=mask)
 
 
 @triton.jit
@@ -38,7 +85,7 @@ def weighted_silu_forward_kernel(x_ptr, weight_ptr, out_ptr, M,
 
 
 # used in bf16 moe
-def triton_weighted_silu_forward(x, weight=None, out=None):
+def triton_weighted_silu_forward(x, weight=None, out=None, asm=False):
     """
     compute silu(x)*weight, used in bf16/fp16 training with MoE
     Args:
@@ -59,18 +106,32 @@ def triton_weighted_silu_forward(x, weight=None, out=None):
     W = 128
     assert N % (W * 2) == 0
     grid = (triton.cdiv(M, H), N//W//2)
-    weighted_silu_forward_kernel[grid](
-        x,
-        weight,
-        out,
-        M,
-        N,
-        H,
-        W,
-        WEIGHT,
-        num_stages=3,
-        num_warps=8
-    )
+    if asm:
+        weighted_silu_forward_asm_kernel[grid](
+            x,
+            weight,
+            out,
+            M,
+            N,
+            H,
+            W,
+            WEIGHT,
+            num_stages=3,
+            num_warps=8
+        )
+    else:
+        weighted_silu_forward_kernel[grid](
+            x,
+            weight,
+            out,
+            M,
+            N,
+            H,
+            W,
+            WEIGHT,
+            num_stages=3,
+            num_warps=8
+        )
     return out
 
 
