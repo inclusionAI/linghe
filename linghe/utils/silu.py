@@ -19,7 +19,7 @@ def weighted_silu_forward_kernel(x_ptr, weight_ptr, out_ptr, M,
                                  WEIGHT: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
-    n = N // 2
+    n = (N // 2).to(tl.int64)
 
     offs = rid * H * N + cid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
     indices = rid * H + tl.arange(0, H)
@@ -82,7 +82,7 @@ def weighted_silu_backward_kernel(g_ptr, x_ptr, weight_ptr, dx_ptr, dw_ptr,
                                   W: tl.constexpr,
                                   WEIGHT: tl.constexpr):
     pid = tl.program_id(axis=0)
-    n = N // 2
+    n = (N // 2).to(tl.int64)
 
     offs = pid * H * N + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[
                                                             None, :]

@@ -558,7 +558,7 @@ def test_varlen_mla_rope(lengths=[2048,2048], H=32, rope_theta=10000.0,
                        n_profile=0)
         benchmark_func(triton_mla_rope_backward, q_grad, k_grad, v_grad, freqs, mscale=mscale, 
                        cu_seqlens_q=cu_seqlens_q, cu_seqlens_kv=cu_seqlens_kv, cp_size=cp_size, cp_rank=cp_rank,
-                       transpose=False,
+                       transposed=False,
                        ref_bytes=lbh * (64*2 + 256*2 + 64*2 + 192*2 + 128*2),
                        n_profile=0)
 
@@ -602,6 +602,8 @@ if __name__ == '__main__':
     test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0, transpose=False,
                    bench=False)
     test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0, transpose=True,
+                   bench=False)
+    test_varlen_mla_rope(lengths=[8192], H=64, rope_theta=10000.0, cp_size=1, cp_rank=0, 
                    bench=False)
     test_varlen_mla_rope(lengths=[4096,4096], H=16, rope_theta=10000.0, cp_size=1, cp_rank=0, 
                    bench=False)

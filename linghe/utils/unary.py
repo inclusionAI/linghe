@@ -86,7 +86,7 @@ def triton_batch_clip(xs, clip_value=100.0):
     Returns:
         updated xs
     """
-    assert all([x.is_contiguous() for x in xs])
+    assert all([x.is_contiguous() and x.dtype == torch.float32 for x in xs])
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs], 
                          dtype=torch.int64).cuda(device, non_blocking=True)

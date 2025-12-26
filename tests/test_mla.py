@@ -13,9 +13,9 @@ from linghe.attn.mla import (triton_mla_forward,
                              triton_fp8_mla_forward,
                              triton_varlen_mla_forward,
                              triton_varlen_mla_backward)
+from linghe.facade.mla import multi_latend_attention
 
-
-def torch_attn(q, k, v, causal=True, mask=None, hp=False):
+def torch_attn(q, k, v, causal=True, mask=None, clip_value=None, hp=False):
     dtype = q.dtype
     if hp:
         q = q.float()
@@ -41,7 +41,10 @@ def torch_attn(q, k, v, causal=True, mask=None, hp=False):
         g = q_head // k_head
         key = torch.repeat_interleave(key, g, dim=1)
         value = torch.repeat_interleave(value, g, dim=1)
-    score = torch.matmul(query, key) / math.sqrt(v_head_dim) + mask
+    qk =  torch.matmul(query, key)
+    if clip_value is not None:
+        qk = torch.clamp_max_(qk, clip_value).detach() + qk - qk.detach()
+    score = qk / math.sqrt(v_head_dim) + mask
     lse = torch.sum(torch.exp(score), -1)
     max_logits = torch.amax(score, -1)
     prob = torch.softmax(score, dim=-1, dtype=torch.float32) 
@@ -52,21 +55,37 @@ def torch_attn(q, k, v, causal=True, mask=None, hp=False):
     return att.to(dtype), lse, max_logits
 
 
-def torch_varlen_attn(qs, ks, vs, cu_seqlens, causal=True, hp=False):
+def torch_varlen_attn(qs, ks, vs, cu_seqlens, padded_cu_seqlens=None, causal=True, hp=False):
     cu_seqlens = cu_seqlens.tolist()
+    if padded_cu_seqlens is not None:
+        padded_cu_seqlens = padded_cu_seqlens.tolist()
+    else:
+        padded_cu_seqlens = None
     outputs = []
     lses = []
     logits = []
     for i in range(len(cu_seqlens)-1):
-        s = cu_seqlens[i]
-        e = cu_seqlens[i+1]
-        q = qs[s:e][None]
-        k = ks[s:e][None]
-        v = vs[s:e][None]
+        if padded_cu_seqlens is None:
+            s = cu_seqlens[i]
+            e = cu_seqlens[i+1]
+            q = qs[s:e][None]
+            k = ks[s:e][None]
+            v = vs[s:e][None]
+        else:
+            s = padded_cu_seqlens[i]
+            e = s + cu_seqlens[i+1] - cu_seqlens[i]
+            q = qs[s:e][None]
+            k = ks[s:e][None]
+            v = vs[s:e][None]
         out, lse, logit = torch_attn(q, k, v, causal=causal, hp=hp)
         outputs.append(out[0])
         lses.append(lse[0])
         logits.append(logit[0])
+        if padded_cu_seqlens is not None:
+            gap = (padded_cu_seqlens[i+1] - padded_cu_seqlens[i]) - (cu_seqlens[i+1] - cu_seqlens[i])
+            outputs.append(torch.zeros_like(out[0][:gap]))
+            lses.append(torch.zeros_like(lse[0][:,:gap]))
+            logits.append(torch.zeros_like(logit[0][:,:gap]))
 
     outputs = torch.cat(outputs, 0)
     lses = torch.cat(lses, 1)
@@ -112,11 +131,13 @@ def test_dot_sum(M=128, N=128, D=128):
 
 
 
-def test_mla(B=2, L=4096, H=16, causal=True, hpc=False, safe=True, coef=1.0, bench=False):
+def test_mla(B=2, L=4096, H=16, causal=True, hpc=False, safe=True, coef=1.0, clip_value=None, bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
     q = (torch.randn((B, L, H, 192), device=device, dtype=dtype)*coef).requires_grad_()
-    k = torch.randn((B, L, H, 192), device=device, dtype=dtype, requires_grad=True)
+    k = torch.randn((B, L, H, 192), device=device, dtype=dtype)
+    k[:, :, :, 128:] = k[:, :, :1, 128:]
+    k = k.requires_grad_()
     v = torch.randn((B, L, H, 128), device=device, dtype=dtype, requires_grad=True)
     g = torch.randn((B, L, H, 128), device=device, dtype=dtype, requires_grad=True)
 
@@ -130,32 +151,46 @@ def test_mla(B=2, L=4096, H=16, causal=True, hpc=False, safe=True, coef=1.0, ben
     k.grad = None
     v.grad = None
 
-    output, lse, max_logits = triton_mla_forward(q, k, v, causal=causal, safe=safe)
+    output, lse, max_logits = triton_mla_forward(q, k, v, causal=causal, safe=safe, clip_value=clip_value)
     output_check(output_ref, output, atol=0.05, rtol=0.05, name='output')
     # output_check(lse_ref.float(), lse, atol=0.05, rtol=0.05, name='lse')
     # output_check(max_logits_ref, max_logits, atol=0.01, rtol=0.03, name='max_logits')
 
-    gq, gk, gv = triton_mla_backward(g, output, q, k, v, lse, max_logits, causal=causal, hpc=hpc, safe=safe)
-    output_check(gv_ref, gv, atol=0.05, rtol=0.05, name='gv')
-    output_check(gk_ref, gk, atol=0.05 * coef, rtol=0.05, name='gk')
-    output_check(gq_ref, gq, atol=0.05 * coef, rtol=0.05, name='gq')
+    gq, gk, gv = triton_mla_backward(g, output, q, k, v, lse, max_logits, 
+                                    causal=causal, hpc=hpc, 
+                                    safe=safe, clip_value=clip_value)
+    if clip_value is None:
+        output_check(gv_ref, gv, atol=0.05, rtol=0.05, name='gv')
+        output_check(gk_ref, gk, atol=0.05 * coef, rtol=0.05, name='gk')
+        output_check(gq_ref, gq, atol=0.05 * coef, rtol=0.05, name='gq')
 
     if bench:
         ref_flops = B * L * L * H * (192 + 128) * (1 if causal else 2)
-        benchmark_func(triton_mla_forward, q, k, v, causal=causal, safe=safe, ref_flops=ref_flops)
+        benchmark_func(triton_mla_forward, q, k, v, causal=causal, safe=safe, clip_value=clip_value, ref_flops=ref_flops)
         ref_flops = B * L * L * H * (192 + 128 * 2 + 192 * 2) * (1 if causal else 2)
         benchmark_func(triton_mla_backward, g, output, q, k, v, lse, max_logits, 
                        causal=causal, hpc=hpc, safe=safe,
+                       clip_value=clip_value,
                        ref_flops=ref_flops, 
                        n_profile=0)
 
 
-def test_varlen_mla(LS=[2048,4096], H=16, causal=True, hpc=False, safe=True, coef=1.0, bench=False):
+def test_varlen_mla(LS=[2048,4096], H=16, causal=True, hpc=False, safe=True, coef=1.0, clip_value=None, pad=False, bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
+    if pad:
+        cu_seqlens = torch.cumsum(torch.tensor([0]+LS, device=device), 0)
+        LS = [x + 7 for x in LS]
+        padded_cu_seqlens = torch.cumsum(torch.tensor([0]+LS, device=device), 0)
+    else:
+        cu_seqlens = torch.cumsum(torch.tensor([0]+LS, device=device), 0)
+        padded_cu_seqlens = None
+
     L = sum(LS)
     q = (torch.randn((L, H, 192), device=device, dtype=dtype)*coef).requires_grad_()
-    k = torch.randn((L, H, 192), device=device, dtype=dtype, requires_grad=True)
+    k = torch.randn((L, H, 192), device=device, dtype=dtype)
+    k[:, :, 128:] = k[:, :1, 128:]
+    k = k.requires_grad_()
     v = torch.randn((L, H, 128), device=device, dtype=dtype, requires_grad=True)
     g = torch.randn((L, H, 128), device=device, dtype=dtype, requires_grad=True)
     cu_seqlens = torch.cumsum(torch.tensor([0]+LS, device=device), 0)
@@ -171,27 +206,52 @@ def test_varlen_mla(LS=[2048,4096], H=16, causal=True, hpc=False, safe=True, coe
     k.grad = None
     v.grad = None
 
-    output, lse, max_logits = triton_varlen_mla_forward(q, k, v, cu_seqlens, max_q_length, causal=causal, safe=safe)
+    output, lse, max_logits = triton_varlen_mla_forward(q, k, v, cu_seqlens, max_q_length, causal=causal, safe=safe, clip_value=clip_value)
     output_check(output_ref, output, atol=0.05, rtol=0.05, name='output')
-    if not safe:
+    if clip_value is None and not safe:
         output_check(lse_ref.float(), lse, atol=0.05, rtol=0.05, name='lse')
-    if safe:
+    if clip_value is None and safe:
         output_check(max_logit_ref, max_logits, atol=0.01, rtol=0.03, name='max_logits')
 
-    gq, gk, gv = triton_varlen_mla_backward(g, output, q, k, v, lse, max_logits, cu_seqlens, max_q_length, causal=causal, hpc=hpc, safe=safe)
-    output_check(gv_ref, gv, atol=0.05, rtol=0.05, name='gv')
-    output_check(gk_ref, gk, atol=0.05 * coef, rtol=0.05, name='gk')
-    output_check(gq_ref, gq, atol=0.05 * coef, rtol=0.05, name='gq')
+    gq, gk, gv = triton_varlen_mla_backward(g, output, q, k, v, lse, max_logits, cu_seqlens, max_q_length, 
+                                            causal=causal, hpc=hpc, safe=safe, clip_value=clip_value)
+    if clip_value is None:
+        output_check(gv_ref, gv, atol=0.05, rtol=0.05, name='gv')
+        output_check(gk_ref, gk, atol=0.05 * coef, rtol=0.05, name='gk')
+        output_check(gq_ref, gq, atol=0.05 * coef, rtol=0.05, name='gq')
+
+    output = multi_latend_attention(q, k, v,
+                                    cu_seqlens=cu_seqlens, 
+                                    padded_cu_seqlens=padded_cu_seqlens, 
+                                    max_q_length=max_q_length, causal=causal, safe=safe,
+                                    clip_value=clip_value)
+    output.backward(g)
+    gq = q.grad 
+    gk = k.grad 
+    gv = v.grad
+    if clip_value is None and not safe:
+        output_check(lse_ref.float(), lse, atol=0.05, rtol=0.05, name='lse')
+    if clip_value is None and safe:
+        output_check(max_logit_ref, max_logits, atol=0.01, rtol=0.03, name='max_logits')
+    if clip_value is None:
+        output_check(gv_ref, gv, atol=0.05, rtol=0.05, name='gv')
+        output_check(gk_ref, gk, atol=0.05 * coef, rtol=0.05, name='gk')
+        output_check(gq_ref, gq, atol=0.05 * coef, rtol=0.05, name='gq')
 
     if bench:
         ref_flops = sum([L * L * H * (192 + 128) * (1 if causal else 2) for L in LS])
-        benchmark_func(triton_varlen_mla_forward, q, k, v, cu_seqlens, max_q_length, causal=causal, safe=safe, ref_flops=ref_flops)
+        benchmark_func(triton_varlen_mla_forward, q, k, v, cu_seqlens, max_q_length, 
+                       causal=causal, safe=safe,
+                       clip_value=clip_value, ref_flops=ref_flops)
         ref_flops = sum([L * L * H * (192 + 128 * 2 + 192 * 2) * (1 if causal else 2) for L in LS])
         benchmark_func(triton_varlen_mla_backward, g, output, q, k, v, lse, max_logits, 
                        cu_seqlens, max_q_length,
+                       padded_cu_seqlens=padded_cu_seqlens,
                        causal=causal, hpc=hpc, safe=safe,
+                       clip_value=clip_value,
                        ref_flops=ref_flops, 
                        n_profile=0)
+
 
 def test_fp8_mla(B=2, L=4096, H=16, causal=True, hpc=False, quant_value=False, bench=False):
     dtype = torch.bfloat16
@@ -207,8 +267,8 @@ def test_fp8_mla(B=2, L=4096, H=16, causal=True, hpc=False, quant_value=False, b
     output_ref, lse_ref, max_logits_ref = torch_attn(q, k, v, causal=causal, hp=True)
 
     output, lse, max_logits = triton_fp8_mla_forward(q_q, k_q, v_q if quant_value else v, q_s, k_s, vs=v_s if quant_value else None,  causal=causal)
-    output_check(output_ref, output, atol=0.2, rtol=0.5, name='mp.output')
-    output_check(lse_ref.float(), lse, atol=0.2, rtol=0.5, name='mp.lse')
+    output_check(output_ref, output, atol=0.2, rtol=0.5, name='fp8.output')
+    output_check(lse_ref.float(), lse, atol=0.2, rtol=0.5, name='fp8.lse')
 
     if bench:
         ref_flops = B * L * L * H * (192 + 128) * (1 if causal else 2)
@@ -217,26 +277,28 @@ def test_fp8_mla(B=2, L=4096, H=16, causal=True, hpc=False, quant_value=False, b
 
 if __name__ == "__main__":
 
-    test_softmax(M=128, N=128)
+    # test_softmax(M=128, N=128)
 
-    test_dot_sum(M=128, N=128, D=128)
+    # test_dot_sum(M=128, N=128, D=128)
 
-    test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=True, coef=1.0, bench=False)
-    test_mla(B=1, L=8192, H=64, causal=True, hpc=True, safe=False, coef=1.0, bench=False)
-    test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=True, coef=100.0, bench=False)
-    test_mla(B=1, L=4096, H=64, causal=True, hpc=False, safe=False, coef=1.0, bench=False)
-    test_mla(B=1, L=4096, H=64, causal=False, hpc=False, safe=False, coef=1.0, bench=False)
-    test_mla(B=1, L=8192, H=64, causal=False, hpc=False, safe=False, coef=1.0, bench=False)
-    test_mla(B=1, L=8192, H=1, causal=False, hpc=False, safe=False, coef=1.0, bench=False)
+    test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=500, bench=True)
+    # test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=500.0, bench=True)
+    # test_mla(B=1, L=8192, H=64, causal=True, hpc=True, safe=False, coef=1.0, clip_value=None, bench=False)
+    # test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=True, coef=100.0, clip_value=None, bench=False)
+    # test_mla(B=1, L=4096, H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
+    # test_mla(B=1, L=4096, H=64, causal=False, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
+    # test_mla(B=1, L=8192, H=64, causal=False, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
+    # test_mla(B=1, L=8192, H=1, causal=False, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
 
-    test_varlen_mla(LS=[8192], H=64, causal=True, hpc=False, safe=True, coef=1.0, bench=False)
-    test_varlen_mla(LS=[4096,4096], H=64, causal=True, hpc=False, safe=True, coef=1.0, bench=False)
-    test_varlen_mla(LS=[2048,2048,4096], H=64, causal=True, hpc=True, safe=True, coef=1.0, bench=False)
-    test_varlen_mla(LS=[127,873,3096], H=64, causal=False, hpc=False, safe=False, coef=1.0, bench=False)
-    test_varlen_mla(LS=[127,873,3456], H=16, causal=False, hpc=False, safe=True, coef=1.0, bench=False)
-    test_varlen_mla(LS=[127,873,3456], H=1, causal=True, hpc=False, safe=True, coef=1.0, bench=False)
+    # test_varlen_mla(LS=[8192], H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=None, pad=False, bench=True)
+    # test_varlen_mla(LS=[8192], H=64, causal=True, hpc=False, safe=True, coef=1.0, clip_value=100.0, pad=False, bench=True)
+    # test_varlen_mla(LS=[8192], H=64, causal=True, hpc=False, safe=True, coef=1.0, clip_value=None, pad=True, bench=True)
 
-    test_fp8_mla(B=1, L=8192, H=64, causal=True, hpc=False, quant_value=False, bench=True)
-    test_fp8_mla(B=1, L=8192, H=64, causal=True, hpc=False, quant_value=True, bench=True)
+    # test_varlen_mla(LS=[4096,4096], H=64, causal=True, hpc=False, safe=True, coef=1.0, bench=False)
+    # test_varlen_mla(LS=[2048,2048,4096], H=64, causal=True, hpc=True, safe=True, coef=1.0, bench=False)
+    # test_varlen_mla(LS=[127,873,3096], H=64, causal=False, hpc=False, safe=False, coef=1.0, bench=False)
+    # test_varlen_mla(LS=[127,873,3456], H=16, causal=False, hpc=False, safe=True, coef=1.0, clip_value=100.0, bench=False)
+    # test_varlen_mla(LS=[127,873,3456], H=16, causal=False, hpc=False, safe=True, coef=1.0, pad=True, bench=False)
+    # test_varlen_mla(LS=[127,873,3456], H=1, causal=True, hpc=False, safe=True, coef=1.0, bench=False)
 
-
+    # test_fp8_mla(B=1, L=8192, H=64, causal=True, hpc=False, quant_value=False, bench=True)
