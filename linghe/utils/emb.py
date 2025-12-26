@@ -21,8 +21,8 @@ def embedding_forward_kernel(x_ptr,
     index = tl.load(x_ptr + pid)
     weight_ptr = w_ptr.to(tl.pointer_type(tl.bfloat16))
 
-    x = tl.load(weight_ptr + index * dim + tl.arange(0, DIM), mask=tl.arange(0, DIM) < dim)
-    tl.store(y_ptr + pid * dim + tl.arange(0, DIM), x, mask=tl.arange(0, DIM) < dim)
+    w = tl.load(weight_ptr + index * dim + tl.arange(0, DIM), mask=tl.arange(0, DIM) < dim)
+    tl.store(y_ptr + pid * dim + tl.arange(0, DIM), w, mask=tl.arange(0, DIM) < dim)
 
 
 def triton_embedding_forward(x, w_ptr, dim=4096, dtype=torch.bfloat16):
@@ -30,7 +30,7 @@ def triton_embedding_forward(x, w_ptr, dim=4096, dtype=torch.bfloat16):
     inplace add y to x
     Args:
         x: input ids Tensor
-        t_ptr: data_ptr of embedding weight
+        w_ptr: data_ptr of embedding weight
     Returns:
         embedding output
     """
@@ -56,12 +56,9 @@ def triton_embedding_forward(x, w_ptr, dim=4096, dtype=torch.bfloat16):
 
 
 @triton.jit
-def embedding_backward_kernel(y_ptr,
-                             x_ptr,
-                             g_ptr,
-                             dim,
-                             DIM: tl.constexpr,
-                             T: tl.constexpr):
+def embedding_backward_kernel(
+    y_ptr, x_ptr, g_ptr, dim, DIM: tl.constexpr, T: tl.constexpr
+):
     pid = tl.program_id(axis=0).to(tl.int64)
     index = tl.load(x_ptr + pid)
 
@@ -70,8 +67,8 @@ def embedding_backward_kernel(y_ptr,
     else:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.bfloat16))
 
-    x = tl.load(y_ptr + pid * dim + tl.arange(0, DIM), mask=tl.arange(0, DIM) < dim)
-    tl.atomic_add(grad_ptr + index * dim + tl.arange(0, DIM), x, mask=tl.arange(0, DIM) < dim)
+    y = tl.load(y_ptr + pid * dim + tl.arange(0, DIM), mask=tl.arange(0, DIM) < dim)
+    tl.atomic_add(grad_ptr + index * dim + tl.arange(0, DIM), y, mask=tl.arange(0, DIM) < dim)
 
 
 def triton_embedding_backward(y, x, g_ptr, dtype=torch.bfloat16):
