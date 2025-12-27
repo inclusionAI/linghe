@@ -14,12 +14,14 @@ from linghe.utils.loss import (triton_softmax_cross_entropy_forward,
 class SoftmaxCrossEntropyFunction(torch.autograd.Function):
     """"""
     @staticmethod
-    def forward(ctx, logits, labels, inplace=False):
+    def forward(ctx, logits, labels, ignore_index=-100, inplace=False):
         shape = logits.shape
         logits_view = logits.view(-1, shape[-1]) if len(shape) == 3 else logits
         loss, sum_exp, max_logit = triton_softmax_cross_entropy_forward(logits_view,
-                                                                        labels)
+                                                                        labels,
+                                                                        ignore_index=ignore_index)
         ctx.save_for_backward(logits, labels, sum_exp, max_logit)
+        ctx.ignore_index = ignore_index
         ctx.inplace = inplace
         ctx.shape = shape
         if len(shape) == 3:
@@ -36,13 +38,14 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
         grad = triton_softmax_cross_entropy_backward(logits, labels, sum_exp,
                                                      max_logit,
                                                      grad_output,
+                                                     ignore_index=ctx.ignore_index,
                                                      inplace=ctx.inplace)
         if len(shape) == 3:
             grad = grad.view(shape)
-        return grad, None, None
+        return grad, None, None, None
 
 
-def softmax_cross_entropy(logits: torch.Tensor, labels: torch.Tensor, inplace: bool = False):
+def softmax_cross_entropy(logits: torch.Tensor, labels: torch.Tensor, ignore_index: int = -100, inplace: bool = False):
     """
     softmax cross entropy
     Args:
@@ -54,7 +57,7 @@ def softmax_cross_entropy(logits: torch.Tensor, labels: torch.Tensor, inplace: b
     """
     assert logits.is_contiguous()
     assert labels.is_contiguous()
-    return SoftmaxCrossEntropyFunction.apply(logits, labels, inplace)
+    return SoftmaxCrossEntropyFunction.apply(logits, labels, ignore_index, inplace)
 
 
 class GradScalingFunction(torch.autograd.Function):
