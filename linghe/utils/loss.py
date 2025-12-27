@@ -139,7 +139,7 @@ def triton_softmax_cross_entropy_forward(logits, labels, group=None):
                                 group_rank,
                                 group_size)
 
-    inf_or_nan([labels,loss,sum_exp,max_logit], 'labels,loss,sum_exp,max_logit')
+    inf_or_nan([labels,loss,sum_exp,max_logit,logits], 'labels,loss,sum_exp,max_logit,logits')
 
     return loss, sum_exp, max_logit
 
