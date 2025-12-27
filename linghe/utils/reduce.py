@@ -7,8 +7,6 @@ import torch
 import triton
 import triton.language as tl
 
-from linghe.tools.check import inf_or_nan
-
 
 @triton.jit
 def abs_max_kernel(x_ptr,
@@ -160,7 +158,6 @@ def norm_kernel(input_ptr, tmp_ptr, m,
     tl.store(tmp_ptr + pid, sums)
 
 
-
 def triton_norm(x, ord=2, norm=True, scalar=True):
     """
     calculate norm.
@@ -298,8 +295,4 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
         output = output.unsqueeze(0)
     if high_precision:
         output = output.float()
-    for i, x in enumerate(xs):
-        inf_or_nan(x, name=f'grad_norm.input {i}')
-    inf_or_nan(output, name='grad_norm')
-    inf_or_nan(output*output, name='grad_norm.square')
     return output

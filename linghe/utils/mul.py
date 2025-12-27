@@ -7,8 +7,6 @@ import torch
 import triton
 import triton.language as tl
 
-from linghe.tools.check import inf_or_nan
-
 
 @triton.jit
 def dot_kernel(x_ptr, y_ptr, sum_ptr, M, N, H: tl.constexpr, W: tl.constexpr):
@@ -127,8 +125,6 @@ def triton_batch_scale(xs, scale):
     """
     assert all([x.is_contiguous() and x.dtype == torch.float32 for x in xs])
 
-    for x in xs:
-        inf_or_nan(x, name=f'triton_batch_scale {scale=}')
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs], 
                          dtype=torch.int64).cuda(device, non_blocking=True)
@@ -149,6 +145,4 @@ def triton_batch_scale(xs, scale):
         num_stages=2,
         num_warps=2
     )
-    for x in xs:
-        inf_or_nan(x, name='triton_batch_scale')
     return xs
