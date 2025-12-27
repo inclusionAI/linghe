@@ -7,6 +7,8 @@ import torch
 import triton
 import triton.language as tl
 
+from linghe.tools.check import inf_or_nan
+
 
 @triton.jit
 def calculate_smooth_scale_kernel(x_ptr, y_ptr, min_value, smooth_coef, 
@@ -87,6 +89,9 @@ def triton_batch_clip(xs, clip_value=100.0):
         updated xs
     """
     assert all([x.is_contiguous() and x.dtype == torch.float32 for x in xs])
+    for x in xs:
+        inf_or_nan(x, name='triton_batch_clip.input')
+
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs], 
                          dtype=torch.int64).cuda(device, non_blocking=True)
@@ -105,4 +110,6 @@ def triton_batch_clip(xs, clip_value=100.0):
         num_stages=2,
         num_warps=2
     )
+    for x in xs:
+        inf_or_nan(x, name='triton_batch_clip.output')
     return xs

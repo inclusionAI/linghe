@@ -6,7 +6,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 import triton
 import triton.language as tl
-
+from linghe.tools.check import inf_or_nan
 
 @triton.jit
 def softmax_cross_entropy_forward_kernel(logit_ptr, label_ptr, loss_ptr,
@@ -139,7 +139,10 @@ def triton_softmax_cross_entropy_forward(logits, labels, group=None):
                                 group_rank,
                                 group_size)
 
-        
+    inf_or_nan(loss)
+    inf_or_nan(sum_exp)
+    inf_or_nan(max_logit)
+
     return loss, sum_exp, max_logit
 
 
@@ -248,9 +251,9 @@ def triton_softmax_cross_entropy_backward(logits, labels, sum_exp, max_logit,
     )
     if inplace:
         dx = logits
+    inf_or_nan(output_grad)
+    inf_or_nan(dx)
     return dx
-
-
 
 
 @triton.jit

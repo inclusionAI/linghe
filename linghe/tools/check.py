@@ -3,6 +3,7 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import math
 import torch
 
 
@@ -120,3 +121,11 @@ def quant_check(org_out, xq, wq, opt_out, mode):
           f'opt:{opt_out.abs().max():.3f}/{opt_out.abs().mean():.3f} ' \
           f'x_underflow:{x_underflow:.5f} w_underflow:{w_underflow:.5f} ' \
           f'x_overflow:{x_overflow} w_overflow:{w_overflow}')
+
+
+def inf_or_nan(x, name=''):
+    value = x.abs().max().item()
+    if math.isnan(value) or math.isinf(value):
+        print('*'*32)
+        print(f'{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}')
+        print('*'*32)

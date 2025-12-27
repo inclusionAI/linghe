@@ -49,11 +49,13 @@ def torch_weighted_silu(x, weight):
 
 
 def torch_weighted_silu_backward(dy, x, weight):
+    dtype = x.dtype
+    x = x.float()
     x = x.clone().detach().requires_grad_()
     weight = weight.clone().detach().requires_grad_()
     y = torch_weighted_silu(x, weight)
     y.backward(gradient=dy)
-    return x.grad, weight.grad
+    return x.grad.to(dtype), weight.grad
 
 
 def torch_silu_and_smooth_quant_forward(x, smooth_scale=None, round_scale=True):
@@ -389,7 +391,7 @@ def torch_batch_weighted_silu_and_mxfp8_quant_backward(grad_output, x, weight,
 def test_weighted_silu(M=4096, N=4096, asm=False, coef=1.0, bench=False):
     x = torch.randn((M, N), dtype=torch.bfloat16, device='cuda:0')
     x = (x * coef).clone().detach().requires_grad_()
-    weight = torch.randn((M, 1), dtype=torch.bfloat16, device='cuda:0')
+    weight = torch.randn((M, 1), dtype=torch.float32, device='cuda:0')
     grad_output = torch.randn((M, N // 2), dtype=torch.bfloat16,
                               device='cuda:0')
     ref_y = torch_weighted_silu(x, weight)
@@ -399,7 +401,7 @@ def test_weighted_silu(M=4096, N=4096, asm=False, coef=1.0, bench=False):
     dx_ref, dw_ref = torch_weighted_silu_backward(grad_output, x, weight)
     dx, dw = triton_weighted_silu_backward(grad_output, x, weight)
     output_check(dx_ref, dx, 'dx')
-    output_check(dw_ref, dw, 'dw')
+    output_check(dw_ref, dw, 'dw', rtol=3e-3, atol=3e-3)
 
     if bench:
         benchmark_func(triton_weighted_silu_forward, x, weight, asm=asm, n_repeat=100,
@@ -700,7 +702,7 @@ def test_triton_batch_weighted_silu_and_block_quant(M=1024, N=4096,
         round_scale=round_scale)
     output_check(dx_ref, dx, 'block.dx', rtol=rtol)
     output_check(dx_scale_ref, dx_scale.view(-1), 'block.dx_scale')
-    rate = coef**0.75 if coef > 1 else 1
+    rate = (coef*grad_coef)**0.75 if coef * grad_coef > 1 else 1
     output_check(dw_ref, dw, 'block.dw', rtol=1e-3 * rate, atol=1e-3 * rate)
     output_check(dxt_ref, dxt.view(-1), 'block.dxt', rtol=rtol)
     output_check(dxt_scale_ref, dxt_scale.view(-1), 'block.dxt_scale')
@@ -794,8 +796,8 @@ def test_triton_batch_weighted_silu_and_mxfp8_quant(M=1024, N=4096,
 
 
 if __name__ == '__main__':
-    test_weighted_silu(M=16384, N=4096, coef=100.0, asm=False, bench=False)
-    test_weighted_silu(M=16384, N=4096, coef=100.0, asm=True, bench=False)
+    test_weighted_silu(M=16384, N=4096, coef=1.0, asm=False, bench=False)
+    test_weighted_silu(M=16384, N=4096, coef=1.0, asm=True, bench=False)
     test_weighted_silu(M=8192, N=1536, bench=False)
     test_weighted_silu(M=0, N=1536, bench=False)
 

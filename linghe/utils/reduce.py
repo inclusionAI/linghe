@@ -7,6 +7,8 @@ import torch
 import triton
 import triton.language as tl
 
+from linghe.tools.check import inf_or_nan
+
 
 @triton.jit
 def abs_max_kernel(x_ptr,
@@ -258,7 +260,7 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
     """
     if len(xs) == 0:
         return torch.zeros(() if scalar else (1,), device='cuda', dtype=torch.float32)
-    assert all([x.is_contiguous() and x.numel() > 0 for x in xs])
+    assert all([x.is_contiguous() and x.numel() > 0 and x.dtype == torch.float32 for x in xs])
     assert ord in (1, 2, -1)
     # assert all([x.is_contiguous() for x in xs])
     device = xs[0].device
@@ -296,4 +298,8 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
         output = output.unsqueeze(0)
     if high_precision:
         output = output.float()
+    for x in xs:
+        inf_or_nan(x)
+    inf_or_nan(output, name='grad_norm')
+    inf_or_nan(output*output, name='grad_norm.square')
     return output
