@@ -123,9 +123,15 @@ def quant_check(org_out, xq, wq, opt_out, mode):
           f'x_overflow:{x_overflow} w_overflow:{w_overflow}')
 
 
-def inf_or_nan(x, name=''):
-    value = x.abs().max().item()
-    if math.isnan(value) or math.isinf(value):
-        print('*'*32)
-        print(f'{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}')
-        print('*'*32)
+def inf_or_nan(xs, name=''):
+    if not isinstance(xs, (list, tuple)):
+        xs = [xs]
+    hit = False
+    for x in xs:
+        value = x.abs().max().item()
+        if math.isnan(value) or math.isinf(value):
+            hit = True
+            break
+    if hit:
+        for x in xs:
+            print(f'{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}')

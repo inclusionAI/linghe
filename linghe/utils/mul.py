@@ -127,9 +127,8 @@ def triton_batch_scale(xs, scale):
     """
     assert all([x.is_contiguous() and x.dtype == torch.float32 for x in xs])
 
-    print(f'triton_batch_scale {scale=}')
     for x in xs:
-        inf_or_nan(x, name='triton_batch_scale')
+        inf_or_nan(x, name=f'triton_batch_scale {scale=}')
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs], 
                          dtype=torch.int64).cuda(device, non_blocking=True)

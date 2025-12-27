@@ -298,8 +298,8 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
         output = output.unsqueeze(0)
     if high_precision:
         output = output.float()
-    for x in xs:
-        inf_or_nan(x)
+    for i, x in enumerate(xs):
+        inf_or_nan(x, name=f'grad_norm.input {i}')
     inf_or_nan(output, name='grad_norm')
     inf_or_nan(output*output, name='grad_norm.square')
     return output
