@@ -386,14 +386,14 @@ def torch_batch_weighted_silu_and_mxfp8_quant_backward(grad_output, x, weight,
     qtscales = torch.cat(qtscales, 0)
     return dx_q, dx_scale, dw, qts, qtscales
 
-def test_weighted_silu(M=4096, N=4096, bench=False):
+def test_weighted_silu(M=4096, N=4096, asm=False, coef=1.0, bench=False):
     x = torch.randn((M, N), dtype=torch.bfloat16, device='cuda:0')
-    x = (x ** 3 // 10).clone().detach().requires_grad_()
+    x = (x * coef).clone().detach().requires_grad_()
     weight = torch.randn((M, 1), dtype=torch.bfloat16, device='cuda:0')
     grad_output = torch.randn((M, N // 2), dtype=torch.bfloat16,
                               device='cuda:0')
     ref_y = torch_weighted_silu(x, weight)
-    y = triton_weighted_silu_forward(x, weight)
+    y = triton_weighted_silu_forward(x, weight, asm=asm)
     output_check(ref_y, y, 'y')
 
     dx_ref, dw_ref = torch_weighted_silu_backward(grad_output, x, weight)
@@ -402,7 +402,7 @@ def test_weighted_silu(M=4096, N=4096, bench=False):
     output_check(dw_ref, dw, 'dw')
 
     if bench:
-        benchmark_func(triton_weighted_silu_forward, x, weight, n_repeat=100,
+        benchmark_func(triton_weighted_silu_forward, x, weight, asm=asm, n_repeat=100,
                        ref_bytes=M * N * 3)
         benchmark_func(triton_weighted_silu_backward, grad_output, x, weight,
                        n_repeat=100, ref_bytes=M * N * 5)
@@ -794,8 +794,10 @@ def test_triton_batch_weighted_silu_and_mxfp8_quant(M=1024, N=4096,
 
 
 if __name__ == '__main__':
-    test_weighted_silu(M=16384, N=4096, bench=False)
+    test_weighted_silu(M=16384, N=4096, coef=100.0, asm=False, bench=False)
+    test_weighted_silu(M=16384, N=4096, coef=100.0, asm=True, bench=False)
     test_weighted_silu(M=8192, N=1536, bench=False)
+    test_weighted_silu(M=0, N=1536, bench=False)
 
     test_silu_and_smooth_quant(M=16384, N=1024, bench=False)
     test_silu_and_smooth_quant(M=8192, N=2048, bench=False)
