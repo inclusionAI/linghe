@@ -57,17 +57,27 @@ def triton_embedding_forward(x, w_ptr, dim=4096, dtype=torch.bfloat16):
 
 @triton.jit
 def embedding_backward_kernel(
-    y_ptr, x_ptr, g_ptr, dim, DIM: tl.constexpr, T: tl.constexpr
+    y_ptr, 
+    x_ptr, 
+    g_ptr, 
+    stride_0,
+    stride_1,
+    dim, 
+    DIM: tl.constexpr,
+    T: tl.constexpr
 ):
-    pid = tl.program_id(axis=0).to(tl.int64)
-    index = tl.load(x_ptr + pid)
+    bid = tl.program_id(axis=0).to(tl.int64)
+    lid = tl.program_id(axis=1)
+    B = tl.num_programs(0)
+    L = tl.num_programs(1)
+    index = tl.load(x_ptr + bid * L + lid)
 
     if T == 0:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.float32))
     else:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.bfloat16))
 
-    y = tl.load(y_ptr + pid * dim + tl.arange(0, DIM), mask=tl.arange(0, DIM) < dim)
+    y = tl.load(y_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0, DIM), mask=tl.arange(0, DIM) < dim)
     tl.atomic_add(grad_ptr + index * dim + tl.arange(0, DIM), y, mask=tl.arange(0, DIM) < dim)
 
 
@@ -81,21 +91,26 @@ def triton_embedding_backward(y, x, g_ptr, dtype=torch.bfloat16):
     Returns:
         None
     """
-    assert y.is_contiguous()
+    # assert y.is_contiguous(), f'{y.shape=} {y.stride()=}'
     assert dtype in (torch.bfloat16, torch.float32)
+    shape = x.shape
+    assert len(shape) == 2
     T = 0 if dtype == torch.float32 else 1
-    M = x.numel()
-    dim = y.size(-1)
+    B, L, dim = y.shape
+    stride_0 = y.stride(0)
+    stride_1 = y.stride(1)
 
     DIM = triton.next_power_of_2(dim)
     num_stages = 2
     num_warps = 16
 
-    grid = (M, )
+    grid = (B, L)
     embedding_backward_kernel[grid](
         y,
         x,
         g_ptr,
+        stride_0,
+        stride_1,
         dim,
         DIM,
         T,

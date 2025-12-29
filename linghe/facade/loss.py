@@ -43,7 +43,7 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
         if len(shape) == 3:
             logits = logits.view(-1, shape[-1])
             grad_output = torch.reshape(grad_output,(-1,))
-        if parallel:
+        if ctx.parallel:
             grad = triton_parallel_softmax_cross_entropy_backward(logits, labels, sum_exp,
                                                         max_logit,
                                                         grad_output,
