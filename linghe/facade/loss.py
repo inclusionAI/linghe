@@ -19,18 +19,19 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
     def forward(ctx, logits, labels, ignore_index=-100, inplace=False, tp_group=None):
         shape = logits.shape
         logits_view = logits.view(-1, shape[-1]) if len(shape) == 3 else logits
-        if tp_group is None:
+        parallel = tp_group is not None and tp_group.size() > 1
+        if parallel:
+            loss, sum_exp, max_logit = triton_parallel_softmax_cross_entropy_forward(logits, labels, tp_group, 
+                                                          ignore_index=ignore_index)
+        else:
             loss, sum_exp, max_logit = triton_softmax_cross_entropy_forward(logits_view,
                                                                             labels,
                                                                             ignore_index=ignore_index)
-        else:
-            loss, sum_exp, max_logit = triton_parallel_softmax_cross_entropy_forward(logits, labels, tp_group, 
-                                                          ignore_index=ignore_index)
         ctx.save_for_backward(logits, labels, sum_exp, max_logit)
         ctx.ignore_index = ignore_index
         ctx.inplace = inplace
         ctx.shape = shape
-        ctx.tp_group = tp_group
+        ctx.parallel = parallel
         if len(shape) == 3:
             loss = loss.view(shape[0], shape[1])
         return loss
@@ -42,17 +43,18 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
         if len(shape) == 3:
             logits = logits.view(-1, shape[-1])
             grad_output = torch.reshape(grad_output,(-1,))
-        if ctx.tp_group is None:
-            grad = triton_softmax_cross_entropy_backward(logits, labels, sum_exp,
-                                                        max_logit,
-                                                        grad_output,
-                                                        ignore_index=ctx.ignore_index,
-                                                        inplace=ctx.inplace)
-        else:
+        if parallel:
             grad = triton_parallel_softmax_cross_entropy_backward(logits, labels, sum_exp,
                                                         max_logit,
                                                         grad_output,
                                                         ctx.tp_group,
+                                                        ignore_index=ctx.ignore_index,
+                                                        inplace=ctx.inplace)
+        else:
+
+            grad = triton_softmax_cross_entropy_backward(logits, labels, sum_exp,
+                                                        max_logit,
+                                                        grad_output,
                                                         ignore_index=ctx.ignore_index,
                                                         inplace=ctx.inplace)
         if len(shape) == 3:
