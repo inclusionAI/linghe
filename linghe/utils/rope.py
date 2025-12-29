@@ -353,7 +353,7 @@ def qk_norm_and_half_rope_forward_kernel(qkv_ptr,
         if SILU:
             q0 = q0 * tl.sigmoid(q0)
             q1 = q1 * tl.sigmoid(q1)
-        rms = 1 / tl.sqrt((tl.sum(q0 * q0, 1) + tl.sum(q1 * q1, 1)) / DD + eps)
+        rms = tl.rsqrt((tl.sum(q0 * q0, 1) + tl.sum(q1 * q1, 1)) / DD + eps)
         q1 *= rms[:, None]
         q1 *= q_weight_1
         tl.store(
@@ -401,7 +401,7 @@ def qk_norm_and_half_rope_forward_kernel(qkv_ptr,
         if SILU:
             k0 = k0 * tl.sigmoid(k0)
             k1 = k1 * tl.sigmoid(k1)
-        rms = 1 / tl.sqrt((tl.sum(k0 * k0, 1) + tl.sum(k1 * k1, 1)) / DD + eps)
+        rms = tl.rsqrt((tl.sum(k0 * k0, 1) + tl.sum(k1 * k1, 1)) / DD + eps)
         k1 *= rms[:, None]
         k1 *= k_weight_1
         tl.store(

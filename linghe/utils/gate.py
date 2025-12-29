@@ -38,9 +38,9 @@ def group_rms_norm_gate_forward_kernel(x_ptr, gate_ptr, weight_ptr, out_ptr, eps
     else:
         g = tl.load(gate_ptr + x_offs, mask=x_offs_mask).to(tl.float32)
 
-    rms = tl.sqrt(tl.sum(x * x, axis=1) / d + eps)
+    rms = tl.rsqrt(tl.sum(x * x, axis=1) / d + eps)
 
-    x = (x / rms[:, None]) * weight * tl.sigmoid(g)
+    x = (x * rms[:, None]) * weight * tl.sigmoid(g)
 
     if TRANSPOSE:
         tl.store(out_ptr + g_offs, x, mask=tl.arange(0, D)[None, :] < d)
@@ -163,8 +163,7 @@ def group_rms_norm_gate_backward_kernel(
             g = tl.load(grad_output_ptr + x_offs, mask=x_offs_mask).to(tl.float32)
             gate = tl.load(gate_ptr + x_offs, mask=x_offs_mask).to(tl.float32)
         gate = tl.sigmoid(gate)
-        rms = tl.sqrt(tl.sum(x * x, 1) / d + eps)
-        r = 1.0 / rms[:, None]
+        r = tl.rsqrt(tl.sum(x * x, 1) / d + eps)[:, None]
         w_grad = x * g * r * gate
         dw += w_grad
 
