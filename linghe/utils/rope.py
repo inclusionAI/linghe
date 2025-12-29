@@ -780,8 +780,7 @@ def qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
             q_0 = q0 * s0 
             q_1 = q1 * s1
 
-            rms = tl.sqrt((tl.sum(q_0 * q_0, 1) + tl.sum(q_1 * q_1, 1)) / DD + eps)
-            r = (1 / rms)[:, None]
+            r = tl.rsqrt((tl.sum(q_0 * q_0, 1) + tl.sum(q_1 * q_1, 1)) / DD + eps)[:, None]
 
             dqw_0 += tl.sum(q_0 * gq_0 * r, 0)
             dqw_1 += tl.sum(q_1 * gq_1 * r, 0)
@@ -795,8 +794,7 @@ def qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
             dq_1 = dq_1 * s1 * (1 + q1 * (1 - s1))
 
         else:
-            rms = tl.sqrt((tl.sum(q0 * q0, 1) + tl.sum(q1 * q1, 1)) / DD + eps)
-            r = (1 / rms)[:, None]
+            r = tl.rsqrt((tl.sum(q0 * q0, 1) + tl.sum(q1 * q1, 1)) / DD + eps)[:, None]
 
             dqw_0 += tl.sum(q0 * gq_0 * r, 0)
             dqw_1 += tl.sum(q1 * gq_1 * r, 0)
