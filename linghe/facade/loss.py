@@ -7,6 +7,8 @@ import torch
 
 from linghe.utils.loss import (triton_softmax_cross_entropy_forward,
                                triton_softmax_cross_entropy_backward,
+                               triton_parallel_softmax_cross_entropy_forward,
+                               triton_parallel_softmax_cross_entropy_backward,
                                triton_moe_z_loss_forward,
                                triton_moe_z_loss_backward)
 
@@ -14,16 +16,21 @@ from linghe.utils.loss import (triton_softmax_cross_entropy_forward,
 class SoftmaxCrossEntropyFunction(torch.autograd.Function):
     """"""
     @staticmethod
-    def forward(ctx, logits, labels, ignore_index=-100, inplace=False):
+    def forward(ctx, logits, labels, ignore_index=-100, inplace=False, tp_group=None):
         shape = logits.shape
         logits_view = logits.view(-1, shape[-1]) if len(shape) == 3 else logits
-        loss, sum_exp, max_logit = triton_softmax_cross_entropy_forward(logits_view,
-                                                                        labels,
-                                                                        ignore_index=ignore_index)
+        if tp_group is None:
+            loss, sum_exp, max_logit = triton_softmax_cross_entropy_forward(logits_view,
+                                                                            labels,
+                                                                            ignore_index=ignore_index)
+        else:
+            loss, sum_exp, max_logit = triton_parallel_softmax_cross_entropy_forward(logits, labels, tp_group, 
+                                                          ignore_index=ignore_index)
         ctx.save_for_backward(logits, labels, sum_exp, max_logit)
         ctx.ignore_index = ignore_index
         ctx.inplace = inplace
         ctx.shape = shape
+        ctx.tp_group = tp_group
         if len(shape) == 3:
             loss = loss.view(shape[0], shape[1])
         return loss
@@ -35,17 +42,25 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
         if len(shape) == 3:
             logits = logits.view(-1, shape[-1])
             grad_output = torch.reshape(grad_output,(-1,))
-        grad = triton_softmax_cross_entropy_backward(logits, labels, sum_exp,
-                                                     max_logit,
-                                                     grad_output,
-                                                     ignore_index=ctx.ignore_index,
-                                                     inplace=ctx.inplace)
+        if ctx.tp_group is None:
+            grad = triton_softmax_cross_entropy_backward(logits, labels, sum_exp,
+                                                        max_logit,
+                                                        grad_output,
+                                                        ignore_index=ctx.ignore_index,
+                                                        inplace=ctx.inplace)
+        else:
+            grad = triton_parallel_softmax_cross_entropy_backward(logits, labels, sum_exp,
+                                                        max_logit,
+                                                        grad_output,
+                                                        ctx.tp_group,
+                                                        ignore_index=ctx.ignore_index,
+                                                        inplace=ctx.inplace)
         if len(shape) == 3:
             grad = grad.view(shape)
-        return grad, None, None, None
+        return grad, None, None, None, None
 
 
-def softmax_cross_entropy(logits: torch.Tensor, labels: torch.Tensor, ignore_index: int = -100, inplace: bool = False):
+def softmax_cross_entropy(logits: torch.Tensor, labels: torch.Tensor, ignore_index: int = -100, inplace: bool = False, tp_group = None):
     """
     softmax cross entropy
     Args:
@@ -57,7 +72,7 @@ def softmax_cross_entropy(logits: torch.Tensor, labels: torch.Tensor, ignore_ind
     """
     assert logits.is_contiguous()
     assert labels.is_contiguous()
-    return SoftmaxCrossEntropyFunction.apply(logits, labels, ignore_index, inplace)
+    return SoftmaxCrossEntropyFunction.apply(logits, labels, ignore_index, inplace, tp_group)
 
 
 class GradScalingFunction(torch.autograd.Function):
