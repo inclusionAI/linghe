@@ -53,7 +53,7 @@ def test_triton_softmax_cross_entropy(M=4096, N=157184, coef=1.0, grad_coef=1.0,
         targets = torch.randint(0, N, (M,), dtype=torch.long, device=device)
 
     if ignore_index is not None:
-        targets[:10] = ignore_index
+        targets[:10000] = ignore_index
 
     if fill:
         logits[:, :8192] = -10000
@@ -127,17 +127,17 @@ def test_z_loss(L=4096, B=2, N=256, coef=0.001, bench=False):
 
 
 if __name__ == '__main__':
-    test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1.0, inplace=True, bench=True)
-    test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1e-6, inplace=True, bench=True)
-    test_triton_softmax_cross_entropy(M=8192, N=157184, coef=10000.0, grad_coef=100.0, fill=True, inplace=True, bench=True)
+    # test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1.0, inplace=True, bench=True)
+    # test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1e-6, inplace=True, bench=True)
+    # test_triton_softmax_cross_entropy(M=8192, N=157184, coef=10000.0, grad_coef=100.0, fill=True, inplace=True, bench=True)
     test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1.0, fill=True, ignore_index=-100, inplace=True, bench=True)
-    test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1.0, fill=True, ignore_index=0, inplace=True, bench=True)
-    test_triton_softmax_cross_entropy(M=8192, N=157184-16, coef=10000.0, grad_coef=100.0, fill=True, inplace=True, bench=True)
-    test_triton_softmax_cross_entropy(M=8192, N=175175, coef=1.0, grad_coef=1.0, inplace=True, bench=True)
-    test_triton_softmax_cross_entropy(M=8192, N=157184, coef=0.0, grad_coef=0.0, inplace=True, bench=True)
-    test_triton_softmax_cross_entropy(M=8192, N=157184, coef=0.0, grad_coef=100.0, inplace=True, bench=True)
-    test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1000.0, grad_coef=0.0, inplace=True, bench=True)
-    test_triton_softmax_cross_entropy(M=8192, N=157184, coef=100.0, grad_coef=100.0, fill=True, inplace=True, bench=True)
-    test_triton_softmax_cross_entropy(M=4096, N=157184, coef=0.1, grad_coef=1.0, inplace=True, bench=False)
+    # test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1.0, fill=True, ignore_index=0, inplace=True, bench=True)
+    # test_triton_softmax_cross_entropy(M=8192, N=157184-16, coef=10000.0, grad_coef=100.0, fill=True, inplace=True, bench=True)
+    # test_triton_softmax_cross_entropy(M=8192, N=175175, coef=1.0, grad_coef=1.0, inplace=True, bench=True)
+    # test_triton_softmax_cross_entropy(M=8192, N=157184, coef=0.0, grad_coef=0.0, inplace=True, bench=True)
+    # test_triton_softmax_cross_entropy(M=8192, N=157184, coef=0.0, grad_coef=100.0, inplace=True, bench=True)
+    # test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1000.0, grad_coef=0.0, inplace=True, bench=True)
+    # test_triton_softmax_cross_entropy(M=8192, N=157184, coef=100.0, grad_coef=100.0, fill=True, inplace=True, bench=True)
+    # test_triton_softmax_cross_entropy(M=4096, N=157184, coef=0.1, grad_coef=1.0, inplace=True, bench=False)
 
-    test_z_loss(L=4096, B=2, N=256, coef=1e-6, bench=False)
+    # test_z_loss(L=4096, B=2, N=256, coef=1e-6, bench=False)

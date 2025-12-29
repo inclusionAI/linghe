@@ -76,7 +76,6 @@ def triton_softmax_cross_entropy_forward(logits, labels, ignore_index=-100):
         num_stages=3,
         num_warps=2
     )
-    print(f'{(labels<0).sum()=} {(labels==-100).sum()=} {ignore_index=} {labels=}')
     return loss, sum_exp, max_logit
 
 
@@ -109,7 +108,7 @@ def softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
     coef = output_grad / sum_exp
     target_logit = tl.load(logit_ptr + pid * N + label).to(tl.float32)
     target_grad = (tl.exp(target_logit - max_logit) / sum_exp - 1) * output_grad
-    tl.debug_barrier()  # is it neccessary?
+    tl.debug_barrier()  # must add barrier here, or it may read stored values
     for i in range(T):
         logit = tl.load(logit_ptr + pid * N + i * B + tl.arange(0, B),
                         mask=i * B + tl.arange(0, B) < N, other=-1e10).to(
@@ -332,10 +331,7 @@ def parallel_softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp
     sum_exp = tl.load(sum_exp_ptr + pid)
     max_logit = tl.load(max_logit_ptr + pid)
     coef = output_grad / sum_exp
-
-
-    tl.debug_barrier()
-
+    tl.debug_barrier()  # must add barrier here, or it may read stored values
     for i in range(T):
         logit = tl.load(logit_ptr + pid * N + i * B + tl.arange(0, B),
                         mask=i * B + tl.arange(0, B) < N, other=-1e10).to(
