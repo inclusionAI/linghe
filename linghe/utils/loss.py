@@ -24,6 +24,7 @@ def softmax_cross_entropy_forward_kernel(logit_ptr,
         tl.store(max_logit_ptr + pid, 0.0)
         tl.store(loss_ptr + pid, 0.0)
         return
+
     sum_exp = 0.0
     sum_exp = sum_exp.to(tl.float64)
     T = tl.cdiv(N, B)
@@ -58,9 +59,9 @@ def triton_softmax_cross_entropy_forward(logits, labels, ignore_index=-100):
     M, N = logits.shape
     device = logits.device
     assert logits.is_contiguous() and labels.is_contiguous()
-    loss = torch.ones((M,), device=device, dtype=torch.float32)
-    sum_exp = torch.ones((M,), device=device, dtype=torch.float32)
-    max_logit = torch.ones((M,), device=device, dtype=torch.float32)
+    loss = torch.empty((M,), device=device, dtype=torch.float32)
+    sum_exp = torch.empty((M,), device=device, dtype=torch.float32)
+    max_logit = torch.empty((M,), device=device, dtype=torch.float32)
     B = 2048
     grid = (M,)
     softmax_cross_entropy_forward_kernel[grid](
@@ -75,6 +76,7 @@ def triton_softmax_cross_entropy_forward(logits, labels, ignore_index=-100):
         num_stages=3,
         num_warps=2
     )
+    print(f'{(labels<0).sum()=} {(labels==-100).sum()=} {ignore_index=} {labels=}')
     return loss, sum_exp, max_logit
 
 
@@ -107,6 +109,7 @@ def softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
     coef = output_grad / sum_exp
     target_logit = tl.load(logit_ptr + pid * N + label).to(tl.float32)
     target_grad = (tl.exp(target_logit - max_logit) / sum_exp - 1) * output_grad
+    tl.debug_barrier()  # is it neccessary?
     for i in range(T):
         logit = tl.load(logit_ptr + pid * N + i * B + tl.arange(0, B),
                         mask=i * B + tl.arange(0, B) < N, other=-1e10).to(
