@@ -1,8 +1,17 @@
 # Changelog
 
+
+## linghe 0.2.8
+
+- fix racing condition bug in softmax_cross_entropy kernel
+- use tl.rsqrt instead of 1/tl.sqrt in all kernels
+- add the parameter `tp_group` to `softmax_cross_entropy`
+
+
+
 ## linghe 0.2.7
 
-- support arg `ignore_index` in `softmax_cross_entropy`
+- add the parameter `ignore_index` to `softmax_cross_entropy`
 - support parallel `softmax_cross_entropy`
 - add dtype and numel assertion in multiple batch kernels
 
