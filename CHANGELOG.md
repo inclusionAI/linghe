@@ -1,6 +1,12 @@
 # Changelog
 
 
+
+## linghe 0.2.9
+
+- support stride in grad tensor of `embedding` kernel
+
+
 ## linghe 0.2.8
 
 - fix racing condition bug in softmax_cross_entropy kernel
