@@ -91,7 +91,6 @@ def triton_embedding_backward(y, x, g_ptr, dtype=torch.bfloat16):
     Returns:
         None
     """
-    # assert y.is_contiguous(), f'{y.shape=} {y.stride()=}'
     assert dtype in (torch.bfloat16, torch.float32)
     shape = x.shape
     assert len(shape) == 2

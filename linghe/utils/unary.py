@@ -60,13 +60,17 @@ def triton_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5, inplace=Fal
 
 @triton.jit
 def batch_clip_kernel(input_ptrs, size_ptr, clip_value, 
-                              B: tl.constexpr):
+                      DT: tl.constexpr,
+                      B: tl.constexpr):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1)
     T = tl.num_programs(axis=1)
 
     size = tl.load(size_ptr + tid)
-    input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
+    if DT == 0:
+        input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
+    else:
+        input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.bfloat16))
     t = tl.cdiv(size, B * T)
     offs = bid.to(tl.int64) * t * B + tl.arange(0, B)
     for i in range(t):
@@ -86,7 +90,11 @@ def triton_batch_clip(xs, clip_value=100.0):
     Returns:
         updated xs
     """
-    assert all([x.is_contiguous() and x.dtype == torch.float32 for x in xs])
+    if len(xs) == 0:
+        return
+    dtype = xs[0].dtype
+    assert dtype in (torch.float32, torch.bfloat16)
+    assert all([x.is_contiguous() and x.dtype == dtype for x in xs])
 
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs], 
@@ -94,6 +102,7 @@ def triton_batch_clip(xs, clip_value=100.0):
     ptrs = torch.tensor([x.data_ptr() for x in xs], 
                         dtype=torch.int64).cuda(device, non_blocking=True)
 
+    DT = 0 if dtype == torch.float32 else 1
     T = 256
     tensor_count = len(xs)
     B = 512
@@ -102,6 +111,7 @@ def triton_batch_clip(xs, clip_value=100.0):
         ptrs,
         sizes,
         clip_value,
+        DT,
         B,
         num_stages=2,
         num_warps=2

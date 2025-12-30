@@ -204,9 +204,10 @@ def triton_norm(x, ord=2, norm=True, scalar=True):
 
 @triton.jit
 def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr, 
-                              B: tl.constexpr,
-                              ORD: tl.constexpr,
-                              HP: tl.constexpr):
+                        DT: tl.constexpr,
+                        B: tl.constexpr,
+                        ORD: tl.constexpr,
+                        HP: tl.constexpr):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1).to(tl.int64)
     sm = tl.num_programs(axis=1)
@@ -216,7 +217,10 @@ def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr,
         sums = tl.zeros((B, ), dtype=tl.float32)
 
     size = tl.load(size_ptr + tid)
-    input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
+    if DT == 0:
+        input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
+    else:
+        input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.bfloat16))
     t = tl.cdiv(size, B * sm)
     offs = bid * t * B + tl.arange(0, B)
     for i in range(t):
@@ -257,15 +261,18 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
     """
     if len(xs) == 0:
         return torch.zeros(() if scalar else (1,), device='cuda', dtype=torch.float32)
-    assert all([x.is_contiguous() and x.numel() > 0 and x.dtype == torch.float32 for x in xs])
+    dtype = xs[0].dtype
+    assert dtype in (torch.float32, torch.bfloat16)
+    assert all([x.is_contiguous() and x.dtype == dtype for x in xs])
     assert ord in (1, 2, -1)
-    # assert all([x.is_contiguous() for x in xs])
+
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs], 
                          dtype=torch.int64).cuda(device, non_blocking=True)
     ptrs = torch.tensor([x.data_ptr() for x in xs], 
                         dtype=torch.int64).cuda(device, non_blocking=True)
 
+    DT = 0 if dtype == torch.float32 else 1
     sm = 256
     tensor_count = len(xs)
     tmp = torch.empty((tensor_count, sm), device=device, 
@@ -276,6 +283,7 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
         ptrs,
         sizes,
         tmp,
+        DT,
         B,
         ord,
         high_precision,

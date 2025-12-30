@@ -5,6 +5,8 @@
 ## linghe 0.2.9
 
 - support stride in grad tensor of `embedding` kernel
+- return grad for dummy tensor in `embedding` kernel
+- support bf16 in batch mul/clip/norm kernels
 
 
 ## linghe 0.2.8
