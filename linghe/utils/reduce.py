@@ -98,7 +98,7 @@ def batch_count_zero_kernel(input_ptrs, size_ptr, count_ptr, B: tl.constexpr):
     input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
     t = tl.cdiv(size, B * sm)
     offs = bid * t * B + tl.arange(0, B)
-    for i in range(t):
+    for i in tl.range(t, flatten=True):
         x = tl.load(input_ptr + offs, mask=offs < size, other=1).to(tl.float32)
         count += tl.sum(tl.where(x == 0, 1, 0))
         offs += B
@@ -122,11 +122,11 @@ def triton_batch_count_zero(xs):
     ptrs = torch.tensor([x.data_ptr() for x in xs], 
                         dtype=torch.int64).cuda(device, non_blocking=True)
 
-    sm = 256
+    block = 2048
     tensor_count = len(xs)
     counts = torch.empty((tensor_count, sm), device=device, dtype=torch.int64)
     B = 1024
-    grid = (tensor_count, sm)
+    grid = (tensor_count, block)
     batch_count_zero_kernel[grid](
         ptrs,
         sizes,
