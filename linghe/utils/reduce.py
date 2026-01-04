@@ -124,7 +124,7 @@ def triton_batch_count_zero(xs):
 
     block = 2048
     tensor_count = len(xs)
-    counts = torch.empty((tensor_count, sm), device=device, dtype=torch.int64)
+    counts = torch.empty((tensor_count, block), device=device, dtype=torch.int64)
     B = 1024
     grid = (tensor_count, block)
     batch_count_zero_kernel[grid](

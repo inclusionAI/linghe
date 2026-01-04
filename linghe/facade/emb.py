@@ -21,7 +21,7 @@ class EmbeddingLookup(torch.autograd.Function):
     def backward(ctx, grad_output):
         x, dummy_tensor = ctx.saved_tensors
         triton_embedding_backward(grad_output, x, ctx.g_ptr, ctx.grad_dtype)
-        return None, None, None, None, None, None, dummy_tensor
+        return None, None, None, None, None, None, torch.zeros_like(dummy_tensor)
 
 
 def embedding_lookup(x: torch.Tensor, w_ptr, g_ptr, dim, dtype, grad_dtype, dummy_tensor):
