@@ -2,6 +2,14 @@
 
 
 
+
+## linghe 0.3.0
+
+- use fast and accurate implementation for `embedding` kernel
+- return zeros tensor for dummy tensor in `embedding` kernel
+- use 2048 block number for `batch_count_zero` kernel
+
+
 ## linghe 0.2.9
 
 - support stride in grad tensor of `embedding` kernel
@@ -14,7 +22,6 @@
 - fix racing condition bug in softmax_cross_entropy kernel
 - use tl.rsqrt instead of 1/tl.sqrt in all kernels
 - add the parameter `tp_group` to `softmax_cross_entropy`
-
 
 
 ## linghe 0.2.7

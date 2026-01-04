@@ -7,9 +7,29 @@ import torch
 
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
-from linghe.utils.emb import triton_embedding_forward, triton_embedding_backward
+from linghe.utils.emb import (triton_embedding_forward,
+                              triton_embedding_backward,
+                              triton_scan_and_count,
+                              triton_sync_embedding_backward,
+                              triton_atomic_embedding_backward
+                            )
 from linghe.facade.emb import embedding_lookup
 
+
+def test_scan(M=4096, bench=False):
+    device = 'cuda:0'
+    input_ids = torch.randint(0, 10000, (M, ), dtype=torch.int32, device=device)
+
+    sorted_ids, sorted_indices = torch.sort(input_ids, stable=False)
+    unique_ids_ref, unique_counts_ref = torch.unique_consecutive(sorted_ids, return_counts=True)
+    accum_counts_ref = torch.cumsum(torch.tensor([0] + unique_counts_ref.tolist(), device=unique_counts_ref.device), 0)
+    size = accum_counts_ref.size(0)
+
+    accum_counts = triton_scan_and_count(sorted_ids)
+    output_check(accum_counts_ref, accum_counts[:size], name='accum_counts')
+    
+    if bench:
+        ref_time = benchmark_func(triton_scan_and_count, sorted_ids)
 
 
 def test_embedding(B=2, M=4096, V=150000, D=4096, transpose=False, bench=False):
@@ -29,38 +49,44 @@ def test_embedding(B=2, M=4096, V=150000, D=4096, transpose=False, bench=False):
     y_ref.backward(dy, retain_graph=True)
     grad_ref = weights.grad.clone().detach()
 
-    grad = weights.grad.clone().detach()
+    grad = weights.grad.float()
     grad.zero_()
     y = triton_embedding_forward(input_ids, weights.data_ptr(), D, dtype)
-    triton_embedding_backward(dy, input_ids, grad.data_ptr(), grad.dtype)
     output_check(y_ref, y, name='y')
-    output_check(grad_ref, grad, name='grad')
+    
+    triton_embedding_backward(dy, input_ids, grad.data_ptr(), grad.dtype)
+    output_check(grad_ref, grad.to(dtype), name='grad')
 
-    weights.grad.zero_()
-    y = embedding_lookup(input_ids, weights.data_ptr(), weights.grad.data_ptr(), D, dtype, weights.grad.dtype, dummy_tensor)
+    grad.zero_()
+    y = embedding_lookup(input_ids, weights.data_ptr(), grad.data_ptr(), D, dtype, grad.dtype, dummy_tensor)
     y.backward(dy, retain_graph=True)
     grad = weights.grad.clone().detach()
     output_check(y_ref, y, name='y')
-    output_check(grad_ref, grad, name='grad')
+    output_check(grad_ref, grad.to(dtype), name='grad')
 
     if bench:
-        # benchmark_func(torch.unique, input_ids.view(-1), sorted=True, return_inverse=True, return_counts=True)
-        # benchmark_func(torch.argsort, input_ids.view(-1), stable=False)
-        # benchmark_func(torch.unique_consecutive, torch.argsort(input_ids.view(-1), stable=False), return_counts=True)
-
         ref_bytes = B*M*D*4
         ref_time = benchmark_func(embedding.forward, input_ids)
         benchmark_func(embedding_lookup, input_ids, weights.data_ptr(), weights.grad.data_ptr(), D, dtype, weights.grad.dtype, dummy_tensor,
                        ref_time=ref_time, ref_bytes=ref_bytes)
 
-        ref_time = benchmark_func(y_ref.backward,dy, retain_graph=True)
+        ref_time = benchmark_func(y_ref.backward, dy, retain_graph=True)
+        benchmark_func(triton_atomic_embedding_backward, dy, input_ids, grad.data_ptr(), grad.dtype, 
+                       ref_time=ref_time, ref_bytes=ref_bytes)
+        benchmark_func(triton_sync_embedding_backward, dy, input_ids, grad.data_ptr(), grad.dtype, 
+                       ref_time=ref_time, ref_bytes=ref_bytes)
+        benchmark_func(triton_embedding_backward, dy, input_ids, grad.data_ptr(), grad.dtype, 
+                       ref_time=ref_time, ref_bytes=ref_bytes)
         benchmark_func(y.backward, dy, retain_graph=True,
                        ref_time=ref_time, ref_bytes=ref_bytes)
 
 
 if __name__ == '__main__':
-    test_embedding(B=1, M=8192, V=150000, D=8192, transpose=False, bench=True)
-    test_embedding(B=1, M=8192, V=150000, D=8192, transpose=True, bench=True)
-    test_embedding(B=2, M=4096, V=150000, D=8192, transpose=False, bench=True)
-    test_embedding(B=2, M=4096, V=150000, D=8192, transpose=True, bench=True)
+    test_scan(M=8192, bench=False)
+    test_embedding(B=1, M=8192, V=150000, D=8192, transpose=False, bench=False)
+    test_embedding(B=1, M=8192, V=150000, D=8192, transpose=True, bench=False)
+    test_embedding(B=1, M=4096, V=150000, D=8192, transpose=False, bench=False)
+    test_embedding(B=2, M=4096, V=150000, D=8192, transpose=True, bench=False)
+    test_embedding(B=0, M=4096, V=150000, D=8192, transpose=True, bench=False)
+
 
