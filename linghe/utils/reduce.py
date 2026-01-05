@@ -115,7 +115,7 @@ def triton_batch_count_zero(xs):
     Returns:
         a single-value int64 tensor
     """
-    assert all([x.is_contiguous() and x.numel() > 0 for x in xs])
+    assert all([x.is_contiguous() for x in xs])
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs], 
                          dtype=torch.int64).cuda(device, non_blocking=True)
