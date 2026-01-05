@@ -5,8 +5,8 @@
 
 ## linghe 0.3.0
 
-- use fast and accurate implementation for `embedding` kernel
-- return zeros tensor for dummy tensor in `embedding` kernel
+- use faster and more accurate implementation for `embedding` backward
+- add multiple embedding_lookup implementations
 - use 2048 block number for `batch_count_zero` kernel
 
 
