@@ -27,3 +27,4 @@ if __name__ == '__main__':
     test_group_quant(M=4096, N=4096, B=128)
     test_group_quant(M=4096, N=8192, B=128)
     test_group_quant(M=2049, N=8192, B=128)
+    test_group_quant(M=2049, N=1536, B=128)
