@@ -384,7 +384,7 @@ def output_check(org_out, opt_out, mode="", rtol=None, atol=None):
         opt_out.dtype == dtype or dtype == torch.float32
     ), f"ref:{dtype} != out:{opt_out.dtype}"
     if org_out.numel() == 0:
-        return
+        return True
 
     if dtype != torch.float32:
         org_out = org_out.float()
@@ -394,7 +394,7 @@ def output_check(org_out, opt_out, mode="", rtol=None, atol=None):
     abs_error = (opt_out - org_out).abs().mean().item()
     rel_error = abs_error / max(org_out.abs().mean().item(), 1e-38)
     if rel_error >= 0.005:
-        rel_err_str = f"\033[91m {rel_error:.6f}\033[00m"
+        rel_err_str = f"\033[91m{rel_error:.6f}\033[00m"
     else:
         rel_err_str = f"{rel_error:.6f}"
     org_max = org_out.abs().max()
@@ -402,12 +402,13 @@ def output_check(org_out, opt_out, mode="", rtol=None, atol=None):
     opt_max = opt_out.abs().max()
     opt_mean = opt_out.abs().mean()
     print(
-        f"\n{mode:<16}  rel:{rel_err_str}  abs:{abs_error:.6f}  "
+        f"{mode:<16}  rel:{rel_err_str}  abs:{abs_error:.6f}  "
         f"org:{org_max:.3f}/{org_mean:.3f} "
         f"opt:{opt_max:.3f}/{opt_mean:.3f} "
     )
     if rtol is not None and atol is not None:
         torch.testing.assert_close(opt_out, org_out, rtol=rtol, atol=atol)
+    return rel_error < 0.1
 
 
 def quant_check(org_out, xq, wq, opt_out, mode):
@@ -418,12 +419,13 @@ def quant_check(org_out, xq, wq, opt_out, mode):
     x_overflow = (torch.isnan(xq)).sum().item()
     w_overflow = (torch.isnan(wq)).sum().item()
     print(
-        f"\n{mode}  rel:{rel_error:.3f}  abs:{abs_error:.3f}  "
+        f"{mode}  rel:{rel_error:.3f}  abs:{abs_error:.3f}  "
         f"org:{org_out.abs().max():.3f}/{org_out.abs().mean():.3f} "
         f"opt:{opt_out.abs().max():.3f}/{opt_out.abs().mean():.3f} "
         f"x_underflow:{x_underflow:.5f} w_underflow:{w_underflow:.5f} "
         f"x_overflow:{x_overflow} w_overflow:{w_overflow}"
     )
+    return rel_error < 0.1
 
 
 def read_and_tile(filename, tile=True):
@@ -463,7 +465,7 @@ def read_and_tile(filename, tile=True):
     batch_size, in_dim = x.shape
     out_dim, in_dim = w.shape
     print(
-        f"\ndataset: {batch_size=} {in_dim=} {out_dim=} "
+        f"dataset: {batch_size=} {in_dim=} {out_dim=} "
         f"x.max={x.abs().max().item():.3f} x.mean={x.abs().mean().item():.3f} "
         f"w.max={w.abs().max().item():.3f} w.mean={w.abs().mean().item():.3f} "
         f"y.max={y.abs().max().item():.3f} y.mean={y.abs().mean().item():.3f}"

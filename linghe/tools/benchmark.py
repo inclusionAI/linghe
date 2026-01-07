@@ -7,7 +7,7 @@ import time
 
 import torch
 from torch.profiler import profile, ProfilerActivity
-
+import torch_musa
 
 def benchmark_func(
     fn,
@@ -37,7 +37,8 @@ def benchmark_func(
         fn(*args, **kwargs)
         end_events[i].record()
 
-    torch.cuda.synchronize()
+    # torch.cuda.synchronize()
+    torch_musa.synchronize()
 
     if n_profile > 0:
         with profile(

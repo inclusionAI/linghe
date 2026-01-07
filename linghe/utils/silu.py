@@ -5,6 +5,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 from typing import Optional
 import torch
+import torch_musa
 import triton
 import triton.language as tl
 
@@ -1210,7 +1211,7 @@ def triton_batch_weighted_silu_and_smooth_quant_forward(
     if out is None:
         out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
 
-    sm = torch.cuda.get_device_properties(device).multi_processor_count
+    sm = torch_musa.get_device_properties(device).multi_processor_count
     tmp_maxs = None
     if scale is None:
         scale = torch.empty((M,), device=device, dtype=torch.float32)

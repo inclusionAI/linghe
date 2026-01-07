@@ -3,8 +3,11 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import pytest
+
 import torch
 import torch.nn.functional as F
+import torch_musa
 
 from linghe.utils.norm import (
     triton_rms_norm_and_smooth_quant_forward,
@@ -122,10 +125,11 @@ def torch_group_rms_norm_gate_backward(
     y.backward(gradient=grad_output)
     return x.grad, gate.grad, weight.grad
 
-
-def test_rmsnorm(M=4096, N=4096, bench=False):
+@pytest.mark.parametrize("M,N", [(16384, 2048), (8192, 4096), (4096, 8192)])
+@pytest.mark.parametrize("bench", [True])
+def test_rmsnorm(M, N, bench):
     dtype = torch.bfloat16
-    device = "cuda:0"
+    device = "musa:0"
 
     x = torch.randn(M, N, dtype=dtype, requires_grad=True, device=device) ** 3
     weight = torch.randn(N, dtype=dtype, requires_grad=True, device=device)
@@ -133,27 +137,29 @@ def test_rmsnorm(M=4096, N=4096, bench=False):
 
     y_ref = torch_rms_forward(x, weight)
     y = triton_rms_norm_forward(x, weight)
-    output_check(y_ref.float(), y.float(), "y")
+    assert output_check(y_ref.float(), y.float(), "y")
 
     dx_ref, dw_ref = torch_rms_backward(x, weight, dy)
     dx, dw = triton_rms_norm_backward(dy, x, weight)
-    output_check(dx_ref, dx, mode="dx")
-    output_check(dw_ref, dw, mode="dw")
+    assert output_check(dx_ref, dx, mode="dx")
+    assert output_check(dw_ref, dw, mode="dw")
 
     if bench:
+        benchmark_func(torch_rms_forward, x, weight)
         benchmark_func(triton_rms_norm_forward, x, weight, ref_bytes=M * N * 3)
+        benchmark_func(torch_rms_backward, x, weight, dy)
         benchmark_func(triton_rms_norm_backward, dy, x, weight, ref_bytes=M * N * 3)
 
 
-def test_rmsnorm_and_smooth_quant(M=4096, N=4096, bench=False):
+@pytest.mark.parametrize("M,N", [(16384, 2048), (8192, 4096), (4096, 8192)])
+@pytest.mark.parametrize("bench", [True])
+def test_rmsnorm_and_smooth_quant(M, N, bench):
     dtype = torch.bfloat16
-    device = "cuda:0"
+    device = "musa:0"
 
     x = torch.randn(M, N, dtype=dtype, requires_grad=True, device=device)
     weight = torch.randn(N, dtype=dtype, requires_grad=True, device=device)
-    smooth_scale = (
-        torch.rand(N, dtype=torch.float32, requires_grad=False, device=device) + 0.1
-    )
+    smooth_scale = torch.rand(N, dtype=torch.float32, requires_grad=False, device=device) + 0.1
     calibrate = True
 
     # smooth
@@ -169,10 +175,10 @@ def test_rmsnorm_and_smooth_quant(M=4096, N=4096, bench=False):
         output_rms=True,
         round_scale=True,
     )
-    output_check(q_ref, q, mode="smooth.data")
-    output_check(scale_ref, scale, mode="smooth.scale")
+    assert output_check(q_ref, q, mode="smooth.data")
+    assert output_check(scale_ref, scale, mode="smooth.scale")
     if calibrate:
-        output_check(maxs_ref, maxs, mode="smooth.maxs")
+        assert output_check(maxs_ref, maxs, mode="smooth.maxs")
 
     if bench:
         benchmark_func(
@@ -187,9 +193,11 @@ def test_rmsnorm_and_smooth_quant(M=4096, N=4096, bench=False):
         )
 
 
-def test_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
+@pytest.mark.parametrize("M,N", [(128, 2048), (8192, 4096)])
+@pytest.mark.parametrize("bench", [True])
+def test_rmsnorm_and_block_quant(M, N, bench):
     dtype = torch.bfloat16
-    device = "cuda:0"
+    device = "musa:0"
 
     x = torch.randn(M, N, dtype=dtype, requires_grad=True, device=device) ** 2
     weight = torch.randn(N, dtype=dtype, requires_grad=True, device=device)
@@ -201,22 +209,22 @@ def test_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
     q, scale, rms, q_t, scale_t = triton_rms_norm_and_block_quant_forward(
         x, weight, round_scale=True, output_mode=2
     )
-    output_check(q_ref, q, mode="2.block.data")
-    output_check(scale_ref.t(), scale, mode="2.block.scale")
-    output_check(qt_ref, q_t, mode="2.block.t_data")
-    output_check(scale_t_ref.t(), scale_t, mode="2.block.t_scale")
+    assert output_check(q_ref, q, mode="2.block.data")
+    assert output_check(scale_ref.t(), scale, mode="2.block.scale")
+    assert output_check(qt_ref, q_t, mode="2.block.t_data")
+    assert output_check(scale_t_ref.t(), scale_t, mode="2.block.t_scale")
 
     q, scale, _, _, _ = triton_rms_norm_and_block_quant_forward(
         x, weight, round_scale=True, output_mode=0
     )
-    output_check(q_ref, q, mode="0.block.data")
-    output_check(scale_ref.t(), scale, mode="0.block.scale")
+    assert output_check(q_ref, q, mode="0.block.data")
+    assert output_check(scale_ref.t(), scale, mode="0.block.scale")
 
     _, _, _, q_t, scale_t = triton_rms_norm_and_block_quant_forward(
         x, weight, round_scale=True, rms=rms, output_mode=1
     )
-    output_check(qt_ref, q_t, mode="0.block.t_data")
-    output_check(scale_t_ref.t(), scale_t, mode="0.block.t_scale")
+    assert output_check(qt_ref, q_t, mode="0.block.t_data")
+    assert output_check(scale_t_ref.t(), scale_t, mode="0.block.t_scale")
 
     if bench:
         benchmark_func(
@@ -247,11 +255,12 @@ def test_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
         )
 
 
-def test_group_rms_norm_gate(
-    bs=1, length=4096, dim=4096, group_size=4, transpose=True, bench=False
-):
+@pytest.mark.parametrize("bs,length,dim,group_size", [(2, 4096, 2048,4), (1, 4096, 4096,4)])
+@pytest.mark.parametrize("transpose", [True, False])
+@pytest.mark.parametrize("bench", [False])
+def test_group_rms_norm_gate(bs, length, dim, group_size, transpose, bench):
     dtype = torch.bfloat16
-    device = "cuda:0"
+    device = "musa:0"
     x = (
         torch.randn(bs, length, dim, dtype=dtype, requires_grad=True, device=device)
         ** 2
@@ -278,7 +287,7 @@ def test_group_rms_norm_gate(
     output = triton_group_rms_norm_gate_forward(
         x, gate, weight, group_size=group_size, transpose=transpose
     )
-    output_check(output_ref, output.float(), mode="group_norm_gate.y")
+    assert output_check(output_ref, output.float(), mode="group_norm_gate.y")
 
     dx_ref, dg_ref, dw_ref = torch_group_rms_norm_gate_backward(
         grad_output, x, gate, weight, group_size=group_size, transpose=transpose
@@ -286,9 +295,9 @@ def test_group_rms_norm_gate(
     dx, dg, dw = triton_group_rms_norm_gate_backward(
         grad_output, x, gate, weight, group_size=group_size, transpose=transpose
     )
-    output_check(dx_ref, dx.float(), mode="group_norm_gate.dx")
-    output_check(dg_ref, dg.float(), mode="group_norm_gate.dg")
-    output_check(dw_ref, dw.float(), mode="group_norm_gate.dw")
+    assert output_check(dx_ref, dx.float(), mode="group_norm_gate.dx")
+    assert output_check(dg_ref, dg.float(), mode="group_norm_gate.dg")
+    assert output_check(dw_ref, dw.float(), mode="group_norm_gate.dw")
 
     if bench:
         benchmark_func(
@@ -318,21 +327,3 @@ def test_group_rms_norm_gate(
             group_size=group_size,
             ref_bytes=bs * length * dim * 10,
         )
-
-
-if __name__ == "__main__":
-    test_rmsnorm(M=16384, N=2048, bench=False)
-    test_rmsnorm(M=8192, N=4096, bench=False)
-    test_rmsnorm(M=4096, N=8192, bench=False)
-    test_rmsnorm_and_smooth_quant(M=16384, N=2048, bench=False)
-    test_rmsnorm_and_smooth_quant(M=8192, N=4096, bench=False)
-    test_rmsnorm_and_smooth_quant(M=4096, N=8192, bench=False)
-    test_rmsnorm_and_block_quant(M=128, N=2048, bench=False)
-    test_rmsnorm_and_block_quant(M=8192, N=4096, bench=False)
-    test_group_rms_norm_gate(
-        bs=2, length=4096, dim=2048, group_size=4, transpose=True, bench=False
-    )
-    test_group_rms_norm_gate(
-        bs=2, length=4096, dim=2048, group_size=4, transpose=False, bench=False
-    )
-    test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4, bench=False)

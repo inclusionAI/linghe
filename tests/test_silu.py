@@ -3,11 +3,13 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import pytest
 import random
 
 random.seed(7)
 
 import torch
+import torch_musa
 
 from linghe.tools.benchmark import benchmark_func
 from linghe.utils.silu import (
@@ -290,19 +292,21 @@ def torch_batch_weighted_silu_and_block_quant_backward(
     return dx_q, dx_scale, dw, qts, qtscales
 
 
-def test_weighted_silu(M=4096, N=4096, bench=False):
-    x = torch.randn((M, N), dtype=torch.bfloat16, device="cuda:0")
+@pytest.mark.parametrize("M,N", [(16384, 1024)])
+@pytest.mark.parametrize("bench", [True])
+def test_weighted_silu(M, N, bench):
+    x = torch.randn((M, N), dtype=torch.bfloat16, device="musa:0")
     x = (x**3 // 10).clone().detach().requires_grad_()
-    weight = torch.randn((M, 1), dtype=torch.bfloat16, device="cuda:0")
-    grad_output = torch.randn((M, N // 2), dtype=torch.bfloat16, device="cuda:0")
+    weight = torch.randn((M, 1), dtype=torch.bfloat16, device="musa:0")
+    grad_output = torch.randn((M, N // 2), dtype=torch.bfloat16, device="musa:0")
     ref_y = torch_weighted_silu(x, weight)
     y = triton_weighted_silu_forward(x, weight)
-    output_check(ref_y, y, "y")
+    assert output_check(ref_y, y, "y")
 
     dx_ref, dw_ref = torch_weighted_silu_backward(grad_output, x, weight)
     dx, dw = triton_weighted_silu_backward(grad_output, x, weight)
-    output_check(dx_ref, dx, "dx")
-    output_check(dw_ref, dw, "dw")
+    assert output_check(dx_ref, dx, "dx")
+    assert output_check(dw_ref, dw, "dw")
 
     if bench:
         benchmark_func(
@@ -318,24 +322,26 @@ def test_weighted_silu(M=4096, N=4096, bench=False):
         )
 
 
-def test_silu_and_smooth_quant(M=4096, N=4096, bench=False):
+@pytest.mark.parametrize("M,N", [(16384, 1024), (8192, 2048), (4096, 10240), (4096, 5120)])
+@pytest.mark.parametrize("bench", [True])
+def test_silu_and_smooth_quant(M, N, bench):
     if True:
-        x = torch.randn((M, N), dtype=torch.bfloat16, device="cuda:0")
+        x = torch.randn((M, N), dtype=torch.bfloat16, device="musa:0")
         x = (x * 10).clone().detach().requires_grad_()
-        grad_output = torch.randn((M, N // 2), dtype=torch.bfloat16, device="cuda:0")
-        smooth_scale = 1 + torch.rand((N // 2,), dtype=torch.float32, device="cuda:0")
-        grad_smooth_scale = 1 + torch.rand((N,), dtype=torch.float32, device="cuda:0")
+        grad_output = torch.randn((M, N // 2), dtype=torch.bfloat16, device="musa:0")
+        smooth_scale = 1 + torch.rand((N // 2,), dtype=torch.float32, device="musa:0")
+        grad_smooth_scale = 1 + torch.rand((N,), dtype=torch.float32, device="musa:0")
         transpose_grad_smooth_scale = 1 + torch.rand(
-            (M,), dtype=torch.float32, device="cuda:0"
+            (M,), dtype=torch.float32, device="musa:0"
         )
     else:
         d = torch.load("/ossfs/workspace/tmp/vis/silu.bin")
-        x = d["x"].clone().detach().to("cuda:0").requires_grad_()
-        grad_output = d["g"].to("cuda:0")
-        grad_smooth_scale = d["smooth_scale"].to("cuda:0")
+        x = d["x"].clone().detach().to("musa:0").requires_grad_()
+        grad_output = d["g"].to("musa:0")
+        grad_smooth_scale = d["smooth_scale"].to("musa:0")
         N = x.shape[-1]
         M = x.shape[0]
-        smooth_scale = 1 + torch.rand((N // 2,), dtype=torch.float32, device="cuda:0")
+        smooth_scale = 1 + torch.rand((N // 2,), dtype=torch.float32, device="musa:0")
 
     y_q_ref, y_scale_ref, y_maxs_ref = torch_silu_and_smooth_quant_forward(
         x, smooth_scale=smooth_scale
@@ -343,9 +349,9 @@ def test_silu_and_smooth_quant(M=4096, N=4096, bench=False):
     y_q, y_scale, y_maxs = triton_silu_and_smooth_quant_forward(
         x, smooth_scale=smooth_scale, round_scale=True, calibrate=True
     )
-    output_check(y_q_ref.float(), y_q.float(), "smooth.y_q")
-    output_check(y_scale_ref, y_scale, "smooth.y_scale")
-    output_check(y_maxs_ref, y_maxs, "smooth.y_max")
+    assert output_check(y_q_ref.float(), y_q.float(), "smooth.y_q")
+    assert output_check(y_scale_ref, y_scale, "smooth.y_scale")
+    assert output_check(y_maxs_ref, y_maxs, "smooth.y_max")
 
     dx_q_ref, dx_scale_ref, dxt_q_ref, dxt_scale_ref = (
         torch_silu_and_smooth_quant_backward(
@@ -366,10 +372,10 @@ def test_silu_and_smooth_quant(M=4096, N=4096, bench=False):
         round_scale=True,
     )
 
-    output_check(dx_q_ref.float(), dx_q.float(), "smooth.dx_data")
-    output_check(dx_scale_ref, dx_scale, "smooth.dx_scale")
-    output_check(dxt_q_ref.float(), dxt_q.float(), "smooth.dxt_data")
-    output_check(dxt_scale_ref, dxt_scale, "smooth.dxt_scale")
+    assert output_check(dx_q_ref.float(), dx_q.float(), "smooth.dx_data")
+    assert output_check(dx_scale_ref, dx_scale, "smooth.dx_scale")
+    assert output_check(dxt_q_ref.float(), dxt_q.float(), "smooth.dxt_data")
+    assert output_check(dxt_scale_ref, dxt_scale, "smooth.dxt_scale")
 
     if bench:
         benchmark_func(
@@ -392,20 +398,22 @@ def test_silu_and_smooth_quant(M=4096, N=4096, bench=False):
             x,
             smooth_scale=grad_smooth_scale,
             transpose_smooth_scale=transpose_grad_smooth_scale,
-            n_repeat=100,
-            ref_bytes=M * N * 5,
+            reverse=True,
+            round_scale=True,
         )
 
 
-def test_silu_and_block_quant(M=4096, N=4096, bench=False):
+@pytest.mark.parametrize("M,N", [(16384, 1024)])
+@pytest.mark.parametrize("bench", [True])
+def test_silu_and_block_quant(M, N, bench):
     if True:
-        x = torch.randn((M, N), dtype=torch.bfloat16, device="cuda:0")
+        x = torch.randn((M, N), dtype=torch.bfloat16, device="musa:0")
         x = (x * 10).clone().detach().requires_grad_()
-        grad_output = torch.randn((M, N // 2), dtype=torch.bfloat16, device="cuda:0")
+        grad_output = torch.randn((M, N // 2), dtype=torch.bfloat16, device="musa:0")
     else:
         d = torch.load("/ossfs/workspace/tmp/vis/silu.bin")
-        x = d["x"].clone().detach().to("cuda:0").requires_grad_()
-        grad_output = d["g"].to("cuda:0")
+        x = d["x"].clone().detach().to("musa:0").requires_grad_()
+        grad_output = d["g"].to("musa:0")
         N = x.shape[-1]
         M = x.shape[0]
 
@@ -415,22 +423,22 @@ def test_silu_and_block_quant(M=4096, N=4096, bench=False):
     y_q, y_scale, yt_q, yt_scale = triton_silu_and_block_quant_forward(
         x, round_scale=True, output_mode=2
     )
-    output_check(y_q_ref.float(), y_q.float(), "block.2.y_q")
-    output_check(y_scale_ref, y_scale.t(), "block.2.y_scale")
-    output_check(yt_q_ref, yt_q, "block.2.yt_q")
-    output_check(yt_scale_ref, yt_scale.t(), "block.2.yt_scale")
+    assert output_check(y_q_ref.float(), y_q.float(), "block.2.y_q")
+    assert output_check(y_scale_ref, y_scale.t(), "block.2.y_scale")
+    assert output_check(yt_q_ref, yt_q, "block.2.yt_q")
+    assert output_check(yt_scale_ref, yt_scale.t(), "block.2.yt_scale")
 
     y_q, y_scale, yt_q, yt_scale = triton_silu_and_block_quant_forward(
         x, round_scale=True, output_mode=0
     )
-    output_check(y_q_ref.float(), y_q.float(), "block.0.y_q")
-    output_check(y_scale_ref, y_scale.t(), "block.0.y_scale")
+    assert output_check(y_q_ref.float(), y_q.float(), "block.0.y_q")
+    assert output_check(y_scale_ref, y_scale.t(), "block.0.y_scale")
 
     y_q, y_scale, yt_q, yt_scale = triton_silu_and_block_quant_forward(
         x, round_scale=True, output_mode=1
     )
-    output_check(yt_q_ref.float(), yt_q.float(), "block.1.yt_q")
-    output_check(yt_scale_ref, yt_scale.t(), "block.1.yt_scale")
+    assert output_check(yt_q_ref.float(), yt_q.float(), "block.1.yt_q")
+    assert output_check(yt_scale_ref, yt_scale.t(), "block.1.yt_scale")
 
     dx_q_ref, dx_scale_ref, dxt_q_ref, dxt_scale_ref = (
         torch_silu_and_block_quant_backward(grad_output, x, round_scale=True)
@@ -438,10 +446,10 @@ def test_silu_and_block_quant(M=4096, N=4096, bench=False):
     dx_q, dx_scale, dxt_q, dxt_scale = triton_silu_and_block_quant_backward(
         grad_output, x, round_scale=True
     )
-    output_check(dx_q_ref.float(), dx_q.float(), "block.dx_q")
-    output_check(dx_scale_ref.t(), dx_scale, "block.dx_scale")
-    output_check(dxt_q_ref.float(), dxt_q.float(), "block.dxt_q")
-    output_check(dxt_scale_ref.t(), dxt_scale, "block.dxt_scale")
+    assert output_check(dx_q_ref.float(), dx_q.float(), "block.dx_q")
+    assert output_check(dx_scale_ref.t(), dx_scale, "block.dx_scale")
+    assert output_check(dxt_q_ref.float(), dxt_q.float(), "block.dxt_q")
+    assert output_check(dxt_scale_ref.t(), dxt_scale, "block.dxt_scale")
 
     if bench:
         benchmark_func(
@@ -456,21 +464,22 @@ def test_silu_and_block_quant(M=4096, N=4096, bench=False):
         )
 
 
-def test_triton_batch_weighted_silu_and_smooth_quant(
-    M=1024, N=4096, n_experts=32, bench=False
-):
+@pytest.mark.parametrize("M,N", [(2048, 2048), (800, 2048), (0, 2048)])
+@pytest.mark.parametrize("n_experts", [32])
+@pytest.mark.parametrize("bench", [True])
+def test_triton_batch_weighted_silu_and_smooth_quant(M, N, n_experts, bench):
     if True:
         count_list = [
             random.randint(M // 2, M // 2 * 3) // 16 * 16 for _ in range(n_experts)
         ]
-        counts = torch.tensor(count_list, device="cuda:0", dtype=torch.int32)
+        counts = torch.tensor(count_list, device="musa:0", dtype=torch.int32)
         bs = sum(count_list)
 
-        x = torch.randn((bs, N), dtype=torch.bfloat16, device="cuda:0") ** 3 / 4
-        weight = torch.randn((bs, 1), dtype=torch.float32, device="cuda:0")
+        x = torch.randn((bs, N), dtype=torch.bfloat16, device="musa:0") ** 3 / 4
+        weight = torch.randn((bs, 1), dtype=torch.float32, device="musa:0")
         smooth_scales = (
             1
-            + torch.rand((n_experts, N // 2), dtype=torch.float32, device="cuda:0") * 10
+            + torch.rand((n_experts, N // 2), dtype=torch.float32, device="musa:0") * 10
         )
     else:
         d = torch.load("/ossfs/workspace/Megatron-LM/silu.bin")
@@ -482,12 +491,12 @@ def test_triton_batch_weighted_silu_and_smooth_quant(
         N = x.shape[-1]
         n_experts = counts.shape[0]
 
-    grad_output = torch.randn((bs, N // 2), dtype=torch.bfloat16, device="cuda:0") ** 3
+    grad_output = torch.randn((bs, N // 2), dtype=torch.bfloat16, device="musa:0") ** 3
     grad_smooth_scales = (
-        1 + torch.rand((n_experts, N), dtype=torch.float32, device="cuda:0") * 10
+        1 + torch.rand((n_experts, N), dtype=torch.float32, device="musa:0") * 10
     )
     transpose_grad_smooth_scales = (
-        1 + torch.rand((bs,), dtype=torch.float32, device="cuda:0") * 10
+        1 + torch.rand((bs,), dtype=torch.float32, device="musa:0") * 10
     )
     round_scale = True
 
@@ -509,8 +518,8 @@ def test_triton_batch_weighted_silu_and_smooth_quant(
         round_scale=round_scale,
         reverse=False,
     )
-    output_check(x_q_ref.float(), x_q.float(), "smooth.data")
-    output_check(x_scale_ref, x_scale, "smooth.scale")
+    assert output_check(x_q_ref.float(), x_q.float(), "smooth.data")
+    assert output_check(x_scale_ref, x_scale, "smooth.scale")
 
     dx_ref, dx_scale_ref, dw_ref, dxt_ref, dxt_scale_ref = (
         torch_batch_weighted_silu_and_smooth_quant_backward(
@@ -537,11 +546,11 @@ def test_triton_batch_weighted_silu_and_smooth_quant(
             reverse=False,
         )
     )
-    output_check(dx_ref.float(), dx.float(), "smooth.dx")
-    output_check(dx_scale_ref, dx_scale, "smooth.dx_scale")
-    output_check(dw_ref, dw, "smooth.dw")
-    output_check(dxt_ref.float(), dxt.float(), "smooth.dxt")
-    output_check(dxt_scale_ref, dxt_scale.view(-1), "smooth.dxt_scale")
+    assert output_check(dx_ref.float(), dx.float(), "smooth.dx")
+    assert output_check(dx_scale_ref, dx_scale, "smooth.dx_scale")
+    assert output_check(dw_ref, dw, "smooth.dw")
+    assert output_check(dxt_ref.float(), dxt.float(), "smooth.dxt")
+    assert output_check(dxt_scale_ref, dxt_scale.view(-1), "smooth.dxt_scale")
 
     if bench:
         ref_time = None
@@ -570,18 +579,19 @@ def test_triton_batch_weighted_silu_and_smooth_quant(
         )
 
 
-def test_triton_batch_weighted_silu_and_block_quant(
-    M=1024, N=4096, n_experts=32, bench=False
-):
+@pytest.mark.parametrize("M,N", [(4096, 2048), (1008, 2048)])
+@pytest.mark.parametrize("n_experts", [32])
+@pytest.mark.parametrize("bench", [True])
+def test_triton_batch_weighted_silu_and_block_quant(M, N, n_experts, bench):
     if True:
         count_list = [
             random.randint(M // 2, M // 2 * 3) // 16 * 16 for _ in range(n_experts)
         ]
-        counts = torch.tensor(count_list, device="cuda:0", dtype=torch.int32)
+        counts = torch.tensor(count_list, device="musa:0", dtype=torch.int32)
         bs = sum(count_list)
 
-        x = torch.randn((bs, N), dtype=torch.bfloat16, device="cuda:0") ** 3 / 10
-        weight = torch.randn((bs, 1), dtype=torch.float32, device="cuda:0")
+        x = torch.randn((bs, N), dtype=torch.bfloat16, device="musa:0") ** 3 / 10
+        weight = torch.randn((bs, 1), dtype=torch.float32, device="musa:0")
     else:
         d = torch.load("/ossfs/workspace/Megatron-LM/silu.bin")
         counts = d["counts"].cuda()
@@ -592,7 +602,7 @@ def test_triton_batch_weighted_silu_and_block_quant(
         N = x.shape[-1]
         n_experts = counts.shape[0]
 
-    grad_output = torch.randn((bs, N // 2), dtype=torch.bfloat16, device="cuda:0") ** 3
+    grad_output = torch.randn((bs, N // 2), dtype=torch.bfloat16, device="musa:0") ** 3
     round_scale = True
 
     x_q_ref, x_scale_ref, xt_q_ref, xt_scale_ref = (
@@ -604,10 +614,10 @@ def test_triton_batch_weighted_silu_and_block_quant(
         x, weight, counts, count_list, round_scale=round_scale, output_mode=2
     )
 
-    output_check(x_q_ref.float(), x_q.float(), "block.q")
-    output_check(x_scale_ref, x_scale, "block.scale")
-    output_check(xt_q_ref.float(), xt_q.float(), "block.qt")
-    output_check(xt_scale_ref, xt_scale, "block.t_scale")
+    assert output_check(x_q_ref.float(), x_q.float(), "block.q")
+    assert output_check(x_scale_ref, x_scale, "block.scale")
+    assert output_check(xt_q_ref.float(), xt_q.float(), "block.qt")
+    assert output_check(xt_scale_ref, xt_scale, "block.t_scale")
 
     dx_ref, dx_scale_ref, dw_ref, dxt_ref, dxt_scale_ref = (
         torch_batch_weighted_silu_and_block_quant_backward(
@@ -619,11 +629,11 @@ def test_triton_batch_weighted_silu_and_block_quant(
             grad_output, x, weight, counts, splits=count_list, round_scale=round_scale
         )
     )
-    output_check(dx_ref.float(), dx.float(), "block.dx")
-    output_check(dx_scale_ref, dx_scale, "block.dx_scale")
-    output_check(dw_ref, dw, "block.dw")
-    output_check(dxt_ref.float(), dxt.float(), "block.dxt")
-    output_check(dxt_scale_ref, dxt_scale, "block.dxt_scale")
+    assert output_check(dx_ref.float(), dx.float(), "block.dx")
+    assert output_check(dx_scale_ref, dx_scale, "block.dx_scale")
+    assert output_check(dw_ref, dw, "block.dw")
+    assert output_check(dxt_ref.float(), dxt.float(), "block.dxt")
+    assert output_check(dxt_scale_ref, dxt_scale, "block.dxt_scale")
 
     if bench:
         ref_time = None
@@ -663,31 +673,3 @@ def test_triton_batch_weighted_silu_and_block_quant(
             ref_bytes=n_experts * M * N * 4,
             ref_time=ref_time,
         )
-
-
-if __name__ == "__main__":
-    test_weighted_silu(M=16384, N=1024, bench=True)
-
-    test_silu_and_smooth_quant(M=16384, N=1024, bench=False)
-    test_silu_and_smooth_quant(M=8192, N=2048, bench=False)
-    test_silu_and_smooth_quant(M=4096, N=10240, bench=False)
-    test_silu_and_smooth_quant(M=4096, N=5120, bench=False)
-
-    test_silu_and_block_quant(M=16384, N=1024, bench=True)
-
-    test_triton_batch_weighted_silu_and_smooth_quant(
-        M=2048, N=2048, n_experts=32, bench=False
-    )
-    test_triton_batch_weighted_silu_and_smooth_quant(
-        M=800, N=2048, n_experts=32, bench=False
-    )
-    test_triton_batch_weighted_silu_and_smooth_quant(
-        M=0, N=2048, n_experts=32, bench=False
-    )
-
-    test_triton_batch_weighted_silu_and_block_quant(
-        M=4096, N=2048, n_experts=32, bench=True
-    )
-    test_triton_batch_weighted_silu_and_block_quant(
-        M=1008, N=2048, n_experts=32, bench=False
-    )
