@@ -10,10 +10,10 @@ import torch
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.transpose import (round_up,
-                                   triton_batch_transpose,
-                                   triton_batch_transpose_and_pad,
-                                   triton_transpose,
-                                   triton_transpose_and_pad)
+                                    triton_batch_transpose,
+                                    triton_batch_transpose_and_pad,
+                                    triton_transpose,
+                                    triton_transpose_and_pad)
 
 
 def torch_nd_transpose(x, dim0, dim1):
@@ -90,7 +90,6 @@ def test_nd_transpose(B=4096, M=4, N=4096, bench=False):
     t_ref = torch_nd_transpose(x, 1, 2)
     t = triton_transpose(x, inner=False)
     output_check(t_ref, t, '3d_outer_transpose')
-
 
     if bench:
         x = torch.randn(B, M, N, dtype=dtype, device=device)
@@ -171,7 +170,7 @@ def test_batch_transpose_and_pad(M=4096, N=4096, k=32, bench=False):
     x_t_ref = torch.cat([x.view(-1) for x in x_t_ref])
 
     output_check(x_t_ref, x_t,
-                     f'batch_transpose_and_pad')
+                 f'batch_transpose_and_pad')
 
     if bench:
         n_repeat = 100
@@ -185,5 +184,5 @@ if __name__ == '__main__':
     test_transpose(M=4096, N=4096)
     test_transpose_and_pad(M=4095, N=4096)
     test_nd_transpose(B=4096, M=4, N=2048, bench=False)
-    test_batch_transpose(M=4096,N=4096,k=32, bench=False)
-    test_batch_transpose_and_pad(M=4096,N=4096,k=32)
+    test_batch_transpose(M=4096, N=4096, k=32, bench=False)
+    test_batch_transpose_and_pad(M=4096, N=4096, k=32)

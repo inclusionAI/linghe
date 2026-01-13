@@ -136,8 +136,8 @@ def triton_hadamard_quant(x, hm):
     R = 1
     x_q = torch.empty((M, N), dtype=torch.float8_e4m3fn, device=device)
     xt_q = torch.empty((N, M), dtype=torch.float8_e4m3fn, device=device)
-    x_scale = torch.empty((M, ), dtype=torch.float32, device=device)
-    xt_scale = torch.empty((N, ), dtype=torch.float32, device=device)
+    x_scale = torch.empty((M,), dtype=torch.float32, device=device)
+    xt_scale = torch.empty((N,), dtype=torch.float32, device=device)
 
     grid_row = (triton.cdiv(M, R * BLOCK_SIZE),)
     hadamard_quant_row_kernel[grid_row](
@@ -167,4 +167,4 @@ def triton_hadamard_quant(x, hm):
         num_warps=4
     )
 
-    return x_q, x_scale,xt_q, xt_scale
+    return x_q, x_scale, xt_q, xt_scale

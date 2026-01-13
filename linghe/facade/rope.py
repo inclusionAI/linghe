@@ -4,11 +4,10 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 from typing import Optional
+
 import torch
 
-from linghe.utils.rope import (triton_mla_rope_backward, 
-                               triton_mla_rope_forward, 
-                               triton_qk_norm_and_half_rope_forward,
+from linghe.utils.rope import (triton_qk_norm_and_half_rope_forward,
                                triton_qk_norm_and_half_rope_backward,
                                triton_varlen_qk_norm_and_half_rope_forward,
                                triton_varlen_qk_norm_and_half_rope_backward,
@@ -18,47 +17,48 @@ from linghe.utils.rope import (triton_mla_rope_backward,
 
 class QkNormHalfRopeFunction(torch.autograd.Function):
     """"""
+
     @staticmethod
-    def forward(ctx, qkv, q_norm_weight, k_norm_weight, freqs, 
+    def forward(ctx, qkv, q_norm_weight, k_norm_weight, freqs,
                 cu_seqlens_q, cu_seqlens_kv,
-                H=32, h=4, eps=1e-6, 
+                H=32, h=4, eps=1e-6,
                 cp_rank=0, cp_size=1, mscale=1.0,
                 silu=False, reuse=False):
         if cu_seqlens_q is None:
             qo, ko, vo = triton_qk_norm_and_half_rope_forward(qkv,
-                                                            q_norm_weight,
-                                                            k_norm_weight,
-                                                            freqs,
-                                                            H=H,
-                                                            h=h,
-                                                            eps=eps,
-                                                            interleaved=True,
-                                                            transposed=True,
-                                                            silu=silu)
+                                                              q_norm_weight,
+                                                              k_norm_weight,
+                                                              freqs,
+                                                              H=H,
+                                                              h=h,
+                                                              eps=eps,
+                                                              interleaved=True,
+                                                              transposed=True,
+                                                              silu=silu)
         else:
             qo, ko, vo = triton_varlen_qk_norm_and_half_rope_forward(qkv,
-                                                            q_norm_weight,
-                                                            k_norm_weight,
-                                                            freqs,
-                                                            cu_seqlens_q,
-                                                            cu_seqlens_kv,
-                                                            H=H,
-                                                            h=h,
-                                                            eps=eps,
-                                                            interleaved=True,
-                                                            cp_rank=cp_rank,
-                                                            cp_size=cp_size,
-                                                            mscale=mscale,
-                                                            silu=silu,
-                                                            reuse=reuse
-                                                            )
+                                                                     q_norm_weight,
+                                                                     k_norm_weight,
+                                                                     freqs,
+                                                                     cu_seqlens_q,
+                                                                     cu_seqlens_kv,
+                                                                     H=H,
+                                                                     h=h,
+                                                                     eps=eps,
+                                                                     interleaved=True,
+                                                                     cp_rank=cp_rank,
+                                                                     cp_size=cp_size,
+                                                                     mscale=mscale,
+                                                                     silu=silu,
+                                                                     reuse=reuse
+                                                                     )
         ctx.save_for_backward(qkv, q_norm_weight, k_norm_weight, freqs)
         ctx.H = H
         ctx.h = h
         ctx.eps = eps
         ctx.cp_rank = cp_rank
-        ctx.cp_size = cp_size 
-        ctx.mscale = mscale 
+        ctx.cp_size = cp_size
+        ctx.mscale = mscale
         ctx.silu = silu
         ctx.reuse = reuse
         ctx.cu_seqlens_q = cu_seqlens_q
@@ -71,33 +71,34 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
 
         if ctx.cu_seqlens_q is None:
             dqkv, dqw, dkw = triton_qk_norm_and_half_rope_backward(grad_q,
-                                                                grad_k,
-                                                                grad_v,
-                                                                qkv,
-                                                                q_norm_weight,
-                                                                k_norm_weight,
-                                                                freqs,
-                                                                eps=ctx.eps,
-                                                                transposed=True,
-                                                                interleaved=True,
-                                                                silu=ctx.silu)
+                                                                   grad_k,
+                                                                   grad_v,
+                                                                   qkv,
+                                                                   q_norm_weight,
+                                                                   k_norm_weight,
+                                                                   freqs,
+                                                                   eps=ctx.eps,
+                                                                   transposed=True,
+                                                                   interleaved=True,
+                                                                   silu=ctx.silu)
         else:
-            dqkv, dqw, dkw = triton_varlen_qk_norm_and_half_rope_backward(grad_q,
-                                                                grad_k,
-                                                                grad_v,
-                                                                qkv,
-                                                                q_norm_weight,
-                                                                k_norm_weight,
-                                                                freqs,
-                                                                ctx.cu_seqlens_q,
-                                                                ctx.cu_seqlens_kv,
-                                                                eps=ctx.eps,
-                                                                interleaved=True,
-                                                                cp_rank=ctx.cp_rank,
-                                                                cp_size=ctx.cp_size,
-                                                                mscale=ctx.mscale,
-                                                                silu=ctx.silu,
-                                                                reuse=ctx.reuse)
+            dqkv, dqw, dkw = triton_varlen_qk_norm_and_half_rope_backward(
+                grad_q,
+                grad_k,
+                grad_v,
+                qkv,
+                q_norm_weight,
+                k_norm_weight,
+                freqs,
+                ctx.cu_seqlens_q,
+                ctx.cu_seqlens_kv,
+                eps=ctx.eps,
+                interleaved=True,
+                cp_rank=ctx.cp_rank,
+                cp_size=ctx.cp_size,
+                mscale=ctx.mscale,
+                silu=ctx.silu,
+                reuse=ctx.reuse)
         return dqkv, dqw, dkw, None, None, None, None, None, None, None, None, None, None, None
 
 
@@ -105,12 +106,12 @@ def qk_norm_half_rope(qkv: torch.Tensor,
                       q_norm_weight: torch.Tensor,
                       k_norm_weight: torch.Tensor,
                       freqs: torch.Tensor,
-                      cu_seqlens_q: Optional[torch.Tensor] = None, 
-                      cu_seqlens_kv: Optional[torch.Tensor] = None, 
+                      cu_seqlens_q: Optional[torch.Tensor] = None,
+                      cu_seqlens_kv: Optional[torch.Tensor] = None,
                       H: int = 32,
                       h: int = 4,
                       eps: float = 1e-6,
-                      cp_rank=0, 
+                      cp_rank=0,
                       cp_size=1,
                       mscale=1.0,
                       silu=False,
@@ -154,23 +155,25 @@ def qk_norm_half_rope(qkv: torch.Tensor,
 
 class MLARopeFunction(torch.autograd.Function):
     """"""
+
     @staticmethod
-    def forward(ctx, q, kv, k_pos_emb, freqs, mscale, transpose, cu_seqlens_q, cu_seqlens_kv, cp_size, cp_rank, reuse):
+    def forward(ctx, q, kv, k_pos_emb, freqs, mscale, transpose, cu_seqlens_q,
+                cu_seqlens_kv, cp_size, cp_rank, reuse):
         qo, ko, vo = triton_mla_rope_forward(q,
                                              kv,
-                                            k_pos_emb,
-                                            freqs,
-                                            mscale=mscale,
-                                            transpose=transpose,
-                                            cu_seqlens_q=cu_seqlens_q,
-                                            cu_seqlens_kv=cu_seqlens_kv,
-                                            cp_size=cp_size,
-                                            cp_rank=cp_rank,
-                                            reuse=reuse)
+                                             k_pos_emb,
+                                             freqs,
+                                             mscale=mscale,
+                                             transpose=transpose,
+                                             cu_seqlens_q=cu_seqlens_q,
+                                             cu_seqlens_kv=cu_seqlens_kv,
+                                             cp_size=cp_size,
+                                             cp_rank=cp_rank,
+                                             reuse=reuse)
 
         ctx.save_for_backward(freqs)
         ctx.mscale = mscale
-        ctx.cp_size = cp_size 
+        ctx.cp_size = cp_size
         ctx.cp_rank = cp_rank
         ctx.transpose = transpose
         ctx.reuse = reuse
@@ -182,30 +185,30 @@ class MLARopeFunction(torch.autograd.Function):
     def backward(ctx, grad_q, grad_k, grad_v):
         freqs, = ctx.saved_tensors
         dq, dkv, dp = triton_mla_rope_backward(grad_q,
-                                                  grad_k,
-                                                  grad_v,
-                                                  freqs,
-                                                  mscale=ctx.mscale,
-                                                  transposed=ctx.transpose,
-                                                  cu_seqlens_q=ctx.cu_seqlens_q,
-                                                  cu_seqlens_kv=ctx.cu_seqlens_kv,
-                                                  cp_size=ctx.cp_size,
-                                                  cp_rank=ctx.cp_rank,
-                                                  reuse=ctx.reuse)
+                                               grad_k,
+                                               grad_v,
+                                               freqs,
+                                               mscale=ctx.mscale,
+                                               transposed=ctx.transpose,
+                                               cu_seqlens_q=ctx.cu_seqlens_q,
+                                               cu_seqlens_kv=ctx.cu_seqlens_kv,
+                                               cp_size=ctx.cp_size,
+                                               cp_rank=ctx.cp_rank,
+                                               reuse=ctx.reuse)
         return dq, dkv, dp, None, None, None, None, None, None, None, None
 
 
 def mla_rope(q: torch.Tensor,
-                      kv: torch.Tensor,
-                      k_pos_emb: torch.Tensor,
-                      freqs: torch.Tensor,
-                      cu_seqlens_q: Optional[torch.Tensor] = None,
-                      cu_seqlens_kv: Optional[torch.Tensor] = None,
-                      mscale: float = 1.0,
-                      transpose: bool = False,
-                      cp_size: int = 1,
-                      cp_rank: int = 0,
-                      reuse: bool = False):
+             kv: torch.Tensor,
+             k_pos_emb: torch.Tensor,
+             freqs: torch.Tensor,
+             cu_seqlens_q: Optional[torch.Tensor] = None,
+             cu_seqlens_kv: Optional[torch.Tensor] = None,
+             mscale: float = 1.0,
+             transpose: bool = False,
+             cp_size: int = 1,
+             cp_rank: int = 0,
+             reuse: bool = False):
     """
     inplace apply rope to tail 64 dims, split kv and apply rope to k_pos_emb and copy to k
     Args:
@@ -228,14 +231,14 @@ def mla_rope(q: torch.Tensor,
         - vo: shape [S, B, H, 128] or [N, H, 128]
     """
     q, k, v = MLARopeFunction.apply(q,
-                                kv,
-                                k_pos_emb,
-                                freqs,
-                                mscale,
-                                transpose,
-                                cu_seqlens_q,
-                                cu_seqlens_kv,
-                                cp_size,
-                                cp_rank,
-                                reuse)
+                                    kv,
+                                    k_pos_emb,
+                                    freqs,
+                                    mscale,
+                                    transpose,
+                                    cu_seqlens_q,
+                                    cu_seqlens_kv,
+                                    cp_size,
+                                    cp_rank,
+                                    reuse)
     return q, k, v

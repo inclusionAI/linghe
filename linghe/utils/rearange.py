@@ -9,9 +9,11 @@ import triton.language as tl
 
 
 @triton.jit
-def sort_chunks_by_index_kernel(x_ptr, y_ptr, scale_ptr, scale_output_ptr, count_ptr,
-                         accum_ptr, rev_accum_ptr, index_ptr, M,
-                         N: tl.constexpr, SCALE: tl.constexpr, K: tl.constexpr):
+def sort_chunks_by_index_kernel(x_ptr, y_ptr, scale_ptr, scale_output_ptr,
+                                count_ptr,
+                                accum_ptr, rev_accum_ptr, index_ptr, M,
+                                N: tl.constexpr, SCALE: tl.constexpr,
+                                K: tl.constexpr):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     index = tl.load(index_ptr + pid)

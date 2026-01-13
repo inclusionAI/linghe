@@ -3,38 +3,37 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+from typing import Optional
 
 import torch
 import triton
 import triton.language as tl
-from typing import Optional
-
-from linghe.experimental.gmem_barrier_arrive_wait import arrive_gmem_barrier, wait_gmem_barrier
-
 
 """
 the code is used to reproduce the barrier bug in cross-block reduce.
 """
 
+
 @triton.jit
-def rms_norm_forward_kernel(x_ptr, 
+def rms_norm_forward_kernel(x_ptr,
                             weight_ptr,
-                            out_ptr, 
+                            out_ptr,
                             cache_ptr,
                             signal_ptr,
-                            rms_ptr, 
+                            rms_ptr,
                             eps,
                             M,
                             n: tl.constexpr,
-                            H: tl.constexpr, 
+                            H: tl.constexpr,
                             B: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     CB = tl.num_programs(1)
 
     indices = rid * H + tl.arange(0, H)
-    offs = rid * H * n + cid * B + tl.arange(0, H)[:, None] * n + tl.arange(0, B)[
-                                                                None, :]
+    offs = rid * H * n + cid * B + tl.arange(0, H)[:, None] * n + tl.arange(0,
+                                                                            B)[
+                                                                  None, :]
 
     x = tl.load(x_ptr + offs).to(tl.float32)
     weight = tl.load(weight_ptr + cid * B + tl.arange(0, B)).to(tl.float32)
@@ -65,13 +64,13 @@ def rms_norm_forward_kernel(x_ptr,
         tl.store(rms_ptr + indices, rms)
 
     x = x * rms[:, None] * weight[None, :]
-    
+
     tl.store(out_ptr + offs, x)
 
 
 def triton_rms_norm_forward(x: torch.Tensor,
-                                            weight: torch.Tensor,
-                                            eps: float = 1e-6):
+                            weight: torch.Tensor,
+                            eps: float = 1e-6):
     """
     Fused RMSNorm forward.
     Args:
@@ -116,29 +115,30 @@ def triton_rms_norm_forward(x: torch.Tensor,
 
 
 @triton.jit
-def _parallel_rms_norm_and_block_quant_forward_kernel(x_ptr, 
-                                      weight_ptr,
-                                      out_ptr, 
-                                      scale_ptr, 
-                                      transpose_output_ptr, 
-                                      transpose_scale_ptr,
-                                      cache_ptr,
-                                      rms_ptr, 
-                                      eps,
-                                      M,
-                                      n: tl.constexpr,
-                                      H: tl.constexpr, 
-                                      B: tl.constexpr, 
-                                      K: tl.constexpr,
-                                      ROUND: tl.constexpr):
+def _parallel_rms_norm_and_block_quant_forward_kernel(x_ptr,
+                                                      weight_ptr,
+                                                      out_ptr,
+                                                      scale_ptr,
+                                                      transpose_output_ptr,
+                                                      transpose_scale_ptr,
+                                                      cache_ptr,
+                                                      rms_ptr,
+                                                      eps,
+                                                      M,
+                                                      n: tl.constexpr,
+                                                      H: tl.constexpr,
+                                                      B: tl.constexpr,
+                                                      K: tl.constexpr,
+                                                      ROUND: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     CB = tl.num_programs(1)
 
     indices = rid * H + tl.arange(0, H)
     masks = indices[:, None] < M
-    offs = rid * H * n + cid * B + tl.arange(0, H)[:, None] * n + tl.arange(0, B)[
-                                                                None, :]
+    offs = rid * H * n + cid * B + tl.arange(0, H)[:, None] * n + tl.arange(0,
+                                                                            B)[
+                                                                  None, :]
 
     x = tl.load(x_ptr + offs, mask=masks).to(tl.float32)
     s = tl.sum(x * x, axis=1)
@@ -169,8 +169,9 @@ def _parallel_rms_norm_and_block_quant_forward_kernel(x_ptr,
     if cid == CB - 1:
         tl.store(rms_ptr + indices, rms, mask=indices < M)
 
-    toffs = cid * M * B + rid * H + tl.arange(0, B)[:, None] * M + tl.arange(0, H)[
-                                                            None, :]
+    toffs = cid * M * B + rid * H + tl.arange(0, B)[:, None] * M + tl.arange(0,
+                                                                             H)[
+                                                                   None, :]
     weight = tl.load(weight_ptr + cid * B + tl.arange(0, B)).to(tl.float32)
     x = x * rms[:, None] * weight[None, :]
     scale = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
@@ -186,35 +187,35 @@ def _parallel_rms_norm_and_block_quant_forward_kernel(x_ptr,
         scale = tl.exp2(tl.ceil(tl.log2(scale)))
     tl.store(transpose_scale_ptr + rid * n + cid * B + tl.arange(0, B), scale)
 
-    q = (tl.trans(x/scale)).to(transpose_output_ptr.dtype.element_ty)
+    q = (tl.trans(x / scale)).to(transpose_output_ptr.dtype.element_ty)
     tl.store(transpose_output_ptr + toffs, q, mask=indices[None, :] < M)
 
 
-
 @triton.jit
-def parallel_rms_norm_and_block_quant_forward_kernel(x_ptr, 
-                                      weight_ptr,
-                                      out_ptr, 
-                                      scale_ptr, 
-                                      transpose_output_ptr, 
-                                      transpose_scale_ptr,
-                                      cache_ptr,
-                                      rms_ptr, 
-                                      eps,
-                                      M,
-                                      n: tl.constexpr,
-                                      H: tl.constexpr, 
-                                      B: tl.constexpr, 
-                                      K: tl.constexpr,
-                                      ROUND: tl.constexpr):
+def parallel_rms_norm_and_block_quant_forward_kernel(x_ptr,
+                                                     weight_ptr,
+                                                     out_ptr,
+                                                     scale_ptr,
+                                                     transpose_output_ptr,
+                                                     transpose_scale_ptr,
+                                                     cache_ptr,
+                                                     rms_ptr,
+                                                     eps,
+                                                     M,
+                                                     n: tl.constexpr,
+                                                     H: tl.constexpr,
+                                                     B: tl.constexpr,
+                                                     K: tl.constexpr,
+                                                     ROUND: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     CB = tl.num_programs(1)
 
     indices = rid * H + tl.arange(0, H)
     masks = indices[:, None] < M
-    offs = rid * H * n + cid * K * B + tl.arange(0, H)[:, None] * n + tl.arange(0, B)[
-                                                                None, :]
+    offs = rid * H * n + cid * K * B + tl.arange(0, H)[:, None] * n + tl.arange(
+        0, B)[
+                                                                      None, :]
 
     s = tl.zeros((H,), dtype=tl.float32)
     for i in range(K):
@@ -240,10 +241,12 @@ def parallel_rms_norm_and_block_quant_forward_kernel(x_ptr,
     if cid == CB - 1:
         tl.store(rms_ptr + indices, rms, mask=indices < M)
 
-    toffs = cid * M * B * K + rid * H + tl.arange(0, B)[:, None] * M + tl.arange(0, H)[
-                                                            None, :]
+    toffs = cid * M * B * K + rid * H + tl.arange(0, B)[:,
+                                        None] * M + tl.arange(0, H)[
+                                                    None, :]
     for i in range(K):
-        weight = tl.load(weight_ptr + cid * K * B + i * B + tl.arange(0, B)).to(tl.float32)
+        weight = tl.load(weight_ptr + cid * K * B + i * B + tl.arange(0, B)).to(
+            tl.float32)
         x = tl.load(x_ptr + i * B + offs, mask=masks).to(tl.float32)
         x = x * rms[:, None] * weight[None, :]
         scale = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
@@ -251,27 +254,34 @@ def parallel_rms_norm_and_block_quant_forward_kernel(x_ptr,
             scale = tl.exp2(tl.ceil(tl.log2(scale)))
         q = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
 
-        tl.store(scale_ptr + cid * K * M + i * M + indices, scale, mask=indices < M)
+        tl.store(scale_ptr + cid * K * M + i * M + indices, scale,
+                 mask=indices < M)
         tl.store(out_ptr + i * B + offs, q, mask=masks)
 
         scale = tl.maximum(tl.max(x.abs(), 0) / 448.0, 1e-30)
         if ROUND:
             scale = tl.exp2(tl.ceil(tl.log2(scale)))
-        tl.store(transpose_scale_ptr + rid * n + cid * B * K + i * B + tl.arange(0, B), scale)
+        tl.store(
+            transpose_scale_ptr + rid * n + cid * B * K + i * B + tl.arange(0,
+                                                                            B),
+            scale)
 
-        q = (tl.trans(x/scale)).to(transpose_output_ptr.dtype.element_ty)
-        tl.store(transpose_output_ptr + i * B * M + toffs, q, mask=indices[None, :] < M)
-
+        q = (tl.trans(x / scale)).to(transpose_output_ptr.dtype.element_ty)
+        tl.store(transpose_output_ptr + i * B * M + toffs, q,
+                 mask=indices[None, :] < M)
 
 
 def triton_parallel_rms_norm_and_block_quant_forward(x: torch.Tensor,
-                                            weight: torch.Tensor,
-                                            eps: float = 1e-6,
-                                            out: Optional[torch.Tensor] = None,
-                                            scale: Optional[torch.Tensor] = None,
-                                            rms: Optional[torch.Tensor] = None,
-                                            round_scale: bool = False,
-                                            output_mode: int = 2):
+                                                     weight: torch.Tensor,
+                                                     eps: float = 1e-6,
+                                                     out: Optional[
+                                                         torch.Tensor] = None,
+                                                     scale: Optional[
+                                                         torch.Tensor] = None,
+                                                     rms: Optional[
+                                                         torch.Tensor] = None,
+                                                     round_scale: bool = False,
+                                                     output_mode: int = 2):
     """
     Fused RMSNorm forward and block quantization.
     Args:
@@ -303,10 +313,12 @@ def triton_parallel_rms_norm_and_block_quant_forward(x: torch.Tensor,
         out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
 
     if scale is None and output_mode in (0, 2):
-        scale = torch.empty((n//128, M), device=device, dtype=torch.float32)
- 
-    transpose_output = torch.empty((n, M), device=device, dtype=torch.float8_e4m3fn)
-    transpose_scale = torch.empty(((M+127)//128, n), device=device, dtype=torch.float32)
+        scale = torch.empty((n // 128, M), device=device, dtype=torch.float32)
+
+    transpose_output = torch.empty((n, M), device=device,
+                                   dtype=torch.float8_e4m3fn)
+    transpose_scale = torch.empty(((M + 127) // 128, n), device=device,
+                                  dtype=torch.float32)
 
     assert rms is None
     rms = torch.empty((M,), dtype=torch.float32, device=device)
@@ -338,5 +350,3 @@ def triton_parallel_rms_norm_and_block_quant_forward(x: torch.Tensor,
         num_warps=4
     )
     return out, scale, rms, transpose_output, transpose_scale
-
-

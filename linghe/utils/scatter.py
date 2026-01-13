@@ -4,6 +4,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 from typing import Optional
+
 import torch
 import triton
 import triton.language as tl
@@ -143,22 +144,23 @@ def triton_scatter_add(x, outputs, indices):
 
 @triton.jit
 def unpermute_with_mask_map_kernel(
-    grads_ptr,
-    probs_ptr,
-    mask_map_ptr,
-    output_ptr,
-    output_probs_ptr,
-    n,
-    N: tl.constexpr,
-    num_experts: tl.constexpr,
-    PROB: tl.constexpr,
+        grads_ptr,
+        probs_ptr,
+        mask_map_ptr,
+        output_ptr,
+        output_probs_ptr,
+        n,
+        N: tl.constexpr,
+        num_experts: tl.constexpr,
+        PROB: tl.constexpr,
 ):
     pid = tl.program_id(axis=0)
     n = n.to(tl.int64)
     # sums = tl.zeros((N,), dtype=tl.float32)
     sums = tl.zeros((N,), dtype=tl.float32)
 
-    indices = tl.load(mask_map_ptr + pid * num_experts + tl.arange(0, num_experts))
+    indices = tl.load(
+        mask_map_ptr + pid * num_experts + tl.arange(0, num_experts))
     count = tl.sum(tl.where(indices >= 0, 1, 0))
     mask_indices = tl.where(indices < 0, 2 ** 24, indices)
     idx = tl.argmin(mask_indices, 0)
@@ -166,14 +168,16 @@ def unpermute_with_mask_map_kernel(
 
     for i in range(count):
         load_mask = (index >= 0) & (tl.arange(0, N) < n)
-        sums += tl.load(grads_ptr + index * n + tl.arange(0, N), mask=load_mask).to(
+        sums += tl.load(grads_ptr + index * n + tl.arange(0, N),
+                        mask=load_mask).to(
             tl.float32
         )
 
         if PROB:
             mask = index >= 0
             prob = tl.load(probs_ptr + index, mask=mask)
-            tl.store(output_probs_ptr + pid * num_experts + idx, prob, mask=mask)
+            tl.store(output_probs_ptr + pid * num_experts + idx, prob,
+                     mask=mask)
 
         mask_indices = tl.where(indices <= index, 2 ** 24, indices)
         idx = tl.argmin(mask_indices, 0)

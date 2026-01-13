@@ -47,7 +47,7 @@ def benchmark_func(fn, *args, n_warmup=10, n_repeat=100, ref_flops=None,
     times = [s.elapsed_time(e) for s, e in zip(start_events, end_events)]
     times = sorted(times)
     clip = max(1, n_repeat // 100)
-    if 2*clip < n_repeat:
+    if 2 * clip < n_repeat:
         times = sum(times[clip:-clip])
         n_repeat = n_repeat - 2 * clip
     else:

@@ -1,7 +1,8 @@
 from typing import Optional, List
+
 import torch
 
-from linghe.utils.scatter import triton_unpermute_with_mask_map
+from linghe.quant.mxfp8 import triton_batch_mxfp8_quant
 from linghe.utils.gather import (
     triton_permute_with_mask_map,
     triton_make_row_id_map,
@@ -9,24 +10,25 @@ from linghe.utils.gather import (
     triton_batch_block_pad_permute_with_indices,
     triton_batch_mxfp8_permute_with_indices,
 )
-from linghe.quant.mxfp8 import triton_batch_mxfp8_quant
+from linghe.utils.scatter import triton_unpermute_with_mask_map
 
 
 class _PaddedPermute(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx,
-        tokens,
-        probs,
-        routing_map,
-        tokens_per_expert_cuda_tensor,
-        tokens_per_expert_list,
+            ctx,
+            tokens,
+            probs,
+            routing_map,
+            tokens_per_expert_cuda_tensor,
+            tokens_per_expert_list,
     ):
         """Forward function."""
         num_tokens, hidden_dim = tokens.shape
 
         row_id_map = triton_make_row_id_map(routing_map, multiple_of=16)
-        num_out_tokens = sum([(x + 15) // 16 * 16 for x in tokens_per_expert_list])
+        num_out_tokens = sum(
+            [(x + 15) // 16 * 16 for x in tokens_per_expert_list])
 
         ctx.num_tokens = num_tokens
         ctx.hidden_dim = hidden_dim
@@ -62,11 +64,11 @@ class _PaddedPermute(torch.autograd.Function):
 
 
 def padded_permute(
-    tokens,
-    routing_map,
-    tokens_per_expert_cuda_tensor,
-    tokens_per_expert_list,
-    probs: Optional[torch.Tensor] = None,
+        tokens,
+        routing_map,
+        tokens_per_expert_cuda_tensor,
+        tokens_per_expert_list,
+        probs: Optional[torch.Tensor] = None,
 ):
     """Permute the tokens and probs based on the mask.
     Tokens with the same designated expert will be grouped together.
@@ -92,7 +94,8 @@ def padded_permute(
 
 class _PaddedUnpermute(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, permuted_tokens, row_id_map, tokens_per_expert, restore_shape):
+    def forward(ctx, permuted_tokens, row_id_map, tokens_per_expert,
+                restore_shape):
         """Forward function."""
         num_tokens, hidden_size = restore_shape
         num_out_tokens = permuted_tokens.shape[0]
@@ -106,7 +109,8 @@ class _PaddedUnpermute(torch.autograd.Function):
         ctx.hidden_size = hidden_size
         ctx.tokens_per_expert = tokens_per_expert
 
-        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map, None)
+        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map,
+                                                   None)
         return output
 
     @staticmethod
@@ -127,10 +131,10 @@ class _PaddedUnpermute(torch.autograd.Function):
 
 
 def padded_unpermute(
-    permuted_tokens: torch.Tensor,
-    row_id_map: torch.Tensor,
-    tokens_per_expert: torch.Tensor,
-    restore_shape: torch.Size,
+        permuted_tokens: torch.Tensor,
+        row_id_map: torch.Tensor,
+        tokens_per_expert: torch.Tensor,
+        restore_shape: torch.Size,
 ):
     output = _PaddedUnpermute.apply(
         permuted_tokens, row_id_map, tokens_per_expert, restore_shape
@@ -141,19 +145,20 @@ def padded_unpermute(
 class _BlockPaddedPermute(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx,
-        tokens,
-        probs,
-        routing_map,
-        tokens_per_expert_cuda_tensor,
-        tokens_per_expert_list,
-        quantizers,
-        cls,
+            ctx,
+            tokens,
+            probs,
+            routing_map,
+            tokens_per_expert_cuda_tensor,
+            tokens_per_expert_list,
+            quantizers,
+            cls,
     ):
         """Forward function."""
         num_tokens, hidden_dim = tokens.shape
 
-        num_out_tokens = sum([(x + 15) // 16 * 16 for x in tokens_per_expert_list])
+        num_out_tokens = sum(
+            [(x + 15) // 16 * 16 for x in tokens_per_expert_list])
         row_id_map, row_id_index = triton_make_row_id_map_and_index(
             routing_map, num_out_tokens, multiple_of=16
         )
@@ -208,13 +213,13 @@ class _BlockPaddedPermute(torch.autograd.Function):
 
 
 def block_padded_permute(
-    tokens,
-    routing_map,
-    tokens_per_expert_cuda_tensor,
-    tokens_per_expert_list,
-    quantizers,
-    cls,
-    probs: Optional[torch.Tensor] = None,
+        tokens,
+        routing_map,
+        tokens_per_expert_cuda_tensor,
+        tokens_per_expert_list,
+        quantizers,
+        cls,
+        probs: Optional[torch.Tensor] = None,
 ):
     """Permute the tokens and probs based on the mask.
     Tokens with the same designated expert will be grouped together.
@@ -245,15 +250,15 @@ def block_padded_permute(
 class _BlockPaddedUnpermute(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx,
-        permuted_tokens,
-        row_id_map,
-        row_id_index,
-        tokens_per_expert,
-        splits,
-        restore_shape,
-        quantizers,
-        cls,
+            ctx,
+            permuted_tokens,
+            row_id_map,
+            row_id_index,
+            tokens_per_expert,
+            splits,
+            restore_shape,
+            quantizers,
+            cls,
     ):
         """Forward function."""
         num_tokens, hidden_size = restore_shape
@@ -271,7 +276,8 @@ class _BlockPaddedUnpermute(torch.autograd.Function):
         ctx.quantizers = quantizers
         ctx.cls = cls
 
-        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map, None)
+        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map,
+                                                   None)
         return output
 
     @staticmethod
@@ -305,14 +311,14 @@ class _BlockPaddedUnpermute(torch.autograd.Function):
 
 
 def block_padded_unpermute(
-    permuted_tokens: torch.Tensor,
-    row_id_map: torch.Tensor,
-    row_id_index: torch.Tensor,
-    tokens_per_expert: torch.Tensor,
-    splits: List,
-    restore_shape: torch.Size,
-    quantizers,
-    cls,
+        permuted_tokens: torch.Tensor,
+        row_id_map: torch.Tensor,
+        row_id_index: torch.Tensor,
+        tokens_per_expert: torch.Tensor,
+        splits: List,
+        restore_shape: torch.Size,
+        quantizers,
+        cls,
 ):
     output = _BlockPaddedUnpermute.apply(
         permuted_tokens,
@@ -330,14 +336,14 @@ def block_padded_unpermute(
 class _MXFP8Permute(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx,
-        tokens,
-        probs,
-        routing_map,
-        tokens_per_expert_cuda_tensor,
-        tokens_per_expert_list,
-        quantizers,
-        cls,
+            ctx,
+            tokens,
+            probs,
+            routing_map,
+            tokens_per_expert_cuda_tensor,
+            tokens_per_expert_list,
+            quantizers,
+            cls,
     ):
         """Forward function."""
         num_tokens, hidden_dim = tokens.shape
@@ -395,15 +401,14 @@ class _MXFP8Permute(torch.autograd.Function):
 
 
 def mxfp8_permute(
-    tokens,
-    routing_map,
-    tokens_per_expert_cuda_tensor,
-    tokens_per_expert_list,
-    quantizers,
-    cls,
-    probs: Optional[torch.Tensor] = None,
+        tokens,
+        routing_map,
+        tokens_per_expert_cuda_tensor,
+        tokens_per_expert_list,
+        quantizers,
+        cls,
+        probs: Optional[torch.Tensor] = None,
 ):
-
     permuted_input, permuted_probs, row_id_map, row_id_index = _MXFP8Permute.apply(
         tokens,
         probs,
@@ -419,15 +424,15 @@ def mxfp8_permute(
 class _MXFP8Unpermute(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx,
-        permuted_tokens,
-        row_id_map,
-        row_id_index,
-        tokens_per_expert,
-        splits,
-        restore_shape,
-        quantizers,
-        cls,
+            ctx,
+            permuted_tokens,
+            row_id_map,
+            row_id_index,
+            tokens_per_expert,
+            splits,
+            restore_shape,
+            quantizers,
+            cls,
     ):
         """Forward function."""
         num_tokens, hidden_size = restore_shape
@@ -445,7 +450,8 @@ class _MXFP8Unpermute(torch.autograd.Function):
         ctx.quantizers = quantizers
         ctx.cls = cls
 
-        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map, None)
+        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map,
+                                                   None)
         return output
 
     @staticmethod
@@ -477,14 +483,14 @@ class _MXFP8Unpermute(torch.autograd.Function):
 
 
 def mxfp8_unpermute(
-    permuted_tokens: torch.Tensor,
-    row_id_map: torch.Tensor,
-    row_id_index: torch.Tensor,
-    tokens_per_expert: torch.Tensor,
-    splits: List,
-    restore_shape: torch.Size,
-    quantizers,
-    cls,
+        permuted_tokens: torch.Tensor,
+        row_id_map: torch.Tensor,
+        row_id_index: torch.Tensor,
+        tokens_per_expert: torch.Tensor,
+        splits: List,
+        restore_shape: torch.Size,
+        quantizers,
+        cls,
 ):
     output = _MXFP8Unpermute.apply(
         permuted_tokens,
@@ -502,7 +508,8 @@ def mxfp8_unpermute(
 class _MXFP8Quant_dispatch(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx, tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers, cls
+            ctx, tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers,
+            cls
     ):
         """Forward function."""
         num_tokens, hidden_dim = tokens.shape
@@ -513,7 +520,8 @@ class _MXFP8Quant_dispatch(torch.autograd.Function):
         ctx.cls = cls
 
         inp_q, inp_scale, inpt_q, inpt_scale = triton_batch_mxfp8_quant(
-            tokens, tokens_per_expert_cuda, tokens_per_expert.tolist(), output_mode=2
+            tokens, tokens_per_expert_cuda, tokens_per_expert.tolist(),
+            output_mode=2
         )
 
         output = cls(
@@ -536,7 +544,7 @@ class _MXFP8Quant_dispatch(torch.autograd.Function):
 
 
 def mxfp8_quant_dispatch(
-    tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers, cls
+        tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers, cls
 ):
     output = _MXFP8Quant_dispatch.apply(
         tokens,
@@ -551,7 +559,8 @@ def mxfp8_quant_dispatch(
 class _MXFP8Quant_combine(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx, tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers, cls
+            ctx, tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers,
+            cls
     ):
         """Forward function."""
         num_tokens, hidden_dim = tokens.shape
@@ -594,7 +603,7 @@ class _MXFP8Quant_combine(torch.autograd.Function):
 
 
 def mxfp8_quant_combine(
-    tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers, cls
+        tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers, cls
 ):
     output = _MXFP8Quant_combine.apply(
         tokens,

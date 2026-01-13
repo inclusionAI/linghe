@@ -117,14 +117,15 @@ def triton_batch_count_zero(xs):
     """
     assert all([x.is_contiguous() for x in xs])
     device = xs[0].device
-    sizes = torch.tensor([x.numel() for x in xs], 
+    sizes = torch.tensor([x.numel() for x in xs],
                          dtype=torch.int64).cuda(device, non_blocking=True)
-    ptrs = torch.tensor([x.data_ptr() for x in xs], 
+    ptrs = torch.tensor([x.data_ptr() for x in xs],
                         dtype=torch.int64).cuda(device, non_blocking=True)
 
     block = 2048
     tensor_count = len(xs)
-    counts = torch.empty((tensor_count, block), device=device, dtype=torch.int64)
+    counts = torch.empty((tensor_count, block), device=device,
+                         dtype=torch.int64)
     B = 1024
     grid = (tensor_count, block)
     batch_count_zero_kernel[grid](
@@ -139,11 +140,10 @@ def triton_batch_count_zero(xs):
     return count
 
 
-
 @triton.jit
 def norm_kernel(input_ptr, tmp_ptr, m,
-                              B: tl.constexpr,
-                              ORD: tl.constexpr):
+                B: tl.constexpr,
+                ORD: tl.constexpr):
     pid = tl.program_id(axis=0).to(tl.int64)
 
     offs = pid * B + tl.arange(0, B)
@@ -179,8 +179,8 @@ def triton_norm(x, ord=2, norm=True, scalar=True):
     m = x.numel()
     B = 512
     T = triton.cdiv(m, B)
-    tmp = torch.empty((T, ), device=device, dtype=torch.float32)
-    grid = (T, )
+    tmp = torch.empty((T,), device=device, dtype=torch.float32)
+    grid = (T,)
     norm_kernel[grid](
         x,
         tmp,
@@ -201,20 +201,19 @@ def triton_norm(x, ord=2, norm=True, scalar=True):
     return output
 
 
-
 @triton.jit
-def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr, 
-                        DT: tl.constexpr,
-                        B: tl.constexpr,
-                        ORD: tl.constexpr,
-                        HP: tl.constexpr):
+def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr,
+                      DT: tl.constexpr,
+                      B: tl.constexpr,
+                      ORD: tl.constexpr,
+                      HP: tl.constexpr):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1).to(tl.int64)
     sm = tl.num_programs(axis=1)
     if HP:
-        sums = tl.zeros((B, ), dtype=tl.float64)
+        sums = tl.zeros((B,), dtype=tl.float64)
     else:
-        sums = tl.zeros((B, ), dtype=tl.float32)
+        sums = tl.zeros((B,), dtype=tl.float32)
 
     size = tl.load(size_ptr + tid)
     if DT == 0:
@@ -244,7 +243,6 @@ def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr,
     tl.store(tmp_ptr + tid * sm + bid, sums)
 
 
-
 def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
     """
     treat multiple tensors as a single tensor and calculate norm.
@@ -260,22 +258,23 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
         a scalar if scalar=True else a single-value fp32 tensor
     """
     if len(xs) == 0:
-        return torch.zeros(() if scalar else (1,), device='cuda', dtype=torch.float32)
+        return torch.zeros(() if scalar else (1,), device='cuda',
+                           dtype=torch.float32)
     dtype = xs[0].dtype
     assert dtype in (torch.float32, torch.bfloat16)
     assert all([x.is_contiguous() and x.dtype == dtype for x in xs])
     assert ord in (1, 2, -1)
 
     device = xs[0].device
-    sizes = torch.tensor([x.numel() for x in xs], 
+    sizes = torch.tensor([x.numel() for x in xs],
                          dtype=torch.int64).cuda(device, non_blocking=True)
-    ptrs = torch.tensor([x.data_ptr() for x in xs], 
+    ptrs = torch.tensor([x.data_ptr() for x in xs],
                         dtype=torch.int64).cuda(device, non_blocking=True)
 
     DT = 0 if dtype == torch.float32 else 1
     sm = 256
     tensor_count = len(xs)
-    tmp = torch.empty((tensor_count, sm), device=device, 
+    tmp = torch.empty((tensor_count, sm), device=device,
                       dtype=torch.float64 if high_precision else torch.float32)
     B = 128
     grid = (tensor_count, sm)

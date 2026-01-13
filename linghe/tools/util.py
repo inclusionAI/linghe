@@ -4,6 +4,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 import math
+
 import torch
 
 
@@ -65,7 +66,7 @@ def torch_group_quant(x, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
 
 def torch_blockwise_quant(x, round_scale=True, padding=False):
     m, N = x.shape
-    
+
     if padding:
         padding_size = (m + 15) // 16 * 16 - m
         if padding_size > 0:
@@ -79,14 +80,13 @@ def torch_blockwise_quant(x, round_scale=True, padding=False):
     return y_q, y_scale.t().contiguous(), yt_q, yt_scale.t().contiguous()
 
 
-
 def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     fmax = torch.finfo(dtype).max
     w = w.clone()
     N, K = w.shape
 
     wp = torch.reshape(w, (N // B, B, K // B, B)).permute(0, 2,
-                                                                           1, 3)
+                                                          1, 3)
     scale = torch.amax(torch.amax(torch.abs(wp).float(), dim=2), dim=2) / fmax
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
@@ -99,28 +99,30 @@ def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
 
 def torch_mxfp8_quant(x):
     x = x.float()
-    m, N = x.shape 
-    assert N%128 == 0
+    m, N = x.shape
+    assert N % 128 == 0
     if m % 128 != 0:
         M = (m + 127) // 128 * 128
-        x = torch.cat([x, torch.zeros((M-m,N), dtype=x.dtype, device=x.device)], 0)
+        x = torch.cat(
+            [x, torch.zeros((M - m, N), dtype=x.dtype, device=x.device)], 0)
     else:
         M = m
-    xs = x.view(M, N//32, 32)
+    xs = x.view(M, N // 32, 32)
     xm = xs.abs().amax(2)
-    scale = torch.maximum(xm/448, 1e-30*torch.ones_like(xm)) 
+    scale = torch.maximum(xm / 448, 1e-30 * torch.ones_like(xm))
     scale = torch.exp2(torch.ceil(torch.log2(scale)))
-    x_q = (xs/scale[:,:,None]).to(torch.float8_e4m3fn).view(M,N)[:m]
+    x_q = (xs / scale[:, :, None]).to(torch.float8_e4m3fn).view(M, N)[:m]
     x_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
 
-    xs = x.view(M//32, 32, N)
+    xs = x.view(M // 32, 32, N)
     xm = xs.abs().amax(1)
-    scale = torch.maximum(xm/448, 1e-30*torch.ones_like(xm)) 
+    scale = torch.maximum(xm / 448, 1e-30 * torch.ones_like(xm))
     scale = torch.exp2(torch.ceil(torch.log2(scale)))
-    xt_q = (xs/scale[:,None,:]).to(torch.float8_e4m3fn).view(M,N)[:m]
+    xt_q = (xs / scale[:, None, :]).to(torch.float8_e4m3fn).view(M, N)[:m]
     xt_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
 
     return x_q, x_scale, xt_q, xt_scale
+
 
 def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
     x = x.float()

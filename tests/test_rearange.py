@@ -40,11 +40,13 @@ def test_sort_chunks_by_index(M=4096, N=4096, bench=False):
     chunks = torch.split(x_q.view(torch.float8_e4m3fn), split_size_list)
     scale_chunks = torch.split(x_scales, split_size_list)
 
-    data_ref, scale_ref = torch_sort_chunks_by_index(x_q.view(torch.float8_e4m3fn),
-                                              x_scales, split_size_list,
-                                              sorted_indices_list)
+    data_ref, scale_ref = torch_sort_chunks_by_index(
+        x_q.view(torch.float8_e4m3fn),
+        x_scales, split_size_list,
+        sorted_indices_list)
 
-    data, scale = triton_sort_chunks_by_index(x_q, counts, indices, scales=x_scales)
+    data, scale = triton_sort_chunks_by_index(x_q, counts, indices,
+                                              scales=x_scales)
 
     output_check(data_ref.view(torch.float8_e4m3fn), data,
                  name='data')
@@ -57,7 +59,8 @@ def test_sort_chunks_by_index(M=4096, N=4096, bench=False):
         benchmark_func(torch.split, x_scales, split_size_list,
                        n_repeat=n_repeat)
         benchmark_func(torch.cat, scale_chunks, dim=0, n_repeat=n_repeat)
-        benchmark_func(torch_sort_chunks_by_index, x_q.view(torch.float8_e4m3fn),
+        benchmark_func(torch_sort_chunks_by_index,
+                       x_q.view(torch.float8_e4m3fn),
                        x_scales, split_size_list, sorted_indices_list,
                        n_repeat=n_repeat)
         benchmark_func(triton_sort_chunks_by_index, x_q, counts, indices,

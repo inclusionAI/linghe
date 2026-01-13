@@ -7,8 +7,8 @@ import torch
 
 from linghe.quant.group import triton_group_quant
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import torch_group_quant
 from linghe.tools.check import output_check
+from linghe.tools.util import torch_group_quant
 
 
 def test_group_quant(M=4096, N=4096, B=128, round_scale=False, bench=False):
@@ -21,7 +21,8 @@ def test_group_quant(M=4096, N=4096, B=128, round_scale=False, bench=False):
     if bench:
         n_repeat = 100
         benchmark_func(triton_group_quant, x, group_size=B,
-                                  n_repeat=n_repeat, ref_bytes=M * N * 3)
+                       n_repeat=n_repeat, ref_bytes=M * N * 3)
+
 
 if __name__ == '__main__':
     test_group_quant(M=4096, N=4096, B=128)

@@ -79,7 +79,7 @@ def triton_inplace_scale(x, scale):
     assert x.is_contiguous()
     B = 512
     m = x.numel()
-    grid = (triton.cdiv(m, B), )
+    grid = (triton.cdiv(m, B),)
     inplace_scale_kernel[grid](
         x,
         scale,
@@ -92,10 +92,10 @@ def triton_inplace_scale(x, scale):
 
 
 @triton.jit
-def batch_scale_kernel(input_ptrs, size_ptr, scale, 
+def batch_scale_kernel(input_ptrs, size_ptr, scale,
                        DT: tl.constexpr,
                        B: tl.constexpr,
-                       ZERO: tl.constexpr,):
+                       ZERO: tl.constexpr, ):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1)
     T = tl.num_programs(axis=1)
@@ -133,11 +133,10 @@ def triton_batch_scale(xs, scale):
     assert dtype in (torch.float32, torch.bfloat16)
     assert all([x.is_contiguous() and x.dtype == dtype for x in xs])
 
-
     device = xs[0].device
-    sizes = torch.tensor([x.numel() for x in xs], 
+    sizes = torch.tensor([x.numel() for x in xs],
                          dtype=torch.int64).cuda(device, non_blocking=True)
-    ptrs = torch.tensor([x.data_ptr() for x in xs], 
+    ptrs = torch.tensor([x.data_ptr() for x in xs],
                         dtype=torch.int64).cuda(device, non_blocking=True)
 
     DT = 0 if dtype == torch.float32 else 1

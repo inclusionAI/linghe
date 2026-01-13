@@ -11,7 +11,6 @@ import torch
 from linghe.quant.hadamard import triton_hadamard_quant
 
 
-
 class _HadamardQuantLinear(torch.autograd.Function):
     @staticmethod
     def forward(
@@ -29,13 +28,15 @@ class _HadamardQuantLinear(torch.autograd.Function):
         ctx.input_shape = input.shape
         input = input.view(-1, input.shape[-1])
 
-        x_q, x_scale, xt_q, xt_scale = triton_hadamard_quant(input, hadamard_matrix)
-        w_q, w_scale, wt_q, wt_scale = triton_hadamard_quant(weight, hadamard_matrix)
+        x_q, x_scale, xt_q, xt_scale = triton_hadamard_quant(input,
+                                                             hadamard_matrix)
+        w_q, w_scale, wt_q, wt_scale = triton_hadamard_quant(weight,
+                                                             hadamard_matrix)
 
         output = torch._scaled_mm(x_q,
                                   w_q.t(),
-                                  scale_a=x_scale.view(-1,1),
-                                  scale_b=w_scale.view(1,-1),
+                                  scale_a=x_scale.view(-1, 1),
+                                  scale_b=w_scale.view(1, -1),
                                   out_dtype=ctx.out_dtype,
                                   use_fast_accum=True
                                   )
@@ -64,25 +65,26 @@ class _HadamardQuantLinear(torch.autograd.Function):
 
         output_grad = output_grad.view(-1, output_grad.shape[-1])
 
-        y_q, y_scale, yt_q, yt_scale = triton_hadamard_quant(output_grad, hadamard_matrix)
+        y_q, y_scale, yt_q, yt_scale = triton_hadamard_quant(output_grad,
+                                                             hadamard_matrix)
 
         dx = torch._scaled_mm(y_q,
-                                  wt_q.t(),
-                                  scale_a=y_scale.view(-1,1),
-                                  scale_b=wt_scale.view(1,-1),
-                                  out_dtype=ctx.out_dtype,
-                                  use_fast_accum=True
-                                  )
+                              wt_q.t(),
+                              scale_a=y_scale.view(-1, 1),
+                              scale_b=wt_scale.view(1, -1),
+                              out_dtype=ctx.out_dtype,
+                              use_fast_accum=True
+                              )
 
         dx = dx.view(ctx.input_shape)
 
         dw = torch._scaled_mm(yt_q,
-                                  xt_q.t(),
-                                  scale_a=yt_scale.view(-1,1),
-                                  scale_b=xt_scale.view(1,-1),
-                                  out_dtype=ctx.out_dtype,
-                                  use_fast_accum=True
-                                  )
+                              xt_q.t(),
+                              scale_a=yt_scale.view(-1, 1),
+                              scale_b=xt_scale.view(1, -1),
+                              out_dtype=ctx.out_dtype,
+                              use_fast_accum=True
+                              )
 
         db = None
         if ctx.bias_requires_grad:
@@ -95,6 +97,7 @@ class HadamardQuantLinear(torch.nn.Module):
     """
     a naive implementation of hadamard transformation and quantization
     """
+
     def __init__(
             self,
             in_features: int,
@@ -146,7 +149,7 @@ class HadamardQuantLinear(torch.nn.Module):
         """"""
         if self.training:
             return _HadamardQuantLinear.apply(input, self.weight, self.bias,
-                                                  self.hadamard_matrix)
+                                              self.hadamard_matrix)
         else:
             output = input @ self.weight.t()
             if self.bias is not None:

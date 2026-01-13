@@ -8,11 +8,10 @@ import triton
 import triton.language as tl
 
 
-
 @triton.jit
 def topk_forward_kernel(input_ptr, value_ptr, index_ptr,
-                N: tl.constexpr,
-                K: tl.constexpr):
+                        N: tl.constexpr,
+                        K: tl.constexpr):
     pid = tl.program_id(axis=0)
 
     xo = tl.load(input_ptr + pid * N + tl.arange(0, N))
@@ -25,7 +24,7 @@ def topk_forward_kernel(input_ptr, value_ptr, index_ptr,
         tl.store(index_ptr + pid * K + i, idx)
         x = tl.where(x == val, -2e38, x)
 
-    if tl.sum(tl.where(x<-1e38, 1, 0)) > K:
+    if tl.sum(tl.where(x < -1e38, 1, 0)) > K:
         y = xo.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
         for i in range(K):
             val = tl.max(y, 0)
@@ -46,7 +45,7 @@ def triton_topk_forward(x, k, dim=-1):
         indices: topk indices
     """
     device = x.device
-    shape = x.shape 
+    shape = x.shape
     assert dim == -1 and len(shape) <= 3
     assert x.is_contiguous()
     if len(shape) == 3:
@@ -59,7 +58,7 @@ def triton_topk_forward(x, k, dim=-1):
         g = M
         values = torch.empty((M, k), device=device, dtype=x.dtype)
         indices = torch.empty((M, k), device=device, dtype=torch.int64)
-    grid = (g, )
+    grid = (g,)
     topk_forward_kernel[grid](
         x,
         values,
@@ -74,8 +73,8 @@ def triton_topk_forward(x, k, dim=-1):
 
 @triton.jit
 def topk_backward_kernel(grad_ptr, index_ptr, dx_ptr,
-                N: tl.constexpr,
-                K: tl.constexpr):
+                         N: tl.constexpr,
+                         K: tl.constexpr):
     pid = tl.program_id(axis=0)
 
     grad = tl.load(grad_ptr + pid * K + tl.arange(0, K))
@@ -94,7 +93,7 @@ def triton_topk_backward(grad_output, indices, N, dim=-1):
         dx
     """
     device = grad_output.device
-    shape = grad_output.shape 
+    shape = grad_output.shape
     assert dim == -1 and len(shape) <= 3
     assert grad_output.is_contiguous()
     if len(shape) == 3:
@@ -105,7 +104,7 @@ def triton_topk_backward(grad_output, indices, N, dim=-1):
         M, k = shape
         g = M
         dx = torch.zeros((M, N), device=device, dtype=grad_output.dtype)
-    grid = (g, )
+    grid = (g,)
     topk_backward_kernel[grid](
         grad_output,
         indices,
@@ -120,14 +119,14 @@ def triton_topk_backward(grad_output, indices, N, dim=-1):
 
 @triton.jit
 def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
-                scale,
-                eps,
-                N: tl.constexpr,
-                K: tl.constexpr,
-                G: tl.constexpr,
-                GK: tl.constexpr,
-                BIAS: tl.constexpr
-                ):
+                                    scale,
+                                    eps,
+                                    N: tl.constexpr,
+                                    K: tl.constexpr,
+                                    G: tl.constexpr,
+                                    GK: tl.constexpr,
+                                    BIAS: tl.constexpr
+                                    ):
     pid = tl.program_id(axis=0)
     GS: tl.constexpr = N // G
     k: tl.constexpr = K // GK
@@ -152,13 +151,14 @@ def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
     x_group_mask_sort = tl.sort(xb_group_mask, dim=0, descending=True)
     expert_array = tl.arange(0, N)
     min_value = tl.min(tl.where(expert_array < K, x_group_mask_sort, 1e38))
-    score = tl.where(xb_group_mask>=min_value, x, 0)
+    score = tl.where(xb_group_mask >= min_value, x, 0)
 
     score = score / (tl.sum(score) + eps) * scale
-    map_idx = tl.where(xb_group_mask>=min_value, 1, 0)
+    map_idx = tl.where(xb_group_mask >= min_value, 1, 0)
 
     if tl.sum(map_idx) > K:
-        y = x.to(tl.float64) + b.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
+        y = x.to(tl.float64) + b.to(tl.float64) - tl.arange(0, N).to(
+            tl.float64) * 1e-12
         yb = tl.reshape(y, (G, GS))
         ybsort = tl.sort(yb, dim=1, descending=True)
         ysortmask = tl.where(array < k, ybsort, 0)
@@ -171,19 +171,21 @@ def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
         y_group_mask = tl.where(ybsum[:, None] >= yb_group_min_value, yb, -1e38)
         y_group_mask = tl.reshape(y_group_mask, (N,))
         y_group_mask_sort = tl.sort(y_group_mask, dim=0, descending=True)
-        y_min_value = tl.min(tl.where(expert_array < K, y_group_mask_sort, 1e38))
-        double_score = tl.where(y_group_mask>=y_min_value, y, 0)
+        y_min_value = tl.min(
+            tl.where(expert_array < K, y_group_mask_sort, 1e38))
+        double_score = tl.where(y_group_mask >= y_min_value, y, 0)
 
         double_score = double_score / (tl.sum(double_score) + eps) * scale
-        
+
         tl.store(prob_ptr + pid * N + tl.arange(0, N), double_score)
-        tl.store(map_ptr + pid * N + tl.arange(0, N), tl.where(y_group_mask>=y_min_value, 1, 0))
+        tl.store(map_ptr + pid * N + tl.arange(0, N),
+                 tl.where(y_group_mask >= y_min_value, 1, 0))
     else:
         tl.store(prob_ptr + pid * N + tl.arange(0, N), score)
         tl.store(map_ptr + pid * N + tl.arange(0, N), map_idx)
 
 
-def triton_group_topk_score_forward(x, k, 
+def triton_group_topk_score_forward(x, k,
                                     expert_bias=None,
                                     num_groups=32,
                                     group_topk=4,
@@ -202,7 +204,7 @@ def triton_group_topk_score_forward(x, k,
         tokens_per_expert: 
     """
     device = x.device
-    shape = x.shape 
+    shape = x.shape
     assert len(shape) <= 3 and x.is_contiguous() and score_function == 'sigmoid'
     if len(shape) == 3:
         M, B, N = shape
@@ -215,7 +217,7 @@ def triton_group_topk_score_forward(x, k,
         probs = torch.empty((M, N), device=device, dtype=x.dtype)
         routing_map = torch.empty((M, N), device=device, dtype=torch.bool)
     BIAS = expert_bias is not None
-    grid = (g, )
+    grid = (g,)
     group_topk_score_forward_kernel[grid](
         x,
         expert_bias,
@@ -250,7 +252,8 @@ def group_topk_score_backward_kernel(grad_ptr, input_ptr, map_ptr, dx_ptr,
     tl.store(dx_ptr + pid * N + tl.arange(0, N), dx)
 
 
-def triton_group_topk_score_backward(grad_output, input, routing_map, scaling_factor=1.0, eps=1e-20):
+def triton_group_topk_score_backward(grad_output, input, routing_map,
+                                     scaling_factor=1.0, eps=1e-20):
     """
     topk backward.
     Args:
@@ -260,8 +263,9 @@ def triton_group_topk_score_backward(grad_output, input, routing_map, scaling_fa
         dx: grad of logits
     """
     device = grad_output.device
-    shape = grad_output.shape 
-    assert len(shape) <= 3 and grad_output.is_contiguous() and routing_map.is_contiguous()
+    shape = grad_output.shape
+    assert len(
+        shape) <= 3 and grad_output.is_contiguous() and routing_map.is_contiguous()
     if len(shape) == 3:
         M, B, N = shape
         g = M * B
@@ -270,7 +274,7 @@ def triton_group_topk_score_backward(grad_output, input, routing_map, scaling_fa
         M, N = shape
         g = M
         dx = torch.empty((M, N), device=device, dtype=grad_output.dtype)
-    grid = (g, )
+    grid = (g,)
     group_topk_score_backward_kernel[grid](
         grad_output,
         input,

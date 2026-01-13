@@ -4,6 +4,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 from typing import Optional
+
 import torch
 import triton
 import triton.language as tl
@@ -269,4 +270,3 @@ def channel_quant_update(y, x):
                               out_dtype=torch.bfloat16,
                               use_fast_accum=True)
     return output, y_q, x_q, y_scale, x_scale
-

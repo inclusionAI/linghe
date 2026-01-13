@@ -10,6 +10,7 @@ from linghe.utils.emb import triton_embedding_forward, triton_embedding_backward
 
 class DeprecatedFusedAccumulationEmbeddingLookup(torch.autograd.Function):
     """"""
+
     @staticmethod
     def forward(ctx, x, w_ptr, g_ptr, dim, dtype, grad_dtype):
         x = x.long()
@@ -25,7 +26,9 @@ class DeprecatedFusedAccumulationEmbeddingLookup(torch.autograd.Function):
         return None, None, None, None, None, None
 
 
-def deprecated_fused_accumulation_embedding_lookup(x: torch.Tensor, w_ptr, g_ptr, dim, dtype, grad_dtype):
+def deprecated_fused_accumulation_embedding_lookup(x: torch.Tensor, w_ptr,
+                                                   g_ptr, dim, dtype,
+                                                   grad_dtype):
     """
     embedding lookup
     Args:
@@ -39,11 +42,14 @@ def deprecated_fused_accumulation_embedding_lookup(x: torch.Tensor, w_ptr, g_ptr
         lookup output
     """
     x = x.double().requires_grad_()
-    return DeprecatedFusedAccumulationEmbeddingLookup.apply(x, w_ptr, g_ptr, dim, dtype, grad_dtype)
+    return DeprecatedFusedAccumulationEmbeddingLookup.apply(x, w_ptr, g_ptr,
+                                                            dim, dtype,
+                                                            grad_dtype)
 
 
 class FusedAccumulationEmbeddingLookup(torch.autograd.Function):
     """"""
+
     @staticmethod
     def forward(ctx, x, w, grad_name):
         dim = w.size(1)
@@ -60,7 +66,8 @@ class FusedAccumulationEmbeddingLookup(torch.autograd.Function):
         return None, None, None
 
 
-def fused_accumulation_embedding_lookup(x: torch.Tensor, w: torch.nn.Parameter, grad_name: str = 'grad'):
+def fused_accumulation_embedding_lookup(x: torch.Tensor, w: torch.nn.Parameter,
+                                        grad_name: str = 'grad'):
     """
     embedding lookup
     Args:
@@ -72,9 +79,9 @@ def fused_accumulation_embedding_lookup(x: torch.Tensor, w: torch.nn.Parameter, 
     return FusedAccumulationEmbeddingLookup.apply(x, w, grad_name)
 
 
-
 class EmbeddingLookup(torch.autograd.Function):
     """"""
+
     @staticmethod
     def forward(ctx, x, w):
         dim = w.size(1)

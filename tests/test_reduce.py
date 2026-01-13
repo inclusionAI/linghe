@@ -4,14 +4,15 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 import random
+
 import torch
 
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.reduce import (triton_abs_max,
-                                triton_batch_count_zero,
-                                triton_norm,
-                                triton_batch_norm)
+                                 triton_batch_count_zero,
+                                 triton_norm,
+                                 triton_batch_norm)
 
 
 def torch_sum(xs, ord=2, norm=True):
@@ -24,6 +25,7 @@ def torch_sum(xs, ord=2, norm=True):
         return sum([x.abs().sum() for x in xs])
     elif ord == -1:
         return max([x.abs().max() for x in xs])
+
 
 def torch_count_zero(xs):
     count = torch.tensor([0], dtype=torch.int64, device='cuda')
@@ -64,7 +66,6 @@ def test_count_zero(M=4096, N=8192, k=32, bench=False):
                        ref_bytes=ref_bytes, ref_time=ref_time)
 
 
-
 def test_norm(M=4096, N=8192, coef=1.0, bench=False):
     x = torch.randn(M, N, dtype=torch.float32, device='cuda:0') * 1.0
 
@@ -81,13 +82,15 @@ def test_norm(M=4096, N=8192, coef=1.0, bench=False):
         n_repeat = 100
         ref_time = benchmark_func(lambda x: x.norm(p=2), x, n_repeat=n_repeat,
                                   ref_bytes=ref_bytes)
-        benchmark_func(triton_norm, x, ord=2, norm=True, scalar=True, 
+        benchmark_func(triton_norm, x, ord=2, norm=True, scalar=True,
                        n_repeat=n_repeat,
                        ref_bytes=ref_bytes, ref_time=ref_time)
 
+
 def test_batch_norm(M=4096, N=8192, k=32, coef=1.0, bench=False):
-    bs = [random.randint(1,int(M**0.5))**2 for i in range(k)]
-    xs = [torch.randn(bs[i], N, dtype=torch.float32, device='cuda:0') * coef for i in range(k)]
+    bs = [random.randint(1, int(M ** 0.5)) ** 2 for i in range(k)]
+    xs = [torch.randn(bs[i], N, dtype=torch.float32, device='cuda:0') * coef for
+          i in range(k)]
 
     sum_ref = torch_sum(xs, ord=2, norm=False)
     sums = triton_batch_norm(xs, ord=2, norm=False)

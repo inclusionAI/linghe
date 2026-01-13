@@ -9,8 +9,8 @@ from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.tools.util import torch_make_indices
 from linghe.utils.scatter import (triton_scatter_add,
-                                 triton_unpermute_with_mask_map
-                                 )
+                                  triton_unpermute_with_mask_map
+                                  )
 
 
 # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"

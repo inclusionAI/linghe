@@ -4,7 +4,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 import itertools
-from typing import Optional
+
 import torch
 import triton
 import triton.language as tl
@@ -42,7 +42,7 @@ def transpose_kernel(x_ptr, t_ptr, M, N, H: tl.constexpr, W: tl.constexpr,
 
 @triton.jit
 def transpose_inner_dims_kernel(x_ptr, t_ptr, B, M, b_stride, m_stride,
-                             N: tl.constexpr):
+                                N: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     offs = rid * b_stride + cid * m_stride + tl.arange(0, N)
@@ -52,17 +52,20 @@ def transpose_inner_dims_kernel(x_ptr, t_ptr, B, M, b_stride, m_stride,
 
 
 @triton.jit
-def transpose_outer_dims_kernel(x_ptr, t_ptr, M, N, H: tl.constexpr, W: tl.constexpr,
-                     EVEN: tl.constexpr):
+def transpose_outer_dims_kernel(x_ptr, t_ptr, M, N, H: tl.constexpr,
+                                W: tl.constexpr,
+                                EVEN: tl.constexpr):
     bid = tl.program_id(axis=0)
     rid = tl.program_id(axis=1)
     cid = tl.program_id(axis=2)
-    offs = bid * M * N + rid * H * N + cid * W + tl.arange(0, H)[:, None] * N + tl.arange(0,
-                                                                            W)[
-                                                                  None, :]
-    toffs = bid * M * N + rid * H + cid * M * W + tl.arange(0, W)[:, None] * M + tl.arange(0,
-                                                                             H)[
-                                                                   None, :]
+    offs = bid * M * N + rid * H * N + cid * W + tl.arange(0, H)[:,
+                                                 None] * N + tl.arange(0,
+                                                                       W)[
+                                                             None, :]
+    toffs = bid * M * N + rid * H + cid * M * W + tl.arange(0, W)[:,
+                                                  None] * M + tl.arange(0,
+                                                                        H)[
+                                                              None, :]
     if EVEN:
         y = tl.trans(tl.load(x_ptr + offs))
         tl.store(t_ptr + toffs, y)
@@ -74,7 +77,6 @@ def transpose_outer_dims_kernel(x_ptr, t_ptr, M, N, H: tl.constexpr, W: tl.const
         tl.store(t_ptr + toffs, y,
                  mask=(cid * W + tl.arange(0, W)[:, None] < N) & (
                          rid * H + tl.arange(0, H)[None, :] < M))
-
 
 
 def triton_transpose(x: torch.Tensor, inner=True):
@@ -125,15 +127,15 @@ def triton_transpose(x: torch.Tensor, inner=True):
         num_warps = 2
         grid = (B, M)
         transpose_inner_dims_kernel[grid](x,
-                                       t,
-                                       B,
-                                       M,
-                                       b_stride,
-                                       m_stride,
-                                       N,
-                                       num_stages=num_stages,
-                                       num_warps=num_warps
-                                       )
+                                          t,
+                                          B,
+                                          M,
+                                          b_stride,
+                                          m_stride,
+                                          N,
+                                          num_stages=num_stages,
+                                          num_warps=num_warps
+                                          )
     else:
 
         if rank == 4:
@@ -188,7 +190,6 @@ def transpose_and_pad_kernel(x_ptr, t_ptr,
         # paddings are filled with 0
         tl.store(t_ptr + toffs, y,
                  mask=(rid * H + tl.arange(0, H)[None, :] < P))
-
 
 
 def triton_transpose_and_pad(x, out=None, pad=True):
@@ -256,12 +257,12 @@ def triton_batch_transpose(xs, xts=None):
     assert all([x.is_contiguous() for x in xs])
     M, N = xs[0].shape
     n_experts = len(xs)
-    device=xs[0].device
+    device = xs[0].device
     if xts is None:
-        xts = torch.empty((M * n_experts, N), 
+        xts = torch.empty((M * n_experts, N),
                           device=device,
                           dtype=xs[0].dtype)
-    pointers = torch.tensor([x.data_ptr() for x in xs], 
+    pointers = torch.tensor([x.data_ptr() for x in xs],
                             dtype=torch.int64).cuda(device, non_blocking=True)
 
     H = 32

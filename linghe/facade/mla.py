@@ -4,6 +4,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 from typing import Optional
+
 import torch
 
 from linghe.attn.mla import (triton_mla_forward,
@@ -14,9 +15,10 @@ from linghe.attn.mla import (triton_mla_forward,
 
 class MultiLatentAttention(torch.autograd.Function):
     """"""
+
     @staticmethod
     def forward(ctx,
-                q: torch.Tensor, 
+                q: torch.Tensor,
                 k: torch.Tensor,
                 v: torch.Tensor,
                 cu_seqlens: Optional[torch.Tensor] = None,
@@ -36,21 +38,21 @@ class MultiLatentAttention(torch.autograd.Function):
         ctx.VARLEN = VARLEN
         if VARLEN:
             output, lse, max_logits = triton_varlen_mla_forward(q,
-                                             k,
-                                             v,
-                                             cu_seqlens,
-                                             padded_cu_seqlens=None,
-                                             max_q_length=max_q_length,
-                                             causal=causal,
-                                             safe=safe,
-                                             clip_value=clip_value)
+                                                                k,
+                                                                v,
+                                                                cu_seqlens,
+                                                                padded_cu_seqlens=None,
+                                                                max_q_length=max_q_length,
+                                                                causal=causal,
+                                                                safe=safe,
+                                                                clip_value=clip_value)
         else:
             output, lse, max_logits = triton_mla_forward(q,
-                                      k,
-                                      v,
-                                      causal=causal,
-                                      safe=safe,
-                                      clip_value=clip_value)
+                                                         k,
+                                                         v,
+                                                         causal=causal,
+                                                         safe=safe,
+                                                         clip_value=clip_value)
         ctx.save_for_backward(q, k, v, output, lse, max_logits)
         return output
 
@@ -59,32 +61,33 @@ class MultiLatentAttention(torch.autograd.Function):
         q, k, v, output, lse, max_logits = ctx.saved_tensors
         if ctx.VARLEN:
             dq, dk, dv = triton_varlen_mla_backward(grad_output,
-                                              output,
-                                              q,
-                                              k,
-                                              v,
-                                              lse,
-                                              max_logits,
-                                              ctx.cu_seqlens,
-                                              ctx.max_q_length,
-                                              padded_cu_seqlens=ctx.padded_cu_seqlens,
-                                              causal=ctx.causal,
-                                              safe=ctx.safe,
-                                              clip_value=ctx.clip_value)
+                                                    output,
+                                                    q,
+                                                    k,
+                                                    v,
+                                                    lse,
+                                                    max_logits,
+                                                    ctx.cu_seqlens,
+                                                    ctx.max_q_length,
+                                                    padded_cu_seqlens=ctx.padded_cu_seqlens,
+                                                    causal=ctx.causal,
+                                                    safe=ctx.safe,
+                                                    clip_value=ctx.clip_value)
         else:
             dq, dk, dv = triton_mla_backward(grad_output,
-                                       output,
-                                       q,
-                                       k,
-                                       v,
-                                       lse,
-                                       max_logits,
-                                       causal=ctx.causal,
-                                       safe=ctx.safe,
-                                       clip_value=ctx.clip_value)
+                                             output,
+                                             q,
+                                             k,
+                                             v,
+                                             lse,
+                                             max_logits,
+                                             causal=ctx.causal,
+                                             safe=ctx.safe,
+                                             clip_value=ctx.clip_value)
         return dq, dk, dv, None, None, None, None, None, None,
 
-def multi_latend_attention(q: torch.Tensor, 
+
+def multi_latend_attention(q: torch.Tensor,
                            k: torch.Tensor,
                            v: torch.Tensor,
                            cu_seqlens: Optional[torch.Tensor] = None,

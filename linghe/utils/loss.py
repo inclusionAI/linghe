@@ -13,7 +13,7 @@ def softmax_cross_entropy_forward_kernel(logit_ptr,
                                          label_ptr,
                                          loss_ptr,
                                          sum_exp_ptr,
-                                         max_logit_ptr, 
+                                         max_logit_ptr,
                                          N,
                                          ignore_index,
                                          B: tl.constexpr):
@@ -35,7 +35,8 @@ def softmax_cross_entropy_forward_kernel(logit_ptr,
             tl.float32)
         latest_max_logit = tl.maximum(max_logit, tl.max(logit))
 
-        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + tl.sum(tl.exp(logit - latest_max_logit))
+        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + tl.sum(
+            tl.exp(logit - latest_max_logit))
         max_logit = latest_max_logit
 
     tl.store(sum_exp_ptr + pid, sum_exp)
@@ -43,7 +44,6 @@ def softmax_cross_entropy_forward_kernel(logit_ptr,
     target_logit = tl.load(logit_ptr + pid * N + label)
     loss = tl.log(sum_exp) - (target_logit - max_logit)
     tl.store(loss_ptr + pid, loss)
-
 
 
 def triton_softmax_cross_entropy_forward(logits, labels, ignore_index=-100):
@@ -96,11 +96,12 @@ def softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
             grad = tl.zeros((B,), dtype=tl.float32)
             if INPLACE:
                 tl.store(logit_ptr + pid * N + i * B + tl.arange(0, B), grad,
-                        mask=i * B + tl.arange(0, B) < N)
+                         mask=i * B + tl.arange(0, B) < N)
             else:
-                tl.store(input_grad_ptr + pid * N + i * B + tl.arange(0, B), grad,
-                        mask=i * B + tl.arange(0, B) < N)
-        return 
+                tl.store(input_grad_ptr + pid * N + i * B + tl.arange(0, B),
+                         grad,
+                         mask=i * B + tl.arange(0, B) < N)
+        return
 
     output_grad = tl.load(output_grad_ptr + pid).to(tl.float32)
     sum_exp = tl.load(sum_exp_ptr + pid)
@@ -116,10 +117,10 @@ def softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
         grad = tl.exp(logit - max_logit) * coef
         if INPLACE:
             tl.store(logit_ptr + pid * N + i * B + tl.arange(0, B), grad,
-                    mask=i * B + tl.arange(0, B) < N)
+                     mask=i * B + tl.arange(0, B) < N)
         else:
             tl.store(input_grad_ptr + pid * N + i * B + tl.arange(0, B), grad,
-                    mask=i * B + tl.arange(0, B) < N)
+                     mask=i * B + tl.arange(0, B) < N)
     tl.debug_barrier()  # must add barrier here, or it may execute before loop
     if INPLACE:
         tl.store(logit_ptr + pid * N + label, target_grad)
@@ -172,18 +173,17 @@ def triton_softmax_cross_entropy_backward(logits, labels, sum_exp, max_logit,
     return dx
 
 
-
 @triton.jit
 def parallel_logit_stat_kernel(logit_ptr,
-                                         label_ptr,
-                                         sum_exp_ptr,
-                                         max_logit_ptr,
-                                         target_logit_ptr, 
-                                         N,
-                                         ignore_index,
-                                         group_rank,
-                                         group_size,
-                                         B: tl.constexpr):
+                               label_ptr,
+                               sum_exp_ptr,
+                               max_logit_ptr,
+                               target_logit_ptr,
+                               N,
+                               ignore_index,
+                               group_rank,
+                               group_size,
+                               B: tl.constexpr):
     pid = tl.program_id(axis=0).to(tl.int64)
     label = tl.load(label_ptr + pid)
 
@@ -203,7 +203,8 @@ def parallel_logit_stat_kernel(logit_ptr,
             tl.float32)
         latest_max_logit = tl.maximum(max_logit, tl.max(logit))
 
-        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + tl.sum(tl.exp(logit - latest_max_logit))
+        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + tl.sum(
+            tl.exp(logit - latest_max_logit))
         max_logit = latest_max_logit
 
     tl.store(sum_exp_ptr + pid, sum_exp)
@@ -217,11 +218,12 @@ def parallel_logit_stat_kernel(logit_ptr,
 
 
 @triton.jit
-def parallel_calc_loss_kernel(label_ptr, stats, sum_exp_ptr, max_logit_ptr, loss_ptr, 
-                                M,
-                                N,
-                                ignore_index,
-                                group_size):
+def parallel_calc_loss_kernel(label_ptr, stats, sum_exp_ptr, max_logit_ptr,
+                              loss_ptr,
+                              M,
+                              N,
+                              ignore_index,
+                              group_size):
     pid = tl.program_id(axis=0).to(tl.int64)
     label = tl.load(label_ptr + pid)
     if label == ignore_index:
@@ -239,9 +241,10 @@ def parallel_calc_loss_kernel(label_ptr, stats, sum_exp_ptr, max_logit_ptr, loss
         ml = tl.load(stats + i * M * 3 + M + pid)
         tg = tl.maximum(tl.load(stats + i * M * 3 + 2 * M + pid), tg)
         latest_max_logit = tl.maximum(max_logit, ml)
-        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + se * tl.exp(ml - latest_max_logit)
+        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + se * tl.exp(
+            ml - latest_max_logit)
         max_logit = latest_max_logit
-        
+
     loss = tl.log(sum_exp) - (tg - max_logit)
     tl.store(loss_ptr + pid, loss)
     tl.store(sum_exp_ptr + pid, sum_exp)
@@ -252,7 +255,10 @@ def parallel_calc_loss_kernel(label_ptr, stats, sum_exp_ptr, max_logit_ptr, loss
 TODO1: support distributed loss with pytorch ongoing nvshmem feature
 TODO2: optimize performance when vocab size is not multiple of 16
 """
-def triton_parallel_softmax_cross_entropy_forward(logits, labels, group, ignore_index=-100):
+
+
+def triton_parallel_softmax_cross_entropy_forward(logits, labels, group,
+                                                  ignore_index=-100):
     """
     compute token-wise softmax cross entropy loss
     Args:
@@ -273,7 +279,8 @@ def triton_parallel_softmax_cross_entropy_forward(logits, labels, group, ignore_
     sum_exp = stats[0]
     max_logit = stats[1]
     target_logit = stats[2]
-    statistic = torch.empty((3 * group_size, M), device=device, dtype=torch.float32)
+    statistic = torch.empty((3 * group_size, M), device=device,
+                            dtype=torch.float32)
     B = 2048
     grid = (M,)
     parallel_logit_stat_kernel[grid](
@@ -291,27 +298,29 @@ def triton_parallel_softmax_cross_entropy_forward(logits, labels, group, ignore_
         num_warps=2
     )
     torch.distributed.all_gather_into_tensor(statistic, stats, group=group)
-    parallel_calc_loss_kernel[grid](labels, statistic, sum_exp, max_logit, loss,  
-                            M,
-                            N,
-                            ignore_index,
-                            group_size,
-                            num_stages=3,
-                            num_warps=2)
+    parallel_calc_loss_kernel[grid](labels, statistic, sum_exp, max_logit, loss,
+                                    M,
+                                    N,
+                                    ignore_index,
+                                    group_size,
+                                    num_stages=3,
+                                    num_warps=2)
 
     return loss, sum_exp, max_logit
 
 
 @triton.jit
-def parallel_softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
-                                          max_logit_ptr,
-                                          output_grad_ptr, input_grad_ptr,
-                                          N, 
-                                          ignore_index,
-                                          group_rank,
-                                          group_size,
-                                          B: tl.constexpr,
-                                          INPLACE: tl.constexpr):
+def parallel_softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr,
+                                                   sum_exp_ptr,
+                                                   max_logit_ptr,
+                                                   output_grad_ptr,
+                                                   input_grad_ptr,
+                                                   N,
+                                                   ignore_index,
+                                                   group_rank,
+                                                   group_size,
+                                                   B: tl.constexpr,
+                                                   INPLACE: tl.constexpr):
     pid = tl.program_id(axis=0).to(tl.int64)
     label = tl.load(label_ptr + pid)
     T = tl.cdiv(N, B)
@@ -321,11 +330,12 @@ def parallel_softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp
             grad = tl.zeros((B,), dtype=tl.float32)
             if INPLACE:
                 tl.store(logit_ptr + pid * N + i * B + tl.arange(0, B), grad,
-                        mask=i * B + tl.arange(0, B) < N)
+                         mask=i * B + tl.arange(0, B) < N)
             else:
-                tl.store(input_grad_ptr + pid * N + i * B + tl.arange(0, B), grad,
-                        mask=i * B + tl.arange(0, B) < N)
-        return 
+                tl.store(input_grad_ptr + pid * N + i * B + tl.arange(0, B),
+                         grad,
+                         mask=i * B + tl.arange(0, B) < N)
+        return
 
     output_grad = tl.load(output_grad_ptr + pid).to(tl.float32)
     sum_exp = tl.load(sum_exp_ptr + pid)
@@ -339,26 +349,28 @@ def parallel_softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp
         grad = tl.exp(logit - max_logit) * coef
         if INPLACE:
             tl.store(logit_ptr + pid * N + i * B + tl.arange(0, B), grad,
-                    mask=i * B + tl.arange(0, B) < N)
+                     mask=i * B + tl.arange(0, B) < N)
         else:
             tl.store(input_grad_ptr + pid * N + i * B + tl.arange(0, B), grad,
-                    mask=i * B + tl.arange(0, B) < N)
+                     mask=i * B + tl.arange(0, B) < N)
     tl.debug_barrier()  # must add barrier here, or it may execute before loop
-    
+
     if label // N == group_rank:
         target_logit = tl.load(logit_ptr + pid * N + label % N).to(tl.float32)
-        target_grad = (tl.exp(target_logit - max_logit) / sum_exp - 1) * output_grad
+        target_grad = (tl.exp(
+            target_logit - max_logit) / sum_exp - 1) * output_grad
         if INPLACE:
             tl.store(logit_ptr + pid * N + label % N, target_grad)
         else:
             tl.store(input_grad_ptr + pid * N + label % N, target_grad)
 
 
-def triton_parallel_softmax_cross_entropy_backward(logits, labels, sum_exp, max_logit,
-                                          output_grad,
-                                          group,
-                                          ignore_index=-100,
-                                          inplace=False):
+def triton_parallel_softmax_cross_entropy_backward(logits, labels, sum_exp,
+                                                   max_logit,
+                                                   output_grad,
+                                                   group,
+                                                   ignore_index=-100,
+                                                   inplace=False):
     """
     backward of softmax cross entropy loss
     Args:
@@ -406,14 +418,15 @@ def triton_parallel_softmax_cross_entropy_backward(logits, labels, sum_exp, max_
     return dx
 
 
-
 @triton.jit
 def moe_z_loss_forward_kernel(logit_ptr, loss_ptr, coef,
-                             T: tl.constexpr,
+                              T: tl.constexpr,
                               D: tl.constexpr):
     pid = tl.program_id(axis=0)
 
-    logit = tl.load(logit_ptr + pid * T * D + tl.arange(0, T)[:, None]*D + tl.arange(0, D)).to(
+    logit = tl.load(
+        logit_ptr + pid * T * D + tl.arange(0, T)[:, None] * D + tl.arange(0,
+                                                                           D)).to(
         tl.float32)
     max_logit = tl.max(logit, 1)
     lse = tl.log(tl.sum(tl.exp(logit - max_logit[:, None]), 1)) + max_logit
@@ -436,14 +449,14 @@ def triton_moe_z_loss_forward(logits, coef=1e-6):
     shape = logits.shape
     if len(shape) == 3:
         L, B, D = logits.shape
-        M = L*B
+        M = L * B
     else:
         M, D = logits.shape
     device = logits.device
     T = 4
     assert M % T == 0
-    loss = torch.empty((M//T,), device=device, dtype=torch.float32)
-    grid = (M//T,)
+    loss = torch.empty((M // T,), device=device, dtype=torch.float32)
+    grid = (M // T,)
     moe_z_loss_forward_kernel[grid](
         logits,
         loss,
@@ -458,22 +471,26 @@ def triton_moe_z_loss_forward(logits, coef=1e-6):
 
 @triton.jit
 def moe_z_loss_backward_kernel(input_grad_ptr, logit_ptr, output_grad_ptr, coef,
-                                          T: tl.constexpr, 
-                                          D: tl.constexpr):
+                               T: tl.constexpr,
+                               D: tl.constexpr):
     pid = tl.program_id(axis=0)
     n_tokens = tl.num_programs(axis=0) * T
     grad = tl.load(input_grad_ptr).to(tl.float32)
 
-    logit = tl.load(logit_ptr + pid * T * D + tl.arange(0, T)[:, None]*D + tl.arange(0, D)[None, :]).to(
+    logit = tl.load(
+        logit_ptr + pid * T * D + tl.arange(0, T)[:, None] * D + tl.arange(0,
+                                                                           D)[
+                                                                 None, :]).to(
         tl.float32)
     max_logit = tl.max(logit, 1, keep_dims=True)
     e = tl.exp(logit - max_logit)
     se = tl.sum(e, 1, keep_dims=True)
     lse = tl.log(se) + max_logit
 
-    grads = 2 * coef / n_tokens * grad * lse * e/se
+    grads = 2 * coef / n_tokens * grad * lse * e / se
 
-    tl.store(output_grad_ptr + pid * T * D + tl.arange(0, T)[:, None]*D + tl.arange(0, D), grads)
+    tl.store(output_grad_ptr + pid * T * D + tl.arange(0, T)[:,
+                                             None] * D + tl.arange(0, D), grads)
 
 
 def triton_moe_z_loss_backward(grads, logits, coef=1e-6):
@@ -491,15 +508,15 @@ def triton_moe_z_loss_backward(grads, logits, coef=1e-6):
     shape = logits.shape
     if len(shape) == 3:
         L, B, D = logits.shape
-        M = L*B
-        output_grad = torch.empty((L,B,D), device=device, dtype=logits.dtype)
+        M = L * B
+        output_grad = torch.empty((L, B, D), device=device, dtype=logits.dtype)
     else:
         M, D = logits.shape
-        output_grad = torch.empty((M,D), device=device, dtype=logits.dtype)
-    
+        output_grad = torch.empty((M, D), device=device, dtype=logits.dtype)
+
     T = 4
     assert M % T == 0
-    grid = (M//T,)
+    grid = (M // T,)
     moe_z_loss_backward_kernel[grid](
         grads,
         logits,
@@ -511,7 +528,3 @@ def triton_moe_z_loss_backward(grads, logits, coef=1e-6):
         num_warps=1
     )
     return output_grad
-
-
-
-

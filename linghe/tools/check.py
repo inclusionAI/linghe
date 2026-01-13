@@ -4,10 +4,12 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 import math
+
 import torch
 
 
-def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.0, digest=4):
+def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
+                 amp=1.0, digest=4):
     org_out = org_out.detach()
     opt_out = opt_out.detach()
     assert org_out.dtype == opt_out.dtype, f"ref:{org_out.dtype} != out:{opt_out.dtype}"
@@ -17,14 +19,18 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.
     org_dtype = org_out.dtype
     opt_dtype = opt_out.dtype
 
-    if org_dtype in (torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
+    if org_dtype in (
+    torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
         org_out = org_out.float()
-    elif org_dtype in (torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
+    elif org_dtype in (
+    torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
         org_out = org_out.int()
 
-    if opt_dtype in (torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
+    if opt_dtype in (
+    torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
         opt_out = opt_out.float()
-    elif org_dtype in (torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
+    elif org_dtype in (
+    torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
         opt_out = opt_out.int()
 
     if rtol is None:
@@ -70,8 +76,8 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.
         opt_max = opt_out.abs().max()
         opt_mean = opt_out.abs().mean()
         print(f'\n{name:<16}  rel:{rel_err_str}  abs:{abs_error:.6f}  ' \
-            f'org:{org_max:.3f}/{org_mean:.3f} ' \
-            f'opt:{opt_max:.3f}/{opt_mean:.3f} ')
+              f'org:{org_max:.3f}/{org_mean:.3f} ' \
+              f'opt:{opt_max:.3f}/{opt_mean:.3f} ')
         if (rtol >= 0 and atol >= 0):
             # torch.testing.assert_close(opt_out, org_out, rtol=rtol, atol=atol)
             mistake_mask = diff >= (rtol * org_out.abs() + atol)
@@ -80,7 +86,7 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.
                 opt_val = opt_out[mistake_mask]
                 mismatch_count = org_val.numel()
                 tot_cnt = org_out.numel()
-                itv = max(mismatch_count//digest, 1)
+                itv = max(mismatch_count // digest, 1)
                 org_val = org_val[::itv].tolist()
                 opt_val = opt_val[::itv].tolist()
                 if org_dtype == torch.float64:
@@ -92,14 +98,14 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.
                 else:
                     org_str = ', '.join([f'{x:.3g}' for x in org_val])
                     opt_str = ', '.join([f'{x:.3g}' for x in opt_val])
-                info = f"Mismatched elements: {mismatch_count} / {tot_cnt} ({mismatch_count/tot_cnt*100:.1f}%) " \
+                info = f"Mismatched elements: {mismatch_count} / {tot_cnt} ({mismatch_count / tot_cnt * 100:.1f}%) " \
                        f"with {rtol} rtol and {atol} atol \n        org: {org_str} \n        opt: {opt_str} \n"
                 assert mismatch_count == 0, info
         return rel_error
     else:
         # int dtype
         diff = (opt_out - org_out).abs()
-        mismatch_count = ( diff > itol).sum().item()
+        mismatch_count = (diff > itol).sum().item()
         if mismatch_count > 0:
             diff_err_str = f"\033[91m {mismatch_count}\033[00m"
         else:
@@ -108,6 +114,7 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0, amp=1.
         print(f'\n{name:<16}  diff:{diff_err_str} max:{max_error}')
         assert mismatch_count == 0, f"Mismatched elements: {mismatch_count} with {itol} itol"
         return mismatch_count
+
 
 def quant_check(org_out, xq, wq, opt_out, mode):
     abs_error = (opt_out.float() - org_out.float()).abs().mean().item()
@@ -134,4 +141,5 @@ def inf_or_nan(xs, name=''):
             break
     if hit:
         for x in xs:
-            print(f'{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}')
+            print(
+                f'{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}')

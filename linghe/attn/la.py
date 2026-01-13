@@ -3,35 +3,29 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
-from typing import Optional
-import math
-
 import torch
 import triton
 import triton.language as tl
 
 
-
-
-
 @triton.jit
 def fp32_lightning_attention_forward_kernel(
-    Q,
-    K,
-    V,
-    S,
-    Out,
-    softmax_scale,
-    stride_q,
-    stride_k,
-    stride_v,
-    stride_s,
-    decay_scales,
-    L,
-    D: tl.constexpr,
-    KD: tl.constexpr,
-    VD: tl.constexpr,
-    BLOCK: tl.constexpr,
+        Q,
+        K,
+        V,
+        S,
+        Out,
+        softmax_scale,
+        stride_q,
+        stride_k,
+        stride_v,
+        stride_s,
+        decay_scales,
+        L,
+        D: tl.constexpr,
+        KD: tl.constexpr,
+        VD: tl.constexpr,
+        BLOCK: tl.constexpr,
 ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
@@ -50,40 +44,40 @@ def fp32_lightning_attention_forward_kernel(
     offs_v = tl.arange(0, VD)
 
     q_ptrs = (
-        Q
-        + c0 * stride_q
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_q + offs_k[None, :])
+            Q
+            + c0 * stride_q
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_q + offs_k[None, :])
     )
     k_ptrs = (
-        K
-        + c0 * stride_k
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_k + offs_k[None, :])
+            K
+            + c0 * stride_k
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_k + offs_k[None, :])
     )
     v_ptrs = (
-        V
-        + c0 * stride_v
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_v + offs_v[None, :])
+            V
+            + c0 * stride_v
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_v + offs_v[None, :])
     )
     out_ptrs = (
-        Out
-        + c0 * D * H
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * H * D + offs_v[None, :])
+            Out
+            + c0 * D * H
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * H * D + offs_v[None, :])
     )
     s_ptrs = (
-        S
-        + bid * stride_s
-        + hid * D * D
-        + kid * D * KD
-        + vid * VD
-        + (offs_k[:, None] * D + offs_v[None, :])
+            S
+            + bid * stride_s
+            + hid * D * D
+            + kid * D * KD
+            + vid * VD
+            + (offs_k[:, None] * D + offs_v[None, :])
     )
     state = tl.zeros((KD, VD), dtype=tl.float32)
     block_decay = tl.exp(decay_scale * BLOCK)
@@ -91,13 +85,13 @@ def fp32_lightning_attention_forward_kernel(
     for n in range(0, L, BLOCK):
         n = tl.multiple_of(n, BLOCK)
 
-        q = tl.load(q_ptrs + n * stride_q) #.to(tl.float32)
-        k = tl.trans(tl.load(k_ptrs + n * stride_k)) #.to(tl.float32)
+        q = tl.load(q_ptrs + n * stride_q)  # .to(tl.float32)
+        k = tl.trans(tl.load(k_ptrs + n * stride_k))  # .to(tl.float32)
         v = tl.load(v_ptrs + n * stride_v).to(tl.float32)
         b_offs = BLOCK - 1 - offs_b
         decays = tl.exp(decay_scale * b_offs)
         inv_decays = 1 / decays
-    
+
         q = q * inv_decays[:, None]
         k = k * decays[None, :]
         qk = tl.dot(q, k) * softmax_scale
@@ -111,29 +105,30 @@ def fp32_lightning_attention_forward_kernel(
         if KD == D:
             tl.store(out_ptrs + n * H * D, o.to(Out.dtype.element_ty))
         else:
-            tl.atomic_add(out_ptrs + n * H * D, o.to(Out.dtype.element_ty), sem='relaxed')
+            tl.atomic_add(out_ptrs + n * H * D, o.to(Out.dtype.element_ty),
+                          sem='relaxed')
 
     tl.store(s_ptrs, state)
 
 
 @triton.jit
 def lightning_attention_forward_kernel(
-    Q,
-    K,
-    V,
-    S,
-    Out,
-    softmax_scale,
-    stride_q,
-    stride_k,
-    stride_v,
-    stride_s,
-    decay_scales,
-    L,
-    D: tl.constexpr,
-    KD: tl.constexpr,
-    VD: tl.constexpr,
-    BLOCK: tl.constexpr,
+        Q,
+        K,
+        V,
+        S,
+        Out,
+        softmax_scale,
+        stride_q,
+        stride_k,
+        stride_v,
+        stride_s,
+        decay_scales,
+        L,
+        D: tl.constexpr,
+        KD: tl.constexpr,
+        VD: tl.constexpr,
+        BLOCK: tl.constexpr,
 ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
@@ -152,45 +147,46 @@ def lightning_attention_forward_kernel(
     offs_v = tl.arange(0, VD)
 
     q_ptrs = (
-        Q
-        + c0 * stride_q
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_q + offs_k[None, :])
+            Q
+            + c0 * stride_q
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_q + offs_k[None, :])
     )
     k_ptrs = (
-        K
-        + c0 * stride_k
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_k + offs_k[None, :])
+            K
+            + c0 * stride_k
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_k + offs_k[None, :])
     )
     v_ptrs = (
-        V
-        + c0 * stride_v
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_v + offs_v[None, :])
+            V
+            + c0 * stride_v
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_v + offs_v[None, :])
     )
     out_ptrs = (
-        Out
-        + c0 * D * H
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * H * D + offs_v[None, :])
+            Out
+            + c0 * D * H
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * H * D + offs_v[None, :])
     )
     s_ptrs = (
-        S
-        + bid * stride_s
-        + hid * D * D
-        + kid * D * KD
-        + vid * VD
-        + (offs_k[:, None] * D + offs_v[None, :])
+            S
+            + bid * stride_s
+            + hid * D * D
+            + kid * D * KD
+            + vid * VD
+            + (offs_k[:, None] * D + offs_v[None, :])
     )
     state = tl.zeros((KD, VD), dtype=tl.float32)
     block_decay = tl.exp(decay_scale * BLOCK)
-    mask = tl.exp( decay_scale * (offs_b[:, None] - offs_b[None, :]))
-    mask = tl.where(offs_b[None, :] <= offs_b[:, None], mask, 0.0) * softmax_scale
+    mask = tl.exp(decay_scale * (offs_b[:, None] - offs_b[None, :]))
+    mask = tl.where(offs_b[None, :] <= offs_b[:, None], mask,
+                    0.0) * softmax_scale
     b_offs = BLOCK - 1 - offs_b
     decays = tl.exp(decay_scale * b_offs)
     inv_decays = 1 / decays * block_decay * softmax_scale
@@ -213,7 +209,8 @@ def lightning_attention_forward_kernel(
         if KD == D:
             tl.store(out_ptrs + n * H * D, o.to(Out.dtype.element_ty))
         else:
-            tl.atomic_add(out_ptrs + n * H * D, o.to(Out.dtype.element_ty), sem='relaxed')
+            tl.atomic_add(out_ptrs + n * H * D, o.to(Out.dtype.element_ty),
+                          sem='relaxed')
 
     tl.store(s_ptrs, state)
 
@@ -231,7 +228,8 @@ def _output_sum_kernel(T, O, DIM: tl.constexpr, NUM_BLOCK: tl.constexpr):
     tl.store(O + pid * DIM + tl.arange(0, DIM), x)
 
 
-def triton_lightning_attention_forward(q, k, v, decay_scales, hpc=False, hp=False, softmax_scale=None):
+def triton_lightning_attention_forward(q, k, v, decay_scales, hpc=False,
+                                       hp=False, softmax_scale=None):
     B, L, H, D = q.shape
     h = k.shape[2]
     assert H == h, "triton_lightning_attention_forward does NOT support GQA currently"
@@ -252,12 +250,12 @@ def triton_lightning_attention_forward(q, k, v, decay_scales, hpc=False, hp=Fals
     v_dim_block = D // VD
     if k_dim_block == 1:
         outputs = torch.empty(
-                (B, L, H, D), device=device, dtype=dtype
-            )
+            (B, L, H, D), device=device, dtype=dtype
+        )
     else:
         outputs = torch.zeros(
-                (B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype
-            )
+            (B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype
+        )
 
     s = torch.empty(
         (B, H, D, D), device=device, dtype=torch.float32
@@ -297,22 +295,22 @@ def triton_lightning_attention_forward(q, k, v, decay_scales, hpc=False, hp=Fals
 
 @triton.jit
 def fp32_lightning_attention_q_backward_kernel(
-    Q,
-    K,
-    V,
-    G,
-    DQ,
-    softmax_scale,
-    stride_q,
-    stride_k,
-    stride_v,
-    stride_g,
-    decay_scales,
-    L,
-    D: tl.constexpr,
-    KD: tl.constexpr,
-    VD: tl.constexpr,
-    BLOCK: tl.constexpr,
+        Q,
+        K,
+        V,
+        G,
+        DQ,
+        softmax_scale,
+        stride_q,
+        stride_k,
+        stride_v,
+        stride_g,
+        decay_scales,
+        L,
+        D: tl.constexpr,
+        KD: tl.constexpr,
+        VD: tl.constexpr,
+        BLOCK: tl.constexpr,
 ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
@@ -323,7 +321,7 @@ def fp32_lightning_attention_q_backward_kernel(
     H = tl.num_programs(1)
 
     c0 = bid * L
- 
+
     decay_scale = -tl.load(decay_scales + hid)
 
     offs_b = tl.arange(0, BLOCK)
@@ -331,41 +329,41 @@ def fp32_lightning_attention_q_backward_kernel(
     offs_v = tl.arange(0, VD)
 
     q_ptrs = (
-        Q
-        + c0 * stride_q
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_q + offs_k[None, :])
+            Q
+            + c0 * stride_q
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_q + offs_k[None, :])
     )
     k_ptrs = (
-        K
-        + c0 * stride_k
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_k + offs_k[None, :])
+            K
+            + c0 * stride_k
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_k + offs_k[None, :])
     )
     v_ptrs = (
-        V
-        + c0 * stride_v
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_v + offs_v[None, :])
+            V
+            + c0 * stride_v
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_v + offs_v[None, :])
     )
     g_ptrs = (
-        G
-        + c0 * D * H
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_g + offs_v[None, :])
+            G
+            + c0 * D * H
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_g + offs_v[None, :])
     )
     dq_ptrs = (
-        DQ
-        + c0 * D * H
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * H * D + offs_k[None, :])
+            DQ
+            + c0 * D * H
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * H * D + offs_k[None, :])
     )
-    
+
     state = tl.zeros((KD, VD), dtype=tl.float32)
     mask = tl.exp((offs_b[:, None] - offs_b[None, :]) * decay_scale)
     mask = tl.where(offs_b[None, :] <= offs_b[:, None], mask, 0.0)
@@ -379,7 +377,7 @@ def fp32_lightning_attention_q_backward_kernel(
         k = tl.load(k_ptrs + n * stride_k).to(tl.float32)
         v = tl.load(v_ptrs + n * stride_v).to(tl.float32)
         g = tl.load(g_ptrs + n * stride_g).to(tl.float32)
-        
+
         qk = tl.dot(q, tl.trans(k)) * softmax_scale
         qk *= mask
 
@@ -391,36 +389,37 @@ def fp32_lightning_attention_q_backward_kernel(
         state = state * block_decay
 
         dqk = tl.dot(g, tl.trans(v)) * mask * softmax_scale
-        
-        dq = tl.dot(dqk, k) + tl.dot(g * decays[:, None], tl.trans(state)) * softmax_scale
+
+        dq = tl.dot(dqk, k) + tl.dot(g * decays[:, None],
+                                     tl.trans(state)) * softmax_scale
 
         if VD == D:
             tl.store(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty))
         else:
-            tl.atomic_add(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty), sem='relaxed')
+            tl.atomic_add(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty),
+                          sem='relaxed')
 
         state = state + tl.dot(tl.trans(k * decays[:, None]), v)
 
 
-
 @triton.jit
 def lightning_attention_q_backward_kernel(
-    Q,
-    K,
-    V,
-    G,
-    DQ,
-    softmax_scale,
-    stride_q,
-    stride_k,
-    stride_v,
-    stride_g,
-    decay_scales,
-    L,
-    D: tl.constexpr,
-    KD: tl.constexpr,
-    VD: tl.constexpr,
-    BLOCK: tl.constexpr,
+        Q,
+        K,
+        V,
+        G,
+        DQ,
+        softmax_scale,
+        stride_q,
+        stride_k,
+        stride_v,
+        stride_g,
+        decay_scales,
+        L,
+        D: tl.constexpr,
+        KD: tl.constexpr,
+        VD: tl.constexpr,
+        BLOCK: tl.constexpr,
 ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
@@ -431,46 +430,46 @@ def lightning_attention_q_backward_kernel(
     H = tl.num_programs(1)
 
     c0 = bid * L
- 
+
     decay_scale = -tl.load(decay_scales + hid)
 
     offs_b = tl.arange(0, BLOCK)
     offs_k = tl.arange(0, KD)
     offs_v = tl.arange(0, VD)
 
-
     k_ptrs = (
-        K
-        + c0 * stride_k
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_k + offs_k[None, :])
+            K
+            + c0 * stride_k
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_k + offs_k[None, :])
     )
     v_ptrs = (
-        V
-        + c0 * stride_v
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_v + offs_v[None, :])
+            V
+            + c0 * stride_v
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_v + offs_v[None, :])
     )
     g_ptrs = (
-        G
-        + c0 * D * H
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_g + offs_v[None, :])
+            G
+            + c0 * D * H
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_g + offs_v[None, :])
     )
     dq_ptrs = (
-        DQ
-        + c0 * D * H
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * H * D + offs_k[None, :])
+            DQ
+            + c0 * D * H
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * H * D + offs_k[None, :])
     )
-    
+
     state = tl.zeros((KD, VD), dtype=tl.float32)
     mask = tl.exp((offs_b[:, None] - offs_b[None, :]) * decay_scale)
-    mask = tl.where(offs_b[None, :] <= offs_b[:, None], mask, 0.0) * softmax_scale
+    mask = tl.where(offs_b[None, :] <= offs_b[:, None], mask,
+                    0.0) * softmax_scale
 
     decay_offs = BLOCK - 1 - offs_b
 
@@ -486,44 +485,45 @@ def lightning_attention_q_backward_kernel(
         k = tl.load(k_ptrs + n * stride_k)
         v = tl.load(v_ptrs + n * stride_v)
         g = tl.load(g_ptrs + n * stride_g)
-        
+
         # qk = tl.dot(q, tl.trans(k)) * mask
         # qk *= mask
 
         state = state * block_decay
 
         dqk = tl.dot(g, tl.trans(v)) * mask
-        
-        dq = tl.dot(dqk.to(k.dtype), k) + tl.dot(g * decays[:, None], tl.trans(state)) * softmax_scale
+
+        dq = tl.dot(dqk.to(k.dtype), k) + tl.dot(g * decays[:, None], tl.trans(
+            state)) * softmax_scale
 
         if VD == D:
             tl.store(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty))
         else:
-            tl.atomic_add(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty), sem='relaxed')
+            tl.atomic_add(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty),
+                          sem='relaxed')
 
-        state = state + tl.dot((tl.trans(k)*decays[None, :]).to(v.dtype), v)
-
+        state = state + tl.dot((tl.trans(k) * decays[None, :]).to(v.dtype), v)
 
 
 @triton.jit
 def fp32_lightning_attention_kv_backward_kernel(
-    Q,
-    K,
-    V,
-    G,
-    DK,
-    DV,
-    softmax_scale,
-    stride_q,
-    stride_k,
-    stride_v,
-    stride_g,
-    decay_scales,
-    L,
-    D: tl.constexpr,
-    KD: tl.constexpr,
-    VD: tl.constexpr,
-    BLOCK: tl.constexpr,
+        Q,
+        K,
+        V,
+        G,
+        DK,
+        DV,
+        softmax_scale,
+        stride_q,
+        stride_k,
+        stride_v,
+        stride_g,
+        decay_scales,
+        L,
+        D: tl.constexpr,
+        KD: tl.constexpr,
+        VD: tl.constexpr,
+        BLOCK: tl.constexpr,
 ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
@@ -534,7 +534,7 @@ def fp32_lightning_attention_kv_backward_kernel(
     H = tl.num_programs(1)
 
     c0 = bid * L
- 
+
     decay_scale = -tl.load(decay_scales + hid)
 
     offs_b = tl.arange(0, BLOCK)
@@ -542,47 +542,47 @@ def fp32_lightning_attention_kv_backward_kernel(
     offs_v = tl.arange(0, VD)
 
     q_ptrs = (
-        Q
-        + c0 * stride_q
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_q + offs_k[None, :])
+            Q
+            + c0 * stride_q
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_q + offs_k[None, :])
     )
     k_ptrs = (
-        K
-        + c0 * stride_k
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_k + offs_k[None, :])
+            K
+            + c0 * stride_k
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_k + offs_k[None, :])
     )
     v_ptrs = (
-        V
-        + c0 * stride_v
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_v + offs_v[None, :])
+            V
+            + c0 * stride_v
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_v + offs_v[None, :])
     )
     g_ptrs = (
-        G
-        + c0 * D * H
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_g + offs_v[None, :])
+            G
+            + c0 * D * H
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_g + offs_v[None, :])
     )
 
     dk_ptrs = (
-        DK
-        + c0 * H * D
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * H * D + offs_k[None, :])
+            DK
+            + c0 * H * D
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * H * D + offs_k[None, :])
     )
     dv_ptrs = (
-        DV
-        + c0 * H * D
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * H * D + offs_v[None, :])
+            DV
+            + c0 * H * D
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * H * D + offs_v[None, :])
     )
 
     gs = tl.zeros((KD, VD), dtype=tl.float32)
@@ -603,7 +603,7 @@ def fp32_lightning_attention_kv_backward_kernel(
         amps = tl.exp(-decay_scale * b_offs)  # [100, 10, 1]
         decays = tl.exp(decay_scale * b_offs)  # [0.01, 0.1, 1]
 
-        qs = q * amps[:, None]   # [100, 10, 1]
+        qs = q * amps[:, None]  # [100, 10, 1]
         ks = k * decays[:, None]  # [0.01, 0.1, 1]
         qk = tl.dot(qs, tl.trans(ks)) * softmax_scale
         qk = tl.where(offs_b[None, :] <= offs_b[:, None], qk, 0.0)
@@ -613,7 +613,8 @@ def fp32_lightning_attention_kv_backward_kernel(
         dv += tl.dot(ks, gs)
 
         dqk = tl.dot(g, tl.trans(v))
-        dqk = tl.where(offs_b[None, :] <= offs_b[:, None], dqk, 0.0) * softmax_scale
+        dqk = tl.where(offs_b[None, :] <= offs_b[:, None], dqk,
+                       0.0) * softmax_scale
         dk = tl.dot(tl.trans(dqk), qs)
         dk += tl.dot(v, tl.trans(gs))
         dk *= decays[:, None]
@@ -624,32 +625,34 @@ def fp32_lightning_attention_kv_backward_kernel(
         if VD == D:
             tl.store(dk_ptrs + n * H * D, dk.to(DK.dtype.element_ty))
         else:
-            tl.atomic_add(dk_ptrs + n * H * D, dk.to(DK.dtype.element_ty), sem='relaxed')
+            tl.atomic_add(dk_ptrs + n * H * D, dk.to(DK.dtype.element_ty),
+                          sem='relaxed')
         if KD == D:
             tl.store(dv_ptrs + n * H * D, dv.to(DV.dtype.element_ty))
         else:
-            tl.atomic_add(dv_ptrs + n * H * D, dv.to(DV.dtype.element_ty), sem='relaxed')
+            tl.atomic_add(dv_ptrs + n * H * D, dv.to(DV.dtype.element_ty),
+                          sem='relaxed')
 
 
 @triton.jit
 def lightning_attention_kv_backward_kernel(
-    Q,
-    K,
-    V,
-    G,
-    DK,
-    DV,
-    softmax_scale,
-    stride_q,
-    stride_k,
-    stride_v,
-    stride_g,
-    decay_scales,
-    L,
-    D: tl.constexpr,
-    KD: tl.constexpr,
-    VD: tl.constexpr,
-    BLOCK: tl.constexpr,
+        Q,
+        K,
+        V,
+        G,
+        DK,
+        DV,
+        softmax_scale,
+        stride_q,
+        stride_k,
+        stride_v,
+        stride_g,
+        decay_scales,
+        L,
+        D: tl.constexpr,
+        KD: tl.constexpr,
+        VD: tl.constexpr,
+        BLOCK: tl.constexpr,
 ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
@@ -660,7 +663,7 @@ def lightning_attention_kv_backward_kernel(
     H = tl.num_programs(1)
 
     c0 = bid * L
- 
+
     decay_scale = -tl.load(decay_scales + hid)
 
     offs_b = tl.arange(0, BLOCK)
@@ -668,47 +671,47 @@ def lightning_attention_kv_backward_kernel(
     offs_v = tl.arange(0, VD)
 
     q_ptrs = (
-        Q
-        + c0 * stride_q
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_q + offs_k[None, :])
+            Q
+            + c0 * stride_q
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_q + offs_k[None, :])
     )
     k_ptrs = (
-        K
-        + c0 * stride_k
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_k + offs_k[None, :])
+            K
+            + c0 * stride_k
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_k + offs_k[None, :])
     )
     v_ptrs = (
-        V
-        + c0 * stride_v
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_v + offs_v[None, :])
+            V
+            + c0 * stride_v
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_v + offs_v[None, :])
     )
     g_ptrs = (
-        G
-        + c0 * D * H
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_g + offs_v[None, :])
+            G
+            + c0 * D * H
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_g + offs_v[None, :])
     )
 
     dk_ptrs = (
-        DK
-        + c0 * H * D
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * H * D + offs_k[None, :])
+            DK
+            + c0 * H * D
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * H * D + offs_k[None, :])
     )
     dv_ptrs = (
-        DV
-        + c0 * H * D
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * H * D + offs_v[None, :])
+            DV
+            + c0 * H * D
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * H * D + offs_v[None, :])
     )
 
     gs = tl.zeros((KD, VD), dtype=tl.float32)
@@ -718,11 +721,12 @@ def lightning_attention_kv_backward_kernel(
     block_decay = tl.exp(decay_scale * BLOCK)
     amps = tl.exp(-decay_scale * b_offs)  # [100, 10, 1]
     # decays = tl.exp(decay_scale * b_offs)  # [0.01, 0.1, 1]
-    decays = 1/amps  # [0.01, 0.1, 1]
+    decays = 1 / amps  # [0.01, 0.1, 1]
     sd = softmax_scale * block_decay
 
     mask = tl.exp((offs_b[:, None] - offs_b[None, :]) * decay_scale)
-    mask = tl.where(offs_b[None, :] <= offs_b[:, None], mask, 0.0) * softmax_scale
+    mask = tl.where(offs_b[None, :] <= offs_b[:, None], mask,
+                    0.0) * softmax_scale
 
     n_steps = tl.cdiv(L, BLOCK)
     for i in range(n_steps):
@@ -740,7 +744,7 @@ def lightning_attention_kv_backward_kernel(
 
         dv = tl.dot(tl.trans(qk).to(g.dtype), g)
 
-        dv += tl.dot( k * decays[:, None], gs)
+        dv += tl.dot(k * decays[:, None], gs)
 
         dqk = (tl.dot(g, tl.trans(v)) * mask).to(q.dtype)
         dk = tl.dot(tl.trans(dqk), (q * amps[:, None]).to(q.dtype))
@@ -753,14 +757,18 @@ def lightning_attention_kv_backward_kernel(
         if VD == D:
             tl.store(dk_ptrs + n * H * D, dk.to(DK.dtype.element_ty))
         else:
-            tl.atomic_add(dk_ptrs + n * H * D, dk.to(DK.dtype.element_ty), sem='relaxed')
+            tl.atomic_add(dk_ptrs + n * H * D, dk.to(DK.dtype.element_ty),
+                          sem='relaxed')
         if KD == D:
             tl.store(dv_ptrs + n * H * D, dv.to(DV.dtype.element_ty))
         else:
-            tl.atomic_add(dv_ptrs + n * H * D, dv.to(DV.dtype.element_ty), sem='relaxed')
+            tl.atomic_add(dv_ptrs + n * H * D, dv.to(DV.dtype.element_ty),
+                          sem='relaxed')
 
 
-def triton_lightning_attention_backward(output_grad, q, k, v, decay_scales, softmax_scale=None, hpc=False, hp=False):
+def triton_lightning_attention_backward(output_grad, q, k, v, decay_scales,
+                                        softmax_scale=None, hpc=False,
+                                        hp=False):
     B, L, H, D = q.shape
     if softmax_scale is None:
         softmax_scale = D ** (-0.5)
@@ -862,28 +870,27 @@ def triton_lightning_attention_backward(output_grad, q, k, v, decay_scales, soft
     return dq, dk, dv
 
 
-
 @triton.jit
 def fused_lightning_attention_backward_kernel(
-    Q,
-    K,
-    V,
-    S,
-    G,
-    DQ,
-    DK,
-    DV,
-    softmax_scale,
-    stride_q,
-    stride_k,
-    stride_v,
-    stride_g,
-    decay_scales,
-    L,
-    D: tl.constexpr,
-    KD: tl.constexpr,
-    VD: tl.constexpr,
-    BLOCK: tl.constexpr,
+        Q,
+        K,
+        V,
+        S,
+        G,
+        DQ,
+        DK,
+        DV,
+        softmax_scale,
+        stride_q,
+        stride_k,
+        stride_v,
+        stride_g,
+        decay_scales,
+        L,
+        D: tl.constexpr,
+        KD: tl.constexpr,
+        VD: tl.constexpr,
+        BLOCK: tl.constexpr,
 ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
@@ -894,7 +901,7 @@ def fused_lightning_attention_backward_kernel(
     H = tl.num_programs(1)
 
     c0 = bid * L
- 
+
     decay_scale = -tl.load(decay_scales + hid)
 
     offs_b = tl.arange(0, BLOCK)
@@ -902,61 +909,61 @@ def fused_lightning_attention_backward_kernel(
     offs_v = tl.arange(0, VD)
 
     q_ptrs = (
-        Q
-        + c0 * stride_q
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_q + offs_k[None, :])
+            Q
+            + c0 * stride_q
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_q + offs_k[None, :])
     )
     k_ptrs = (
-        K
-        + c0 * stride_k
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * stride_k + offs_k[None, :])
+            K
+            + c0 * stride_k
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * stride_k + offs_k[None, :])
     )
     v_ptrs = (
-        V
-        + c0 * stride_v
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_v + offs_v[None, :])
+            V
+            + c0 * stride_v
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_v + offs_v[None, :])
     )
     g_ptrs = (
-        G
-        + c0 * D * H
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * stride_g + offs_v[None, :])
+            G
+            + c0 * D * H
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * stride_g + offs_v[None, :])
     )
     dq_ptrs = (
-        DQ
-        + c0 * D * H
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * H * D + offs_k[None, :])
+            DQ
+            + c0 * D * H
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * H * D + offs_k[None, :])
     )
     dk_ptrs = (
-        DK
-        + c0 * H * D
-        + hid * D
-        + kid * KD
-        + (offs_b[:, None] * H * D + offs_k[None, :])
+            DK
+            + c0 * H * D
+            + hid * D
+            + kid * KD
+            + (offs_b[:, None] * H * D + offs_k[None, :])
     )
     dv_ptrs = (
-        DV
-        + c0 * H * D
-        + hid * D
-        + vid * VD
-        + (offs_b[:, None] * H * D + offs_v[None, :])
+            DV
+            + c0 * H * D
+            + hid * D
+            + vid * VD
+            + (offs_b[:, None] * H * D + offs_v[None, :])
     )
     s_ptrs = (
-        S
-        + bid * H * D * D
-        + hid * D * D
-        + kid * D * KD
-        + vid * VD
-        + (offs_k[:, None] * D + offs_v[None, :])
+            S
+            + bid * H * D * D
+            + hid * D * D
+            + kid * D * KD
+            + vid * VD
+            + (offs_k[:, None] * D + offs_v[None, :])
     )
 
     state = tl.load(s_ptrs).to(tl.float32)
@@ -978,7 +985,7 @@ def fused_lightning_attention_backward_kernel(
         amps = tl.exp(-decay_scale * b_offs)  # [100, 10, 1]
         decays = tl.exp(decay_scale * b_offs)  # [0.01, 0.1, 1]
 
-        qs = q * amps[:, None]   # [100, 10, 1]
+        qs = q * amps[:, None]  # [100, 10, 1]
         ks = k * decays[:, None]  # [0.01, 0.1, 1]
         qk = tl.dot(qs, tl.trans(ks)) * softmax_scale
         qk = tl.where(offs_b[None, :] <= offs_b[:, None], qk, 0.0)
@@ -988,18 +995,22 @@ def fused_lightning_attention_backward_kernel(
         # state = state + tl.dot(tl.trans(k * decays[:, None]), v)
 
         state = state - tl.dot(tl.trans(ks), v)
-        
+
         dv = tl.dot(tl.trans(qk), g)
 
         dv += tl.dot(ks, gs)
 
         dqk = tl.dot(g, tl.trans(v))
-        dqk = tl.where(offs_b[None, :] <= offs_b[:, None], dqk, 0.0) * softmax_scale
+        dqk = tl.where(offs_b[None, :] <= offs_b[:, None], dqk,
+                       0.0) * softmax_scale
         dk = tl.dot(tl.trans(dqk), qs)
         dk += tl.dot(v, tl.trans(gs))
         dk *= decays[:, None]
 
-        dq = tl.dot(dqk, ks) + tl.dot(g, tl.trans(state)) * softmax_scale * decays[:, None]
+        dq = tl.dot(dqk, ks) + tl.dot(g,
+                                      tl.trans(state)) * softmax_scale * decays[
+                                                                         :,
+                                                                         None]
         dq *= amps[:, None]
         state /= block_decay
 
@@ -1013,15 +1024,20 @@ def fused_lightning_attention_backward_kernel(
             tl.store(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty))
             tl.store(dk_ptrs + n * H * D, dk.to(DK.dtype.element_ty))
         else:
-            tl.atomic_add(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty), sem='relaxed')
-            tl.atomic_add(dk_ptrs + n * H * D, dk.to(DK.dtype.element_ty), sem='relaxed')
+            tl.atomic_add(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty),
+                          sem='relaxed')
+            tl.atomic_add(dk_ptrs + n * H * D, dk.to(DK.dtype.element_ty),
+                          sem='relaxed')
         if KD == D:
             tl.store(dv_ptrs + n * H * D, dv.to(DV.dtype.element_ty))
         else:
-            tl.atomic_add(dv_ptrs + n * H * D, dv.to(DV.dtype.element_ty), sem='relaxed')
+            tl.atomic_add(dv_ptrs + n * H * D, dv.to(DV.dtype.element_ty),
+                          sem='relaxed')
 
 
-def triton_fused_lightning_attention_backward(output_grad, q, k, v, s, decay_scales, softmax_scale=None, hpc=False):
+def triton_fused_lightning_attention_backward(output_grad, q, k, v, s,
+                                              decay_scales, softmax_scale=None,
+                                              hpc=False):
     B, L, H, D = q.shape
     if softmax_scale is None:
         softmax_scale = D ** (-0.5)
@@ -1092,8 +1108,6 @@ def triton_fused_lightning_attention_backward(output_grad, q, k, v, s, decay_sca
         if k_dim_block > 1:
             dv = dv.to(dtype)
     return dq, dk, dv
-
-
 
 # @triton.jit
 # def varlen_lightning_attention_forward_kernel(
@@ -1318,7 +1332,6 @@ def triton_fused_lightning_attention_backward(output_grad, q, k, v, s, decay_sca
 #     return o, s
 
 
-
 # @triton.jit
 # def varlen_lightning_attention_backward_kernel(
 #     Q,
@@ -1369,7 +1382,7 @@ def triton_fused_lightning_attention_backward(output_grad, q, k, v, s, decay_sca
 #         padded_length = length
 #         if length == 0:
 #             return
- 
+
 #     decay_scale = -tl.load(decay_scales + hid)
 
 #     offs_b = tl.arange(0, BLOCK)
@@ -1575,4 +1588,3 @@ def triton_fused_lightning_attention_backward(output_grad, q, k, v, s, decay_sca
 #     )
 
 #     return dq, dk, dv
-

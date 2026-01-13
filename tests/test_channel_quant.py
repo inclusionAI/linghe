@@ -6,11 +6,11 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 
 from linghe.quant.channel import (triton_deprecated_tokenwise_row_quant,
-                                         triton_row_quant,
-                                         triton_tokenwise_row_quant)
+                                  triton_row_quant,
+                                  triton_tokenwise_row_quant)
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import torch_row_quant
 from linghe.tools.check import output_check
+from linghe.tools.util import torch_row_quant
 
 
 def test_row_quant(M=4096, N=4096, round_scale=True, bench=False):
