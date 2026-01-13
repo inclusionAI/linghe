@@ -488,7 +488,7 @@ def qk_norm_and_half_rope_forward_kernel(qkv_ptr,
 
 
 @triton.jit
-def compatible_qk_norm_and_half_rop_forward_kernel(qkv_ptr,
+def compatible_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                                                    q_norm_weight_ptr,
                                                    k_norm_weight_ptr,
                                                    freqs_ptr,
@@ -760,7 +760,7 @@ def triton_qk_norm_and_half_rope_forward(qkv, q_norm_weight, k_norm_weight,
             num_warps=num_warps
         )
     else:
-        compatible_qk_norm_and_half_rop_forward_kernel[grid](
+        compatible_qk_norm_and_half_rope_forward_kernel[grid](
             qkv,
             q_norm_weight, k_norm_weight,
             freqs,

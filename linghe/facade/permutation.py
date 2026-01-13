@@ -505,7 +505,7 @@ def mxfp8_unpermute(
     return output
 
 
-class _MXFP8Quant_dispatch(torch.autograd.Function):
+class _MXFP8QuantForDispatch(torch.autograd.Function):
     @staticmethod
     def forward(
             ctx, tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers,
@@ -546,7 +546,7 @@ class _MXFP8Quant_dispatch(torch.autograd.Function):
 def mxfp8_quant_dispatch(
         tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers, cls
 ):
-    output = _MXFP8Quant_dispatch.apply(
+    output = _MXFP8QuantForDispatch.apply(
         tokens,
         tokens_per_expert_cuda,
         tokens_per_expert,
@@ -556,7 +556,7 @@ def mxfp8_quant_dispatch(
     return output
 
 
-class _MXFP8Quant_combine(torch.autograd.Function):
+class _MXFP8QuantForCombine(torch.autograd.Function):
     @staticmethod
     def forward(
             ctx, tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers,
@@ -605,7 +605,7 @@ class _MXFP8Quant_combine(torch.autograd.Function):
 def mxfp8_quant_combine(
         tokens, tokens_per_expert_cuda, tokens_per_expert, quantizers, cls
 ):
-    output = _MXFP8Quant_combine.apply(
+    output = _MXFP8QuantForCombine.apply(
         tokens,
         tokens_per_expert_cuda,
         tokens_per_expert,
