@@ -7,8 +7,8 @@ from datetime import timedelta
 
 import torch
 import torch.distributed as dist
-from megatron.core.fusions.fused_cross_entropy import \
-    fused_vocab_parallel_cross_entropy
+# from megatron.core.fusions.fused_cross_entropy import \
+#     fused_vocab_parallel_cross_entropy
 from transformer_engine.pytorch.cross_entropy import parallel_cross_entropy
 
 from linghe.facade.loss import softmax_cross_entropy
@@ -60,22 +60,23 @@ def bench_triton_softmax_cross_entropy(M=4096, N=157184):
     max_logits = torch.rand((M,), dtype=torch.float32, device=device)
 
     pg = dist.new_group(ranks=[0], backend='nccl')
-    fused_losses, fused_grad = fused_cross_entropy_forward_backward(
-        logits.detach().clone().requires_grad_(), targets, input_grad, pg)
+    # fused_losses, fused_grad = fused_cross_entropy_forward_backward(
+    #     logits.detach().clone().requires_grad_(), targets, input_grad, pg)
     te_losses, te_grad = te_cross_entropy_forward_backward(
         logits.detach().clone().requires_grad_(), targets,
         input_grad)
     triton_losses, triton_grad = triton_cross_entropy_forward_backward(
         logits.detach().clone().requires_grad_(), targets, input_grad,
         inplace=False)
-    output_check(fused_losses, triton_losses)
-    output_check(fused_grad, triton_grad)
+    output_check(te_losses[0], triton_losses)
+    output_check(te_grad, triton_grad)
 
-    ref_time = benchmark_func(fused_cross_entropy_forward_backward,
-                              logits.detach().clone().requires_grad_(),
-                              targets, input_grad, pg,
-                              n_repeat=1,
-                              ref_bytes=M * N * 6)
+    # ref_time = benchmark_func(fused_cross_entropy_forward_backward,
+    #                           logits.detach().clone().requires_grad_(),
+    #                           targets, input_grad, pg,
+    #                           n_repeat=1,
+    #                           ref_bytes=M * N * 6)
+    ref_time = None
     benchmark_func(te_cross_entropy_forward_backward,
                    logits.detach().clone().requires_grad_(), targets,
                    input_grad,
