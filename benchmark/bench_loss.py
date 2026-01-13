@@ -19,6 +19,7 @@ from linghe.utils.loss import (triton_softmax_cross_entropy_backward,
 
 
 def fused_cross_entropy_forward_backward(logits, targets, input_grad, pg):
+    logits.grad = None
     losses = fused_vocab_parallel_cross_entropy(logits[None],
                                                 targets[None],
                                                 pg)[0]
@@ -27,6 +28,7 @@ def fused_cross_entropy_forward_backward(logits, targets, input_grad, pg):
 
 
 def te_cross_entropy_forward_backward(logits, targets, input_grad):
+    logits.grad = None
     losses = parallel_cross_entropy(logits[None],
                                     targets[None])
     losses.backward(input_grad[None])
@@ -35,13 +37,7 @@ def te_cross_entropy_forward_backward(logits, targets, input_grad):
 
 def triton_cross_entropy_forward_backward(logits, targets, input_grad,
                                           inplace=True):
-    # losses, sum_exp, max_logits = triton_softmax_cross_entropy_forward(logits,
-    #                                                                    targets)
-    # output_grad = triton_softmax_cross_entropy_backward(logits, targets,
-    #                                                     sum_exp, max_logits,
-    #                                                     input_grad,
-    #                                                     inplace=inplace)
-    # return losses, output_grad
+    logits.grad = None
     losses = softmax_cross_entropy(logits, targets, inplace=inplace)
     losses.backward(input_grad)
     return losses, logits.grad
@@ -68,8 +64,8 @@ def bench_triton_softmax_cross_entropy(M=4096, N=157184):
     triton_losses, triton_grad = triton_cross_entropy_forward_backward(
         logits.detach().clone().requires_grad_(), targets, input_grad,
         inplace=False)
-    output_check(fused_losses, triton_losses)
-    output_check(fused_grad, triton_grad)
+    output_check(fused_losses, triton_losses, name='loss')
+    output_check(fused_grad, triton_grad, name='grad')
 
     ref_time = benchmark_func(fused_cross_entropy_forward_backward,
                               logits.detach().clone().requires_grad_(),
@@ -97,7 +93,7 @@ def bench_triton_softmax_cross_entropy(M=4096, N=157184):
 
 
 if __name__ == '__main__':
-    # torchrun bench_loss.py
+    # torchrun --nproc_per_node=1  bench_loss.py
     init_method = "env://"
     dist.init_process_group(backend='nccl', init_method=init_method,
                             world_size=1, rank=0,
