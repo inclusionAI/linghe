@@ -67,6 +67,8 @@ def bench_cublas_channelwise_gemm(M=4096, N=4096, K=4096):
 def bench_te_blockwise_gemm(M=4096, N=4096, K=4096, round_scale=False):
     # layout == 'TN':  # forward, y=x@w
     from linghe.quant.block import triton_block_quant, triton_blockwise_quant
+    import transformer_engine as te
+    assert te is not None  # avoid remove above import
     import transformer_engine_torch as tex
     from transformer_engine.pytorch.tensor.float8_blockwise_tensor import \
         Float8BlockwiseQTensor, Float8BlockQuantizer
@@ -199,6 +201,8 @@ def bench_te_mxfp8_gemm(M=4096, N=4096, K=4096):
 
     # import transformer_engine_torch as tex
     from linghe.quant.mxfp8 import triton_mxfp8_quant
+    import transformer_engine as te
+    assert te is not None  # avoid remove above import
     import transformer_engine_torch as tex
     from transformer_engine.pytorch.tensor.mxfp8_tensor import MXFP8Tensor
     from transformer_engine.pytorch.module.base import get_workspace
