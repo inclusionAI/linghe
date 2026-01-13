@@ -96,6 +96,8 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None, rms=None):
     return out, rms
 
 
+
+
 @triton.jit
 def rms_norm_backward_kernel(
         grad_output_ptr,

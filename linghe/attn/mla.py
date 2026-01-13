@@ -741,8 +741,8 @@ def mla_backward_kernel(
         dq0 = tl.dot(dp, k0)  # [M, N]@[N, 128]=[M, 128]
         dq1 = tl.dot(dp, k1)  # [M, N]@[N, 64]=[M, 64]
         if ATOMIC:
-            tl.atomic_add(dq0_ptrs + m * H * 192, dq0)
-            tl.atomic_add(dq1_ptrs + m * H * 192, dq1)
+            tl.atomic_add(dq0_ptrs + m * H * 192, dq0, sem='relaxed')
+            tl.atomic_add(dq1_ptrs + m * H * 192, dq1, sem='relaxed')
         else:
             tl.store(dq0_ptrs + m * H * 192, dq0)
             tl.store(dq1_ptrs + m * H * 192, dq1)
@@ -826,7 +826,7 @@ def mla_rs_kernel(
 
 # should use triton>=3.5.1 for better performance
 # hpc: high precision cache
-def triton_mla_backward(go, o, q, k, v, lse, max_logits, causal=True, safe=True, hpc=False, clip_value=None):
+def triton_mla_backward(go, o, q, k, v, lse, max_logits, causal=True, safe=True, atomic=True, hpc=False, clip_value=None):
     # q: [B, L, H, 192]
     # k: [B, L, H, 192]
     # v: [B, L, H, 128]
@@ -859,12 +859,10 @@ def triton_mla_backward(go, o, q, k, v, lse, max_logits, causal=True, safe=True,
 
     M = 32
     N = 128
-    atomic = False  # very slow with atomic
     if atomic:
-        gq = torch.zeros((B, L, H, 192), dtype=torch.float32, device=device)
-        # gq = torch.zeros((B, H, L, 192), dtype=torch.float32, device=device)
+        gq = torch.zeros((B, L, H, 192), dtype=torch.float32 if hpc else dtype, device=device)
     else:
-        gq = torch.empty((L//N, B, L, H, 192), dtype=torch.float32 if hpc else dtype, device=q.device)
+        gq = torch.empty((L//N, B, L, H, 192), dtype=torch.float32 if hpc else dtype, device=device)
     
     gk = torch.empty((B, L, H, 192), dtype=dtype, device=device)
     gv = torch.empty((B, L, H, 128), dtype=dtype, device=device)
@@ -903,7 +901,8 @@ def triton_mla_backward(go, o, q, k, v, lse, max_logits, causal=True, safe=True,
     )
 
     if atomic:
-        gq = gq.to(q.dtype)
+        if hpc:
+            gq = gq.to(q.dtype)
     else:
         qo = torch.empty((B, L, H, 192), dtype=dtype, device=device)
         BLOCK = max([x for x in [64,1024,2048,4096] if H * 192 % x == 0])
@@ -1317,8 +1316,8 @@ def varlen_mla_backward_kernel(
         dq0 = tl.dot(dp, k0)  # [M, N]@[N, 128]=[M, 128]
         dq1 = tl.dot(dp, k1)  # [M, N]@[N, 64]=[M, 64]
         if ATOMIC:
-            tl.atomic_add(dq0_ptrs + m * H * 192, dq0, mask=m_mask[:,None])
-            tl.atomic_add(dq1_ptrs + m * H * 192, dq1, mask=m_mask[:,None])
+            tl.atomic_add(dq0_ptrs + m * H * 192, dq0, mask=m_mask[:,None], sem='relaxed')
+            tl.atomic_add(dq1_ptrs + m * H * 192, dq1, mask=m_mask[:,None], sem='relaxed')
         else:
             tl.store(dq0_ptrs + m * H * 192, dq0, mask=m_mask[:,None])
             tl.store(dq1_ptrs + m * H * 192, dq1, mask=m_mask[:,None])
@@ -1410,7 +1409,7 @@ def varlen_mla_rs_kernel(
 def triton_varlen_mla_backward(go, o, q, k, v, lse, 
                                max_logits, cu_seqlens, max_q_length, 
                                padded_cu_seqlens=None, causal=True, 
-                               safe=True, hpc=False, atomic=False,
+                               safe=True, hpc=False, atomic=True,
                                clip_value=None
 ):
     # q: [T, H, 192]
@@ -1447,9 +1446,8 @@ def triton_varlen_mla_backward(go, o, q, k, v, lse,
     M = 32
     N = 128
     num_n_block = triton.cdiv(T, N)
-    # atomic mode is very slow, it is used for debug
     if atomic:
-        gq = torch.zeros((T, H, 192), dtype=torch.float32, device=device)
+        gq = torch.zeros((T, H, 192), dtype=torch.float32 if hpc else dtype, device=device)
     else:
         gq = torch.empty((num_n_block, T, H, 192), dtype=torch.float32 if hpc else dtype, device=q.device)
     
@@ -1490,7 +1488,8 @@ def triton_varlen_mla_backward(go, o, q, k, v, lse,
     )
 
     if atomic:
-        gq = gq.to(q.dtype)
+        if hpc:
+            gq = gq.to(q.dtype)
     else:
         qo = torch.empty((T, H, 192), dtype=dtype, device=device)
         BLOCK = max([x for x in [64,1024,2048,4096] if H * 192 % x == 0])

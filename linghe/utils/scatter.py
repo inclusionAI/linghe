@@ -81,7 +81,7 @@ def scatter_add_kernel(x_ptr, o_ptr, indices_ptr, M, T, N: tl.constexpr):
         src_idx = pid * T + i
         dst_idx = tl.load(indices_ptr + src_idx, mask=src_idx < M)
         x = tl.load(x_ptr + src_idx * N + offs, mask=src_idx < M).to(tl.float32)
-        tl.atomic_add(o_ptr + dst_idx * N + offs, x)
+        tl.atomic_add(o_ptr + dst_idx * N + offs, x, sem='relaxed')
 
 
 @triton.jit

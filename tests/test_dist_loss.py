@@ -50,7 +50,7 @@ def test_triton_softmax_cross_entropy(M=4096, N=157184, coef=1.0, grad_coef=1.0,
             
         targets = torch.tensor(targets, dtype=torch.long, device=device)
     else:
-        targets = torch.randint(0, N, (M,), dtype=torch.long, device=device)
+        targets = torch.randint(0, N * group_size, (M,), dtype=torch.long, device=device)
 
     if ignore_index is not None:
         targets[:10] = ignore_index

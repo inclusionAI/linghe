@@ -211,12 +211,16 @@ def scan_and_count_split_kernel(id_ptr,
                            counts_ptr,
                            unique_id_ptr,
                            unique_count_ptr,
+                           L,
                            B: tl.constexpr):
-    pid = tl.program_id(axis=0)
+    bid = tl.program_id(axis=0)
+    sid = tl.program_id(axis=1)
+    ns = tl.num_programs(1)
 
-    ids = tl.load(id_ptr + pid * B + tl.arange(0, B))
+    ids = tl.load(id_ptr + bid * L + sid * B + tl.arange(0, B))
 
-    write_index = pid * B
+    write_index = bid * L + sid * B
+    unique_count = 0
     stop = False
     while not stop:
         min_id = tl.min(ids)
@@ -228,7 +232,8 @@ def scan_and_count_split_kernel(id_ptr,
             tl.store(counts_ptr + write_index, count)
             tl.store(unique_id_ptr + write_index, min_id)
             write_index += 1
-    tl.store(unique_count_ptr + pid, write_index - pid * B)
+            unique_count += 1
+    tl.store(unique_count_ptr + bid * ns + sid, unique_count)
 
 
 @triton.jit
@@ -237,15 +242,17 @@ def scan_and_count_merge_kernel(
                            unique_id_ptr,
                            unique_count_ptr,
                            accum_counts_ptr,
+                           L,
                            B: tl.constexpr,
                            T: tl.constexpr):
-    write_index = 1
-    tl.store(accum_counts_ptr, 0)
+    bid = tl.program_id(axis=0)
+    write_index = bid * (L + 1) + 1
+    tl.store(accum_counts_ptr + bid * (L + 1), 0)
     pre_id = -1
     for i in range(T):
-        uc = tl.load(unique_count_ptr + i)
-        counts = tl.load(counts_ptr + i * B + tl.arange(0, B), mask=tl.arange(0, B) < uc)
-        uids = tl.load(unique_id_ptr + i * B + tl.arange(0, B), mask=tl.arange(0, B) < uc, other=2**30)
+        uc = tl.load(unique_count_ptr + bid * T + i)
+        counts = tl.load(counts_ptr + bid * L + i * B + tl.arange(0, B), mask=tl.arange(0, B) < uc)
+        uids = tl.load(unique_id_ptr + bid * L + i * B + tl.arange(0, B), mask=tl.arange(0, B) < uc, other=2**30)
         min_id = tl.min(uids)
         offset = tl.where(min_id == pre_id, -1, 0)
         pre_id = tl.max(tl.where(tl.arange(0, B) < uc, uids, -1))
@@ -254,44 +261,59 @@ def scan_and_count_merge_kernel(
 
 
 def triton_scan_and_count(ids):
-    M = ids.numel()
-    B = 256
-    T = M // B
-    assert M % B == 0
-
-    counts = torch.empty((M,), dtype=torch.int32, device=ids.device)
-    unique_ids = torch.empty((M,), dtype=torch.int32, device=ids.device)
-    unique_counts = torch.empty((T,), dtype=torch.int32, device=ids.device)
-
-    accum_counts = torch.zeros((M + 1,), dtype=torch.int32, device=ids.device)
+    assert ids.is_contiguous()
+    shape = ids.shape
+    device = ids.device
+    assert len(shape) in (1, 2)
+    if len(shape) == 2:
+        B, L = ids.shape
+        BLOCK = 256
+        assert L % BLOCK == 0
+        T = L // BLOCK
+        counts = torch.empty((B, L,), dtype=torch.int32, device=device)
+        unique_ids = torch.empty((B, L), dtype=torch.int32, device=device)
+        unique_counts = torch.empty((B, T), dtype=torch.int32, device=device)
+        accum_counts = torch.zeros((B, L + 1), dtype=torch.int32, device=device)
+    else:
+        L = shape[0]
+        B = 1
+        BLOCK = 256
+        assert L % BLOCK == 0
+        T = L // BLOCK
+        counts = torch.empty((L,), dtype=torch.int32, device=device)
+        unique_ids = torch.empty((L,), dtype=torch.int32, device=device)
+        unique_counts = torch.empty((T,), dtype=torch.int32, device=device)
+        accum_counts = torch.zeros((L + 1,), dtype=torch.int32, device=device)
 
     num_stages = 3
     num_warps = 1
-    grid = (T, )
+    grid = (B, T)
     scan_and_count_split_kernel[grid](
         ids,
         counts,
         unique_ids,
         unique_counts,
-        B,
+        L,
+        BLOCK,
         num_stages=num_stages,
         num_warps=num_warps
     )
 
     num_stages = 3
     num_warps = 1
-    grid = (1, )
+    grid = (B, )
     scan_and_count_merge_kernel[grid](
         counts,
         unique_ids,
         unique_counts,
         accum_counts,
-        B,
+        L,
+        BLOCK,
         T,
         num_stages=num_stages,
         num_warps=num_warps
     )
-    accum_counts = torch.cumsum(accum_counts, 0)
+    accum_counts = torch.cumsum(accum_counts, -1)
 
     return accum_counts
 

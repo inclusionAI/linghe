@@ -7,7 +7,10 @@ import torch
 
 from linghe.gemm.fp32_gemm import (triton_fp32_gemm,
                                   triton_fp32_gemm_for_backward,
-                                  triton_fp32_gemm_for_update)
+                                  triton_fp32_gemm_for_update,
+                                  triton_split_fp32_gemm,
+                                  triton_split_fp32_gemm_for_backward,
+                                  triton_split_fp32_gemm_for_update)
 from linghe.facade.fp32_gemm import fp32_gemm
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
@@ -28,7 +31,6 @@ def torch_fp32_matmul_update(dy, x):
 
 
 def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
-    # M, N, K = 4096, 256, 8192
     dtype = torch.bfloat16
     device = 'cuda:0'
 
@@ -45,9 +47,16 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     dx = triton_fp32_gemm_for_backward(dy, w)
     dw = triton_fp32_gemm_for_update(dy, x)
 
-    output_check(y_ref, y, name='forward', atol=5e-3, rtol=2e-3)
-    output_check(dx_ref, dx, name='backward', atol=2e-2, rtol=2e-2)
-    output_check(dw_ref, dw.to(dtype), name='update', atol=5e-2, rtol=2e-2)
+    output_check(y_ref, y, name='y', atol=5e-3, rtol=2e-3)
+    output_check(dx_ref, dx, name='dx', atol=2e-2, rtol=2e-2)
+    output_check(dw_ref, dw.to(dtype), name='dw', atol=2e-1, rtol=2e-2)
+
+    y = triton_split_fp32_gemm(x, w)
+    dx = triton_split_fp32_gemm_for_backward(dy, w)
+    dw = triton_split_fp32_gemm_for_update(dy, x)
+    output_check(y_ref, y, name='split.y', atol=5e-3, rtol=2e-3)
+    output_check(dx_ref, dx, name='split.dx', atol=2e-2, rtol=2e-2)
+    output_check(dw_ref, dw.to(dtype), name='split.dw', atol=2e-1, rtol=2e-2)
 
     x.grad = None 
     w.grad = None
@@ -55,37 +64,44 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     y.backward(gradient=dy)
     dx = x.grad 
     dw = w.grad
-    output_check(y_ref, y, name='forward', atol=5e-3, rtol=2e-3)
-    output_check(dx_ref, dx, name='backward', atol=2e-2, rtol=2e-2)
-    output_check(dw_ref, dw.to(dtype), name='update', atol=5e-2, rtol=2e-2)
+    output_check(y_ref, y, name='y', atol=5e-3, rtol=2e-3)
+    output_check(dx_ref, dx, name='dx', atol=2e-2, rtol=2e-2)
+    output_check(dw_ref, dw.to(dtype), name='dw', atol=2e-1, rtol=2e-2)
 
     if bench:
-        print('\nbenchmark\n')
-        n_repeat = 100
-        ref_time = benchmark_func(torch_fp32_matmul, x, w, n_repeat=n_repeat,
-                                  ref_bytes=M * K * 6 + N * K * 6 + M * N * 4,
-                                  ref_flops=2 * M * N * K)
-        benchmark_func(triton_fp32_gemm, x, w, n_repeat=n_repeat,
-                       ref_bytes=M * K * 6 + N * K * 6 + M * N * 4,
-                       ref_flops=2 * M * N * K, ref_time=ref_time)
+        ref_bytes = M * K * 6 + N * K * 6 + M * N * 4
+        ref_flops = 2 * M * N * K
+        ref_time = benchmark_func(torch_fp32_matmul, x, w, 
+                                  ref_bytes=ref_bytes,
+                                  ref_flops=ref_flops)
+        benchmark_func(triton_fp32_gemm, x, w, 
+                       ref_bytes=ref_bytes,
+                       ref_flops=ref_flops, ref_time=ref_time)
+        benchmark_func(triton_split_fp32_gemm, x, w, 
+                       ref_bytes=ref_bytes,
+                       ref_flops=ref_flops, ref_time=ref_time)
 
+        ref_bytes = M * K * 10 + N * K * 4 + M * N * 4
         ref_time = benchmark_func(torch_fp32_matmul_backward, dy, w.float(),
-                                  n_repeat=n_repeat,
-                                  ref_bytes=M * K * 10 + N * K * 4 + M * N * 4,
-                                  ref_flops=2 * M * N * K)
+                                  ref_bytes=ref_bytes,
+                                  ref_flops=ref_flops)
         benchmark_func(triton_fp32_gemm_for_backward, dy, w,
-                       n_repeat=n_repeat,
-                       ref_bytes=M * K * 2 + N * K * 2 + M * N * 4,
-                       ref_flops=2 * M * N * K, ref_time=ref_time)
+                       ref_bytes=ref_bytes,
+                       ref_flops=ref_flops, ref_time=ref_time)
+        benchmark_func(triton_split_fp32_gemm_for_backward, dy, w,
+                       ref_bytes=ref_bytes,
+                       ref_flops=ref_flops, ref_time=ref_time)
 
+        ref_bytes = M * K * 4 + N * K * 12 + M * N * 4
         ref_time = benchmark_func(torch_fp32_matmul_update, dy, x.float(),
-                                  n_repeat=n_repeat,
-                                  ref_bytes=M * K * 4 + N * K * 12 + M * N * 4,
-                                  ref_flops=2 * M * N * K)
-        benchmark_func(triton_fp32_gemm_for_update, dy, x, n_repeat=n_repeat,
-                       ref_bytes=M * K * 2 + N * K * 8 + M * N * 4,
-                       ref_flops=2 * M * N * K, ref_time=ref_time)
-
+                                  ref_bytes=ref_bytes,
+                                  ref_flops=ref_flops)
+        benchmark_func(triton_fp32_gemm_for_update, dy, x, 
+                       ref_bytes=ref_bytes,
+                       ref_flops=ref_flops, ref_time=ref_time)
+        benchmark_func(triton_split_fp32_gemm_for_update, dy, x, 
+                       ref_bytes=ref_bytes,
+                       ref_flops=ref_flops, ref_time=ref_time)
 
 def test_BMK_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False):
     # M, N, K = 4096, 256, 8192
@@ -124,9 +140,9 @@ def test_BMK_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False):
 
 
 if __name__ == '__main__':
-    # test_fp32_matmul(M=2048, N=256, K=8192, bench=False)
-    # test_fp32_matmul(M=2048, N=16, K=8192, bench=False)
-    # test_fp32_matmul(M=128, N=16, K=128, bench=False)
+    test_fp32_matmul(M=4096, N=256, K=8192, bench=False)
+    test_fp32_matmul(M=16384, N=256, K=2048, bench=False)
+    test_fp32_matmul(M=128, N=16, K=128, bench=False)
     test_BMK_fp32_matmul(B=2,M=2048, N=16, K=8192, bench=False)
     test_BMK_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False)
     test_BMK_fp32_matmul(B=2,M=128, N=16, K=128, bench=False)

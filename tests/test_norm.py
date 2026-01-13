@@ -91,10 +91,11 @@ def torch_rms_and_block_quant_forward(x, weight, round_scale=False):
     with torch.no_grad():
         rmsnorm.weight.copy_(weight)
     y = rmsnorm(x)
+    rms = torch.rsqrt(torch.sum(x**2, 1)/N+1e-6)
     # blockwise
     y_q, y_scale = torch_group_quant(y, round_scale=round_scale)
     yt_q, yt_scale = torch_group_quant(y.t(), round_scale=round_scale)
-    return y_q, y_scale, yt_q, yt_scale
+    return y_q, y_scale.t(), rms, yt_q, yt_scale.t()
 
 
 def torch_rms_gemm_block_quant_forward(x, norm_weight, route_weight, round_scale=False):
@@ -261,6 +262,8 @@ def test_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
                        output_mode=2,
                        ref_bytes=M * N * 6)
 
+
+
 def test_rmsnorm_and_mxfp8_quant(M=4096, N=4096, bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
@@ -374,4 +377,5 @@ if __name__ == '__main__':
     test_rmsnorm_and_smooth_quant(M=4096, N=8192, bench=False)
 
     test_rms_norm_fp32_gemm_block_quant_forward(M=8192*2, N=256, K=2048, bench=False)
+
 
