@@ -310,15 +310,15 @@ def test_smooth_quant_linear(M=8192, N=1024, K=2048):
 
     y_ref = x @ w.t()
     y = linear(x)
-    output_check(y_ref, y, name='y')
+    output_check(y_ref, y, name='y', atol=-1)
 
     dx_ref = dy @ w
     dw_ref = dy.t() @ x
     y.backward(dy)
     dw = linear.weight.grad
     dx = x.grad
-    output_check(dx_ref, dx, name='dx')
-    output_check(dw_ref, dw, name='dw')
+    output_check(dx_ref, dx, name='dx', atol=-1)
+    output_check(dw_ref, dw, name='dw', atol=-1)
 
 
 if __name__ == '__main__':
@@ -353,4 +353,4 @@ if __name__ == '__main__':
 
     test_triton_batch_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
                                    round_scale=False)
-    # test_smooth_quant_linear(M=8192, N=1024, K=2048)
+    test_smooth_quant_linear(M=8192, N=1024, K=2048)

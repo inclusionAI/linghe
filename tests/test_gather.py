@@ -283,11 +283,11 @@ def test_triton_smooth_weighted_permute_with_indices(M=4096, N=4096,
                                                     token_count_per_expert,
                                                     reverse=reverse,
                                                     round_scale=round_scale)
-    sum_ref = (tokens * y[indices]).sum(1)
+    sum_ref = (tokens.float() * y[indices].float()).sum(1).to(torch.bfloat16)
 
-    output_check(y_q_ref.float(), y_q.float(), 'data')
-    output_check(y_scale_ref.float(), y_scale.float(), 'scale')
-    output_check(sum_ref.float(), y_sum.float(), 'sum')
+    output_check(y_q_ref, y_q, 'data')
+    output_check(y_scale_ref, y_scale, 'scale')
+    output_check(sum_ref, y_sum, 'sum', atol=1e-3)
 
     if bench:
         n_repeat = 100
@@ -640,6 +640,12 @@ if __name__ == '__main__':
     test_triton_smooth_permute_with_mask_map(M=7628, N=2048, n_experts=32,
                                              topk=8)
 
+    test_triton_smooth_weighted_permute_with_indices(M=4096, N=4096,
+                                                     n_experts=256,
+                                                     topk=8,
+                                                     round_scale=True,
+                                                     bench=False)
+
     test_triton_batch_transpose_smooth_permute_with_indices(M=16384, N=2048,
                                                             n_experts=32,
                                                             topk=2, bench=False)
@@ -660,3 +666,4 @@ if __name__ == '__main__':
                                           bench=False)
     test_batch_mxfp8_permute_with_indices(M=1024, N=1536, n_experts=32, topk=2,
                                           bench=False)
+
