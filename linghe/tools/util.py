@@ -4,6 +4,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 import math
+
 import torch
 
 
@@ -21,6 +22,7 @@ def torch_tensor_quant(x, dtype=torch.float8_e4m3fn, round_scale=False):
 
 
 def torch_row_quant(x, dtype=torch.float8_e4m3fn, round_scale=False):
+    x = x.float()
     fmax = torch.finfo(dtype).max
     scale = torch.abs(x).amax(1) / fmax
     scale = torch.maximum(scale, 1e-30 * torch.ones((1,), dtype=torch.float32,
@@ -52,7 +54,7 @@ def torch_group_quant(x, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
 
     xp = torch.reshape(x.contiguous(), (M, P // B, B))
     scale = torch.amax(torch.abs(xp).float(), dim=2) / fmax
-    scaoe = torch.maximum(scale, 1e-30 * torch.ones((1,), dtype=torch.float32,
+    scale = torch.maximum(scale, 1e-30 * torch.ones((1,), dtype=torch.float32,
                                                     device=x.device))
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
@@ -62,21 +64,64 @@ def torch_group_quant(x, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     return xq, scale
 
 
+def torch_blockwise_quant(x, round_scale=True, padding=False):
+    m, N = x.shape
+
+    if padding:
+        padding_size = (m + 15) // 16 * 16 - m
+        if padding_size > 0:
+            x = torch.nn.functional.pad(x, (0, 0, 0, padding_size))
+
+    x = x.float()
+
+    y_q, y_scale = torch_group_quant(x, round_scale=round_scale)
+    yt_q, yt_scale = torch_group_quant(x.t(), round_scale=round_scale)
+
+    return y_q, y_scale.t().contiguous(), yt_q, yt_scale.t().contiguous()
+
+
 def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     fmax = torch.finfo(dtype).max
     w = w.clone()
     N, K = w.shape
 
-    wp = torch.reshape(w.t().contiguous(), (K // B, B, N // B, B)).permute(0, 2,
-                                                                           1, 3)
+    wp = torch.reshape(w, (N // B, B, K // B, B)).permute(0, 2,
+                                                          1, 3)
     scale = torch.amax(torch.amax(torch.abs(wp).float(), dim=2), dim=2) / fmax
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
     wq = (wp / scale[:, :, None, None]).to(dtype)
     wq = wq.permute(0, 2, 1, 3)
-    wq = torch.reshape(wq, (K, N)).t().contiguous()
+    wq = torch.reshape(wq, (N, K)).contiguous()
 
     return wq, scale
+
+
+def torch_mxfp8_quant(x):
+    x = x.float()
+    m, N = x.shape
+    assert N % 128 == 0
+    if m % 128 != 0:
+        M = (m + 127) // 128 * 128
+        x = torch.cat(
+            [x, torch.zeros((M - m, N), dtype=x.dtype, device=x.device)], 0)
+    else:
+        M = m
+    xs = x.view(M, N // 32, 32)
+    xm = xs.abs().amax(2)
+    scale = torch.maximum(xm / 448, 1e-30 * torch.ones_like(xm))
+    scale = torch.exp2(torch.ceil(torch.log2(scale)))
+    x_q = (xs / scale[:, :, None]).to(torch.float8_e4m3fn).view(M, N)[:m]
+    x_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
+
+    xs = x.view(M // 32, 32, N)
+    xm = xs.abs().amax(1)
+    scale = torch.maximum(xm / 448, 1e-30 * torch.ones_like(xm))
+    scale = torch.exp2(torch.ceil(torch.log2(scale)))
+    xt_q = (xs / scale[:, None, :]).to(torch.float8_e4m3fn).view(M, N)[:m]
+    xt_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
+
+    return x_q, x_scale, xt_q, xt_scale
 
 
 def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
@@ -140,7 +185,7 @@ def torch_make_indices(logits, topk=8, bias=-0.01):
         torch.cumsum(route_map.T.contiguous().view(-1), 0), (n_experts, M)) - 1
     row_id_map[torch.logical_not(route_map.T)] = -1
     row_id_map = row_id_map.T.contiguous()
-    return probs, route_map, token_count_per_expert, indices, row_id_map
+    return probs.float(), route_map, token_count_per_expert, indices, row_id_map
 
 
 # quant with scaling to 448
@@ -273,7 +318,7 @@ def torch_channel_quant_f_and_b(x, w, y):
 
 
 # smooth and token-wise/channel-wise
-def torch_reuse_smooth_quant_f_and_b(x, w, y):
+def torch_smooth_quant_f_and_b(x, w, y):
     x = x.clone()
     w = w.clone()
     y = y.clone()
@@ -357,49 +402,6 @@ def fp16_f_and_b(x, w, y):
     dw = y.t() @ x
     dx = y @ w
     return o, dx, dw
-
-
-def output_check(org_out, opt_out, mode='', rtol=None, atol=None):
-    assert org_out.shape == opt_out.shape, f"ref:{org_out.shape} != out:{opt_out.shape}"
-    dtype = org_out.dtype
-    assert opt_out.dtype == dtype or dtype == torch.float32, f"ref:{dtype} != out:{opt_out.dtype}"
-    if org_out.numel() == 0:
-        return
-
-    if dtype != torch.float32:
-        org_out = org_out.float()
-        opt_out = opt_out.float()
-    if dtype == torch.float8_e4m3fn:
-        rtol = 0.1
-    abs_error = (opt_out - org_out).abs().mean().item()
-    rel_error = abs_error / max(org_out.abs().mean().item(), 1e-38)
-    if rel_error >= 0.005:
-        rel_err_str = f"\033[91m {rel_error:.6f}\033[00m"
-    else:
-        rel_err_str = f"{rel_error:.6f}"
-    org_max = org_out.abs().max()
-    org_mean = org_out.abs().mean()
-    opt_max = opt_out.abs().max()
-    opt_mean = opt_out.abs().mean()
-    print(f'\n{mode:<16}  rel:{rel_err_str}  abs:{abs_error:.6f}  ' \
-          f'org:{org_max:.3f}/{org_mean:.3f} ' \
-          f'opt:{opt_max:.3f}/{opt_mean:.3f} ')
-    if rtol is not None and atol is not None:
-        torch.testing.assert_close(opt_out, org_out, rtol=rtol, atol=atol)
-
-
-def quant_check(org_out, xq, wq, opt_out, mode):
-    abs_error = (opt_out.float() - org_out.float()).abs().mean().item()
-    rel_error = abs_error / org_out.float().abs().mean().item()
-    x_underflow = (xq == 0.0).sum().item() / xq.numel()
-    w_underflow = (wq == 0.0).sum().item() / wq.numel()
-    x_overflow = (torch.isnan(xq)).sum().item()
-    w_overflow = (torch.isnan(wq)).sum().item()
-    print(f'\n{mode}  rel:{rel_error:.3f}  abs:{abs_error:.3f}  ' \
-          f'org:{org_out.abs().max():.3f}/{org_out.abs().mean():.3f} ' \
-          f'opt:{opt_out.abs().max():.3f}/{opt_out.abs().mean():.3f} ' \
-          f'x_underflow:{x_underflow:.5f} w_underflow:{w_underflow:.5f} ' \
-          f'x_overflow:{x_overflow} w_overflow:{w_overflow}')
 
 
 def read_and_tile(filename, tile=True):

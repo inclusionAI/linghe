@@ -8,24 +8,28 @@ import torch
 from linghe.utils.transpose import triton_transpose
 
 
-class TransposeDim01Function(torch.autograd.Function):
+class TransposeFunction(torch.autograd.Function):
     """"""
+
     @staticmethod
-    def forward(ctx, x):
-        return triton_transpose(x, dim0=0, dim1=1)
+    def forward(ctx, x, inner):
+        ctx.inner = inner
+        return triton_transpose(x, inner=inner)
 
     @staticmethod
     def backward(ctx, grad_output):
-        return triton_transpose(grad_output, dim0=0, dim1=1)
+        return triton_transpose(grad_output, inner=ctx.inner)
 
 
-def transpose_dim01(x):
+def transpose(x, inner=True):
     """
-    transpose a tensor with the first two dims, x.ndims should not greater than 4
+    transpose a tensor, x.ndims should not greater than 4
     Args:
         x: input tensor
-
+        inner: 
+            if True, transpose the first two dimensions
+            if False, transpose the last two dimensions
     Returns:
         a transposed tensor
     """
-    return TransposeDim01Function.apply(x)
+    return TransposeFunction.apply(x, inner)

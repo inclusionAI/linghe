@@ -10,6 +10,7 @@ from linghe.utils.add import triton_inplace_add
 
 class InplaceAddFunction(torch.autograd.Function):
     """"""
+
     @staticmethod
     def forward(ctx, x: torch.Tensor, y: torch.Tensor):
         return triton_inplace_add(x, y)

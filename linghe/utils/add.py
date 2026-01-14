@@ -4,7 +4,6 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 import torch
-from typing import Iterable, Optional, Tuple
 import triton
 import triton.language as tl
 
@@ -45,7 +44,7 @@ def inplace_add_kernel(x_ptr, y_ptr, M, N, H: tl.constexpr, W: tl.constexpr,
                              rid * H + tl.arange(0, H)[None, :] < M))
 
 
-def triton_inplace_add(x: torch.Tensor, y: torch.Tensor, accum : bool = True):
+def triton_inplace_add(x: torch.Tensor, y: torch.Tensor, accum: bool = True):
     """
     inplace add y to x
     Args:
@@ -56,6 +55,7 @@ def triton_inplace_add(x: torch.Tensor, y: torch.Tensor, accum : bool = True):
     Returns:
         updated x
     """
+    assert x.is_contiguous() and y.is_contiguous()
     N = x.shape[-1]
     M = x.numel() // N
     # M, N = x.shape

@@ -9,9 +9,11 @@ import triton.language as tl
 
 
 @triton.jit
-def split_and_cat_kernel(x_ptr, y_ptr, scale_ptr, scale_output_ptr, count_ptr,
-                         accum_ptr, rev_accum_ptr, index_ptr, M,
-                         N: tl.constexpr, SCALE: tl.constexpr, K: tl.constexpr):
+def sort_chunks_by_index_kernel(x_ptr, y_ptr, scale_ptr, scale_output_ptr,
+                                count_ptr,
+                                accum_ptr, rev_accum_ptr, index_ptr, M,
+                                N: tl.constexpr, SCALE: tl.constexpr,
+                                K: tl.constexpr):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     index = tl.load(index_ptr + pid)
@@ -32,10 +34,10 @@ def split_and_cat_kernel(x_ptr, y_ptr, scale_ptr, scale_output_ptr, count_ptr,
                      mask=i * K + tl.arange(0, K) < count)
 
 
-def triton_split_and_cat(x, counts, indices, scales=None):
+def triton_sort_chunks_by_index(x, counts, indices, scales=None):
     """
     split x to multiple tensors and cat with indices,
-    it is used for permutation in moe
+    it is used for permutation in moe with all2all communication
     Args:
         x: [bs, dim]
         counts: [n_split]
@@ -46,6 +48,7 @@ def triton_split_and_cat(x, counts, indices, scales=None):
         - y: output tensor
         - output_scales: output scales if scales is not None
     """
+    assert x.is_contiguous()
     M, N = x.shape
     n_split = counts.shape[0]
     device = x.device
@@ -61,7 +64,7 @@ def triton_split_and_cat(x, counts, indices, scales=None):
     # TODO: adapt for n_expert <= 64
     K = 256
     grid = (n_split,)
-    split_and_cat_kernel[grid](
+    sort_chunks_by_index_kernel[grid](
         x,
         y,
         scales,

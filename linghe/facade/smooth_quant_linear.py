@@ -7,11 +7,11 @@ from typing import Optional
 
 import torch
 
-
 from linghe.quant.smooth import triton_smooth_quant, \
     triton_transpose_smooth_quant
-from linghe.utils.transpose import triton_transpose_and_pad
 from linghe.utils.reduce import triton_abs_max
+from linghe.utils.transpose import triton_transpose_and_pad
+
 
 class _SmoothQuantLinear(torch.autograd.Function):
     @staticmethod
@@ -33,8 +33,10 @@ class _SmoothQuantLinear(torch.autograd.Function):
 
         input = input.view(-1, input.shape[-1])
 
-        x_q, x_scale, x_maxs = triton_smooth_quant(input, 1 / smooth_scale, round_scale=round_scale)
-        w_q, w_scale, w_maxs = triton_smooth_quant(weight, smooth_scale, round_scale=round_scale)
+        x_q, x_scale, x_maxs = triton_smooth_quant(input, 1 / smooth_scale,
+                                                   round_scale=round_scale)
+        w_q, w_scale, w_maxs = triton_smooth_quant(weight, smooth_scale,
+                                                   round_scale=round_scale)
 
         output = torch._scaled_mm(x_q,
                                   w_q.t(),
@@ -69,30 +71,30 @@ class _SmoothQuantLinear(torch.autograd.Function):
         output_grad = output_grad.view(-1, output_grad.shape[-1])
         round_scale = ctx.round_scale
         y_q, y_scale, y_maxs = triton_smooth_quant(output_grad,
-                                                   w_s, 
-                                                   reverse=True, 
+                                                   w_s,
+                                                   reverse=True,
                                                    round_scale=round_scale)
 
         wt_q = triton_transpose_and_pad(w_q, pad=True)
         dx = torch._scaled_mm(y_q,
-                            wt_q.t(),
-                            scale_a=y_scale.view(-1, 1),
-                            scale_b=smooth_scale.view(1, -1),
-                            out_dtype=ctx.out_dtype,
-                            use_fast_accum=True)
+                              wt_q.t(),
+                              scale_a=y_scale.view(-1, 1),
+                              scale_b=smooth_scale.view(1, -1),
+                              out_dtype=ctx.out_dtype,
+                              use_fast_accum=True)
 
-        yt_q, yt_scale = triton_transpose_smooth_quant(output_grad, 
-                                                       x_s, 
-                                                       reverse=True , 
+        yt_q, yt_scale = triton_transpose_smooth_quant(output_grad,
+                                                       x_s,
+                                                       reverse=True,
                                                        round_scale=round_scale)
 
         xt_q = triton_transpose_and_pad(x_q, pad=True)
         dw = torch._scaled_mm(yt_q,
-                                  xt_q.t(),
-                                  scale_a=yt_scale.view(-1, 1),
-                                  scale_b=1/smooth_scale.view(1, -1),
-                                  out_dtype=ctx.out_dtype,
-                                  use_fast_accum=True)
+                              xt_q.t(),
+                              scale_a=yt_scale.view(-1, 1),
+                              scale_b=1 / smooth_scale.view(1, -1),
+                              out_dtype=ctx.out_dtype,
+                              use_fast_accum=True)
 
         db = None
         if ctx.bias_requires_grad:
@@ -105,6 +107,7 @@ class SmoothQuantLinear(torch.nn.Module):
     """
     a naive implementation of smooth quantization linear
     """
+
     def __init__(
             self,
             in_features: int,
@@ -145,7 +148,7 @@ class SmoothQuantLinear(torch.nn.Module):
 
             if self.smooth_update_step % self.gap_step == 0:
                 input_maxs = triton_abs_max(input)
-                weight_maxs = triton_abs_max(self.weight.data)
+                weight_maxs = triton_abs_max(self.weight)
                 self.smooth_scale = torch.sqrt(input_maxs * weight_maxs)
 
             output = _SmoothQuantLinear.apply(input,

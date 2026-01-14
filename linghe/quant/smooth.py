@@ -13,13 +13,13 @@ from linghe.utils.transpose import triton_transpose_and_pad
 
 @triton.jit
 def tokenwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
-                                         M, T,
-                                         N: tl.constexpr,
-                                         W: tl.constexpr,
-                                         EVEN: tl.constexpr,
-                                         REVERSE: tl.constexpr,
-                                         ROUND: tl.constexpr,
-                                         CALIBRATE: tl.constexpr):
+                                  M, T,
+                                  N: tl.constexpr,
+                                  W: tl.constexpr,
+                                  EVEN: tl.constexpr,
+                                  REVERSE: tl.constexpr,
+                                  ROUND: tl.constexpr,
+                                  CALIBRATE: tl.constexpr):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     smooth_scale = tl.load(ss_ptr + tl.arange(0, N))[None, :]
@@ -78,14 +78,14 @@ def tokenwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
 
 @triton.jit
 def blockwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
-                                         M,
-                                         N,
-                                         H: tl.constexpr,
-                                         W: tl.constexpr,
-                                         EVEN: tl.constexpr,
-                                         REVERSE: tl.constexpr,
-                                         ROUND: tl.constexpr,
-                                         CALIBRATE: tl.constexpr):
+                                  M,
+                                  N,
+                                  H: tl.constexpr,
+                                  W: tl.constexpr,
+                                  EVEN: tl.constexpr,
+                                  REVERSE: tl.constexpr,
+                                  ROUND: tl.constexpr,
+                                  CALIBRATE: tl.constexpr):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     offs = pid * W * N + tl.arange(0, W)[:, None] * N + tl.arange(0, H)[None, :]
@@ -148,8 +148,8 @@ def blockwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
 
 
 def triton_smooth_quant(x, smooth_scale, x_q=None, x_scale=None,
-                               reverse=False, round_scale=False,
-                               calibrate=False):
+                        reverse=False, round_scale=False,
+                        calibrate=False):
     """"""
     M, N = x.shape
     device = x.device
@@ -222,18 +222,18 @@ def triton_smooth_quant(x, smooth_scale, x_q=None, x_scale=None,
 
 @triton.jit
 def subrow_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr,
-                                      subrow_scales_ptr,
-                                      tail_ri,
-                                      tail_si,
-                                      head_ri,
-                                      head_ei,
-                                      size,
-                                      N,
-                                      W: tl.constexpr,
-                                      TAIL: tl.constexpr,
-                                      HEAD: tl.constexpr,
-                                      REVERSE: tl.constexpr,
-                                      ROUND: tl.constexpr):
+                               subrow_scales_ptr,
+                               tail_ri,
+                               tail_si,
+                               head_ri,
+                               head_ei,
+                               size,
+                               N,
+                               W: tl.constexpr,
+                               TAIL: tl.constexpr,
+                               HEAD: tl.constexpr,
+                               REVERSE: tl.constexpr,
+                               ROUND: tl.constexpr):
     if TAIL:
         # scale is saved as max/448
         scale = tl.maximum(tl.load(subrow_scales_ptr), 1e-30)
@@ -287,8 +287,8 @@ def subrow_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr,
 
 
 def triton_subrow_smooth_quant(x, smooth_scale, x_q, x_scale,
-                                      subrow_scales, offset, size,
-                                      reverse=False, round_scale=False):
+                               subrow_scales, offset, size,
+                               reverse=False, round_scale=False):
     """"""
     M, N = x_q.shape
     W = 128
@@ -335,10 +335,10 @@ def triton_subrow_smooth_quant(x, smooth_scale, x_q, x_scale,
 
 @triton.jit
 def depracated_tokenwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr,
-                                                    qs_ptr, M, W,
-                                                    N: tl.constexpr,
-                                                    REVERSE: tl.constexpr,
-                                                    ROUND: tl.constexpr):
+                                             qs_ptr, M, W,
+                                             N: tl.constexpr,
+                                             REVERSE: tl.constexpr,
+                                             ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     smooth_scale = tl.load(ss_ptr + tl.arange(0, N))
@@ -363,8 +363,8 @@ def depracated_tokenwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr,
 
 
 def triton_depracated_tokenwise_smooth_quant(x, smooth_scale, x_q=None,
-                                                    x_scale=None, reverse=False,
-                                                    round_scale=False):
+                                             x_scale=None, reverse=False,
+                                             round_scale=False):
     """"""
     # row-wise read, row-wise write
     M, N = x.shape
@@ -606,10 +606,10 @@ def triton_batch_pad_transpose_smooth_quant(x,
 
 @triton.jit
 def transpose_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, M, N, P,
-                                         H: tl.constexpr, W: tl.constexpr,
-                                         EVEN: tl.constexpr,
-                                         REVERSE: tl.constexpr,
-                                         ROUND: tl.constexpr):
+                                  H: tl.constexpr, W: tl.constexpr,
+                                  EVEN: tl.constexpr,
+                                  REVERSE: tl.constexpr,
+                                  ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
     # col-wise read, row-wise write
     offs = pid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
@@ -678,10 +678,10 @@ def transpose_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, M, N, P,
 
 
 def triton_transpose_smooth_quant(x,
-                                         smooth_scale,
-                                         reverse=False,
-                                         pad=False,
-                                         round_scale=False):
+                                  smooth_scale,
+                                  reverse=False,
+                                  pad=False,
+                                  round_scale=False):
     # col-wise read, row-wise write
     # M should be padded if M % 32 != 0
     """"""
@@ -717,14 +717,14 @@ def triton_transpose_smooth_quant(x,
 
 @triton.jit
 def transpose_rescale_smooth_quant_kernel(x_ptr, q_ptr,
-                                                 org_smooth_scale_ptr,
-                                                 org_quant_scale_ptr,
-                                                 transpose_smooth_scale_ptr,
-                                                 transpose_quant_scale_ptr, M,
-                                                 N, P, H: tl.constexpr,
-                                                 W: tl.constexpr,
-                                                 EVEN: tl.constexpr,
-                                                 ROUND: tl.constexpr):
+                                          org_smooth_scale_ptr,
+                                          org_quant_scale_ptr,
+                                          transpose_smooth_scale_ptr,
+                                          transpose_quant_scale_ptr, M,
+                                          N, P, H: tl.constexpr,
+                                          W: tl.constexpr,
+                                          EVEN: tl.constexpr,
+                                          ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
     # col-wise read, row-wise write
     offs = pid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
@@ -806,11 +806,11 @@ implement: x_q/org_smooth_scale*(org_quant_scale*smooth_scale) -> colwise quant 
 
 
 def triton_transpose_rescale_smooth_quant(x_q, org_smooth_scale,
-                                                 org_quant_scale,
-                                                 transpose_smooth_scale,
-                                                 reverse=True,
-                                                 pad=False,
-                                                 round_scale=False):
+                                          org_quant_scale,
+                                          transpose_smooth_scale,
+                                          reverse=True,
+                                          pad=False,
+                                          round_scale=False):
     """"""
     assert reverse
     M, N = x_q.shape
@@ -842,7 +842,6 @@ def triton_transpose_rescale_smooth_quant(x_q, org_smooth_scale,
     return xt_q, x_scale
 
 
-
 """
 megatron fp8 training steps:
 step 0: init w smooth scale w_smooth
@@ -870,12 +869,13 @@ pad: # pad M to be multiplier of 32, including quant scales and transposed x
 # y = x @ w
 # dx = y @ wT
 # dwT = yT @ x
-def triton_smooth_quant_input(x, smooth_scale, x_q=None, x_scale=None, xt_q=None,
-                          transpose=True, pad=True, round_scale=False):
+def triton_smooth_quant_input(x, smooth_scale, x_q=None, x_scale=None,
+                              xt_q=None,
+                              transpose=True, pad=True, round_scale=False):
     """"""
     x_q, x_scale, x_maxs = triton_smooth_quant(x, smooth_scale, x_q=x_q,
-                                              x_scale=x_scale, reverse=False,
-                                              round_scale=round_scale)
+                                               x_scale=x_scale, reverse=False,
+                                               round_scale=round_scale)
 
     if transpose:
         xt_q = triton_transpose_and_pad(x_q, out=xt_q, pad=pad)
@@ -900,13 +900,13 @@ def triton_smooth_quant_gradient(y,
     assert reverse, ("args `smooth_scale` and/or `transpose_smooth_scale` "
                      "must be in reciprocal format in triton_smooth_quant_grad")
     y_q, y_scale, _ = triton_smooth_quant(y, smooth_scale, reverse=True,
-                                              round_scale=round_scale)
+                                          round_scale=round_scale)
     if transpose:
         yt_q, yt_scale = triton_transpose_smooth_quant(y,
-                                                              transpose_smooth_scale,
-                                                              reverse=True,
-                                                              pad=pad,
-                                                              round_scale=round_scale)
+                                                       transpose_smooth_scale,
+                                                       reverse=True,
+                                                       pad=pad,
+                                                       round_scale=round_scale)
     else:
         yt_q, yt_scale = None, None
 
@@ -928,41 +928,40 @@ def triton_smooth_quant_weight(w,
 
     if size == M * N:
         triton_smooth_quant(w.view(M, N), smooth_scale, x_q=w_q,
-                                                x_scale=quant_scale,
-                                                round_scale=round_scale)
+                            x_scale=quant_scale,
+                            round_scale=round_scale)
     elif offset % N == 0 and size % N == 0:
         n_row = size // N
         row_id = offset // N
         w_q_slice = w_q[row_id:row_id + n_row]
         quant_scale_slice = quant_scale[row_id:row_id + n_row]
-        triton_smooth_quant(w.view(n_row,N), smooth_scale, x_q=w_q_slice,
-                                                x_scale=quant_scale_slice,
-                                                round_scale=round_scale)
+        triton_smooth_quant(w.view(n_row, N), smooth_scale, x_q=w_q_slice,
+                            x_scale=quant_scale_slice,
+                            round_scale=round_scale)
     else:
-        row_si = (offset - 1)//N + 1
+        row_si = (offset - 1) // N + 1
         row_ei = (offset + size) // N
         col_si = offset % N
-        col_ei = (offset + size ) % N
+        col_ei = (offset + size) % N
         n_row = row_ei - row_si
         mw_offset = 0 if col_si == 0 else N - col_si
         w_q_slice = w_q[row_si:row_ei]
         quant_scale_slice = quant_scale[row_si:row_ei]
-        w_slice = w[mw_offset:mw_offset+n_row*N].view(n_row,N)
+        w_slice = w[mw_offset:mw_offset + n_row * N].view(n_row, N)
         triton_smooth_quant(w_slice,
-                                   smooth_scale,
-                                   x_q=w_q_slice,
-                                   x_scale=quant_scale_slice,
-                                   round_scale=round_scale)
+                            smooth_scale,
+                            x_q=w_q_slice,
+                            x_scale=quant_scale_slice,
+                            round_scale=round_scale)
 
         # subrow scale is writed by the row with leading master weights
         if col_si > 0 or col_ei > 0:
             triton_subrow_smooth_quant(w,
-                                              smooth_scale,
-                                              w_q,
-                                              quant_scale,
-                                              subrow_scales,
-                                              offset,
-                                              size,
-                                              reverse=False,
-                                              round_scale=round_scale)
-
+                                       smooth_scale,
+                                       w_q,
+                                       quant_scale,
+                                       subrow_scales,
+                                       offset,
+                                       size,
+                                       reverse=False,
+                                       round_scale=round_scale)

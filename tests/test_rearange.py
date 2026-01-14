@@ -6,11 +6,11 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
-from linghe.utils.rearange import triton_split_and_cat
+from linghe.tools.check import output_check
+from linghe.utils.rearange import triton_sort_chunks_by_index
 
 
-def torch_split_and_cat(x, scales, counts, indices):
+def torch_sort_chunks_by_index(x, scales, counts, indices):
     n = len(counts)
     chunks = torch.split(x, counts)
     chunks = [chunks[indices[i]] for i in range(n)]
@@ -22,16 +22,7 @@ def torch_split_and_cat(x, scales, counts, indices):
     return output_data, output_scale
 
 
-def test_triton_split_and_cat(M=4096, N=4096, bench=False):
-    # M, N, K = 8192, 10240, 8192  # max qkv
-    # M, N, K = 8192, 8192, 8192  # max out
-    # M, N, K = 2048, 4096, 8192  # max gate_up
-    # M, N, K = 2048, 8192, 2048  # max down
-    # M, N, K = 8192, 8192, 8192
-    # M, N, K = 2048, 8192, 8192
-
-    # M, N, K = M-1, N-1, K-1
-
+def test_sort_chunks_by_index(M=4096, N=4096, bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
     n_repeat = 100
@@ -49,15 +40,17 @@ def test_triton_split_and_cat(M=4096, N=4096, bench=False):
     chunks = torch.split(x_q.view(torch.float8_e4m3fn), split_size_list)
     scale_chunks = torch.split(x_scales, split_size_list)
 
-    data_ref, scale_ref = torch_split_and_cat(x_q.view(torch.float8_e4m3fn),
-                                              x_scales, split_size_list,
-                                              sorted_indices_list)
+    data_ref, scale_ref = torch_sort_chunks_by_index(
+        x_q.view(torch.float8_e4m3fn),
+        x_scales, split_size_list,
+        sorted_indices_list)
 
-    data, scale = triton_split_and_cat(x_q, counts, indices, scales=x_scales)
+    data, scale = triton_sort_chunks_by_index(x_q, counts, indices,
+                                              scales=x_scales)
 
-    output_check(data_ref.view(torch.float8_e4m3fn).float(), data.float(),
-                 mode='data')
-    output_check(scale_ref, scale, mode='scale')
+    output_check(data_ref.view(torch.float8_e4m3fn), data,
+                 name='data')
+    output_check(scale_ref, scale, name='scale')
 
     if bench:
         benchmark_func(torch.split, x_q.view(torch.uint8), split_size_list,
@@ -66,12 +59,13 @@ def test_triton_split_and_cat(M=4096, N=4096, bench=False):
         benchmark_func(torch.split, x_scales, split_size_list,
                        n_repeat=n_repeat)
         benchmark_func(torch.cat, scale_chunks, dim=0, n_repeat=n_repeat)
-        benchmark_func(torch_split_and_cat, x_q.view(torch.float8_e4m3fn),
+        benchmark_func(torch_sort_chunks_by_index,
+                       x_q.view(torch.float8_e4m3fn),
                        x_scales, split_size_list, sorted_indices_list,
                        n_repeat=n_repeat)
-        benchmark_func(triton_split_and_cat, x_q, counts, indices,
+        benchmark_func(triton_sort_chunks_by_index, x_q, counts, indices,
                        scales=x_scales, n_repeat=n_repeat)
 
 
 if __name__ == '__main__':
-    test_triton_split_and_cat(M=4096, N=4096)
+    test_sort_chunks_by_index(M=4096, N=4096)

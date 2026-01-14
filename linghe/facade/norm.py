@@ -5,36 +5,27 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import torch
 
-from linghe.utils.norm import triton_rms_norm_forward, triton_rms_norm_backward, \
-    triton_group_rms_norm_gate_forward, triton_group_rms_norm_gate_backward
+from linghe.utils.norm import (
+    triton_rms_norm_forward,
+    triton_rms_norm_backward,
+    triton_rms_norm_and_block_quant_forward,
+)
 
 
 class RMSNormFunction(torch.autograd.Function):
     """"""
+
     @staticmethod
     def forward(ctx, x, weight, eps=1e-6):
-        output = triton_rms_norm_forward(
-            x,
-            weight,
-            eps
-        )
-        # ctx.save_for_backward(x, weight, norm)
+        output, rms = triton_rms_norm_forward(x, weight, eps)
         ctx.save_for_backward(x, weight)
         ctx.eps = eps
-
         return output
 
     @staticmethod
     def backward(ctx, dy):
         x, weight = ctx.saved_tensors
-
-        dx, dw = triton_rms_norm_backward(
-            dy,
-            x,
-            weight,
-            ctx.eps
-        )
-
+        dx, dw = triton_rms_norm_backward(dy, x, weight, ctx.eps)
         return dx, dw, None
 
 
@@ -49,58 +40,76 @@ def rms_norm(x: torch.Tensor, weight: torch.Tensor, eps: float = 1e-6):
     Returns:
         rms output
     """
-    assert x.contiguous()
-    assert weight.contiguous()
+    assert x.is_contiguous()
+    assert weight.is_contiguous()
     return RMSNormFunction.apply(x, weight, eps)
 
-class GroupRMSNormGateFunction(torch.autograd.Function):
-    """"""
+
+# used in attention rms norm
+class BlockRMSNorm(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, attn_output, gate, weight, eps=1e-6, group_size=4):
-        output = triton_group_rms_norm_gate_forward(
-            attn_output,
-            gate,
-            weight.data,
-            eps=eps,
-            group_size=group_size
+    def forward(ctx, input, weight, rms, eps, quantizer, cls, is_recomputing):
+        shape = input.shape
+        assert len(shape) == 3
+
+        if is_recomputing is None:
+            output_mode = 2
+        elif is_recomputing:
+            output_mode = 1
+        else:
+            output_mode = 0
+
+        input_view = input.view(shape[0] * shape[1], shape[2])
+        x_q, x_scale, output_rms, xt_q, xt_scale = (
+            triton_rms_norm_and_block_quant_forward(
+                input_view,
+                weight,
+                rms=rms,
+                eps=eps,
+                round_scale=quantizer.force_pow_2_scales,
+                output_mode=output_mode,
+            )
         )
-        ctx.save_for_backward(attn_output, gate, weight.data)
+
+        transpose_shape = (shape[2], shape[0], shape[1])
+        output = cls(
+            shape=shape,
+            dtype=input.dtype,
+            fp8_dtype=quantizer.dtype,
+            rowwise_data=x_q.view(shape) if x_q is not None else None,
+            rowwise_scale_inv=x_scale,
+            columnwise_data=xt_q.view(
+                transpose_shape) if xt_q is not None else None,
+            columnwise_scale_inv=xt_scale,
+            quantizer=quantizer,
+            requires_grad=input.requires_grad,
+            is_2D_scaled=False,
+        )
+        ctx.input_requires_grad = input.requires_grad
+        ctx.weight_requires_grad = weight.requires_grad
+        ctx.shape = shape
         ctx.eps = eps
-        ctx.group_size = group_size
+        ctx.save_for_backward(input, weight)
 
-        return output
+        return output, output_rms
 
     @staticmethod
-    def backward(ctx, dy):
-        attn_output, gate, weight = ctx.saved_tensors
+    def backward(ctx, grad_output, grad_rms):
+        shape = grad_output.shape
+        grad_output = grad_output.view(shape[0] * shape[1], shape[2])
+        input, weight = ctx.saved_tensors
+        input = input.view(shape[0] * shape[1], shape[2])
+        dx, dw = triton_rms_norm_backward(grad_output, input, weight,
+                                          eps=ctx.eps)
+        dx = dx.view(*shape)
 
-        dx, dg, dw = triton_group_rms_norm_gate_backward(
-            dy,
-            attn_output,
-            gate,
-            weight,
-            ctx.eps,
-            ctx.group_size
-        )
-
-        return dx, dg, dw, None, None
+        return dx, dw, None, None, None, None, None
 
 
-
-def group_rms_norm_gate(attn_output: torch.Tensor,
-                    gate: torch.Tensor,
-                    weight: torch.Tensor,
-                    eps: float = 1e-6,
-                    group_size: int = 4):
-    """
-    return group_rms_norm(transpose(attn_output, [0,1]), weight) * sigmoid(gate)
-    Args:
-        attn_output: output of core attn, shape [bs, length, n_heads, head_dim]
-        gate: gate tensor for attention output, shape [length, bs, dim]
-        weight: weight of RMS norm, shape [dim]
-        eps: epsilon for RMS
-        group_size: group size of group RMS norm
-    Returns:
-        output with shape [length, bs, dim]
-    """
-    return GroupRMSNormGateFunction.apply(attn_output, gate, weight, eps, group_size)
+def block_rms_norm(input, weight, rms, quantizer, cls, eps=1e-6,
+                   is_recomputing=None):
+    output, output_rms = BlockRMSNorm.apply(
+        input, weight, rms, eps, quantizer, cls, is_recomputing
+    )
+    output_rms = output_rms.detach()
+    return output, output_rms

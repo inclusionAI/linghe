@@ -6,22 +6,25 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import (output_check,
-                              torch_make_indices)
+from linghe.tools.check import output_check
+from linghe.tools.util import torch_make_indices
 from linghe.utils.scatter import (triton_scatter_add,
-                                 triton_unpermute_with_mask_map
-                                 )
+                                  triton_unpermute_with_mask_map
+                                  )
 
 
 # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 
-def torch_fp16_scatter_add(x, outputs, indices, weights):
+def torch_scatter_add(x, outputs, indices, weights):
+    dtype = x.dtype
+    x = x.float()
     if weights is not None:
         x = x * weights[:, None]
     dim = x.size(1)
+    outputs = outputs.float()
     outputs.scatter_add_(0, indices.unsqueeze(1).expand(-1, dim), x)
-    return outputs
+    return outputs.to(dtype)
 
 
 def test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=False):
@@ -39,8 +42,7 @@ def test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=False):
 
     outputs = torch.zeros((M, N), dtype=dtype, device=device)
 
-    sums_ref = torch_fp16_scatter_add(x, outputs.clone(), indices, None)
-    counts = mask_map.sum(1)
+    sums_ref = torch_scatter_add(x, outputs.clone(), indices, None)
     unpermuted_prob = probs.T.contiguous().masked_select(
         mask_map.T.contiguous())
 
@@ -51,8 +53,6 @@ def test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=False):
 
     if bench:
         n_repeat = 100
-        # ref_time = benchmark_func(torch_fp16_scatter_add,x, outputs, indices, weights,n_repeat=n_repeat)
-        # benchmark_func(triton_aligned_scatter_add,x, outputs, indices, weights=weights, n_repeat=n_repeat,ref_time=ref_time)
         ref_time = benchmark_func(triton_scatter_add, x, outputs, indices,
                                   n_repeat=n_repeat)
         benchmark_func(triton_unpermute_with_mask_map, x, row_id_map, probs,
@@ -60,5 +60,6 @@ def test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=False):
 
 
 if __name__ == '__main__':
-    test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0)
-    test_scatter(M=2467, N=4096, n_experts=32, topk=2, bias=-0.1)
+    test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=False)
+    test_scatter(M=2467, N=4096, n_experts=32, topk=2, bias=-0.1, bench=False)
+    test_scatter(M=2467, N=1536, n_experts=32, topk=2, bias=-0.1, bench=False)

@@ -4,10 +4,10 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 from typing import Optional
+
 import torch
 import triton
 import triton.language as tl
-
 
 
 @triton.jit
@@ -45,12 +45,13 @@ def triton_aligned_scatter_add(x: torch.Tensor,
     Returns:
         output tensor
     """
+    assert x.is_contiguous() and outputs.is_contiguous() and indices.is_contiguous()
     M, N = x.shape
     m = outputs.size(0)
 
     indices = torch.argsort(indices)
     K = M // m
-    assert K * m == M
+    assert K * m == M and triton.next_power_of_2(N) == N
     SCALE = 1 if weights is not None else 0
 
     num_stages = 5
@@ -70,7 +71,7 @@ def triton_aligned_scatter_add(x: torch.Tensor,
 
 
 # for deepep scatter_add
-# atomic_add supports fp16 and fp32, but not bf16 
+# atomic_add supports fp16 and fp32, but not bf16
 
 @triton.jit
 def scatter_add_kernel(x_ptr, o_ptr, indices_ptr, M, T, N: tl.constexpr):
@@ -81,7 +82,7 @@ def scatter_add_kernel(x_ptr, o_ptr, indices_ptr, M, T, N: tl.constexpr):
         src_idx = pid * T + i
         dst_idx = tl.load(indices_ptr + src_idx, mask=src_idx < M)
         x = tl.load(x_ptr + src_idx * N + offs, mask=src_idx < M).to(tl.float32)
-        tl.atomic_add(o_ptr + dst_idx * N + offs, x)
+        tl.atomic_add(o_ptr + dst_idx * N + offs, x, sem='relaxed')
 
 
 @triton.jit
@@ -106,12 +107,14 @@ def triton_scatter_add(x, outputs, indices):
     Returns:
         output tensor
     """
+    assert x.is_contiguous() and outputs.is_contiguous() and indices.is_contiguous()
     M, N = x.shape
+    assert triton.next_power_of_2(N) == N
 
     float_outputs = torch.zeros(outputs.shape, dtype=torch.float32,
                                 device=outputs.device)
 
-    sm = torch.cuda.get_device_properties(x.device).multi_processor_count
+    sm = 512
     T = triton.cdiv(M, sm)
 
     num_stages = 5
@@ -140,37 +143,49 @@ def triton_scatter_add(x, outputs, indices):
 
 
 @triton.jit
-def unpermute_with_mask_map_kernel(grads_ptr, probs_ptr, mask_map_ptr,
-                                   output_ptr, output_probs_ptr,
-                                   num_experts: tl.constexpr, N: tl.constexpr,
-                                   PROB: tl.constexpr):
+def unpermute_with_mask_map_kernel(
+        grads_ptr,
+        probs_ptr,
+        mask_map_ptr,
+        output_ptr,
+        output_probs_ptr,
+        n,
+        N: tl.constexpr,
+        num_experts: tl.constexpr,
+        PROB: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
-
+    n = n.to(tl.int64)
+    # sums = tl.zeros((N,), dtype=tl.float32)
     sums = tl.zeros((N,), dtype=tl.float32)
 
     indices = tl.load(
         mask_map_ptr + pid * num_experts + tl.arange(0, num_experts))
     count = tl.sum(tl.where(indices >= 0, 1, 0))
-    mask_indices = tl.where(indices < 0, 2 ** 20, indices)
+    mask_indices = tl.where(indices < 0, 2 ** 24, indices)
     idx = tl.argmin(mask_indices, 0)
     index = tl.min(mask_indices)
 
     for i in range(count):
-
-        mask = index >= 0
-        sums += tl.load(grads_ptr + index * N + tl.arange(0, N), mask=mask).to(
-            tl.float32)
+        load_mask = (index >= 0) & (tl.arange(0, N) < n)
+        sums += tl.load(grads_ptr + index * n + tl.arange(0, N),
+                        mask=load_mask).to(
+            tl.float32
+        )
 
         if PROB:
+            mask = index >= 0
             prob = tl.load(probs_ptr + index, mask=mask)
             tl.store(output_probs_ptr + pid * num_experts + idx, prob,
                      mask=mask)
 
-        mask_indices = tl.where(indices <= index, 2 ** 20, indices)
+        mask_indices = tl.where(indices <= index, 2 ** 24, indices)
         idx = tl.argmin(mask_indices, 0)
         index = tl.min(mask_indices)
 
-    tl.store(output_ptr + pid * N + tl.arange(0, N), sums)
+    tl.store(
+        output_ptr + pid * n + tl.arange(0, N), sums, mask=tl.arange(0, N) < n
+    )
 
 
 def triton_unpermute_with_mask_map(
@@ -189,16 +204,20 @@ def triton_unpermute_with_mask_map(
         - output: [num_tokens, hidden_size]
         - restore_probs: [num_tokens, num_experts]
     """
-    hidden_size = grad.shape[1]
+    assert grad.is_contiguous() and row_id_map.is_contiguous()
+    n = grad.shape[1]
+    N = triton.next_power_of_2(n)
     num_tokens, num_experts = row_id_map.shape  # not transposed
 
-    output = torch.empty((num_tokens, hidden_size), dtype=grad.dtype,
+    output = torch.empty((num_tokens, n), dtype=grad.dtype,
                          device="cuda")
 
     PROB = probs is not None
     if PROB:
+        assert probs.is_contiguous()
         restore_probs = torch.zeros((num_tokens, num_experts),
-                                    dtype=probs.dtype, device="cuda")
+                                    dtype=probs.dtype,
+                                    device="cuda")
     else:
         restore_probs = None
 
@@ -212,8 +231,9 @@ def triton_unpermute_with_mask_map(
         row_id_map,
         output,
         restore_probs,
+        n,
+        N,
         num_experts,
-        hidden_size,
         PROB,
         num_stages=4,
         num_warps=4

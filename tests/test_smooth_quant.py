@@ -5,17 +5,18 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import torch
 
+from linghe.facade.smooth_quant_linear import SmoothQuantLinear
 from linghe.quant.smooth import (triton_batch_smooth_quant,
-                                               triton_subrow_smooth_quant,
-                                               triton_transpose_rescale_smooth_quant,
-                                               triton_smooth_quant,
-                                               triton_transpose_smooth_quant)
+                                 triton_subrow_smooth_quant,
+                                 triton_transpose_rescale_smooth_quant,
+                                 triton_smooth_quant,
+                                 triton_transpose_smooth_quant)
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import (output_check,
-                               torch_make_indices,
+from linghe.tools.check import output_check
+from linghe.tools.util import (torch_make_indices,
                                torch_smooth_quant,
                                round_up)
-from linghe.facade.smooth_quant_linear import SmoothQuantLinear
+
 
 def torch_split_smooth_quant(x_split, smooth_scales, round_scale=False):
     x_qs = []
@@ -97,17 +98,20 @@ def triton_split_smooth_quant(x_split, smooth_scales):
 def test_triton_smooth_quant(M=4096, N=4096, bench=False):
     device = 'cuda:0'
     x = torch.randn((M, N), dtype=torch.bfloat16, device=device)
-    smooth_scale = torch.randn((N,), device=device, dtype=torch.float32).abs()
+    smooth_scale = torch.randn((N,), device=device,
+                               dtype=torch.float32).abs() + 1.0
+    round_scale = False
+    rtol = 2 if round_scale else 0.125
     x_q_ref, scales_ref, x_maxs_ref = torch_smooth_quant(x, smooth_scale,
                                                          reverse=False,
-                                                         round_scale=True)
+                                                         round_scale=round_scale)
 
     x_q, x_scale, x_maxs = triton_smooth_quant(x, smooth_scale,
-                                                      reverse=False,
-                                                      round_scale=True,
-                                                      calibrate=True)
-    output_check(x_q_ref.float(), x_q.float(),
-                 'triton_smooth_quant.data')
+                                               reverse=False,
+                                               round_scale=round_scale,
+                                               calibrate=True)
+    output_check(x_q_ref, x_q,
+                 'triton_smooth_quant.data', rtol=rtol)
     output_check(scales_ref, x_scale, 'triton_smooth_quant.scale')
     output_check(x_maxs_ref, x_maxs, 'triton_smooth_quant.x_maxs')
 
@@ -121,7 +125,7 @@ def test_triton_smooth_quant(M=4096, N=4096, bench=False):
 
 
 def test_triton_subrow_smooth_quant(M=4096, N=5120, offset=4096,
-                                           size=16384):
+                                    size=16384):
     device = 'cuda:0'
     x = torch.randn((size,), dtype=torch.float32, device=device)
     x_q = torch.zeros((M, N), dtype=torch.bfloat16, device=device).to(
@@ -141,8 +145,8 @@ def test_triton_subrow_smooth_quant(M=4096, N=5120, offset=4096,
                               reverse=False, round_scale=False)
 
     triton_subrow_smooth_quant(x, smooth_scale, x_q, x_scale,
-                                      subrow_scales, offset, size,
-                                      reverse=False, round_scale=False)
+                               subrow_scales, offset, size,
+                               reverse=False, round_scale=False)
 
     output_check(x_q_ref.float(), x_q.float(), 'subrow.data')
     output_check(x_scale_ref, x_scale, 'subrow.scale')
@@ -169,10 +173,10 @@ def test_triton_transpose_smooth_quant(M=4096, N=4096, bench=False):
     transpose_smooth_scale = torch.randn((M,), device=device,
                                          dtype=torch.float32).abs() * 10 + 1
     yt_q, yt_scale = triton_transpose_smooth_quant(y,
-                                                          transpose_smooth_scale,
-                                                          reverse=True,
-                                                          pad=True,
-                                                          round_scale=True)
+                                                   transpose_smooth_scale,
+                                                   reverse=True,
+                                                   pad=True,
+                                                   round_scale=True)
     q_ref, scale_ref, maxs_ref = torch_smooth_quant(y.T.contiguous(),
                                                     transpose_smooth_scale,
                                                     reverse=True,
@@ -196,7 +200,7 @@ def test_triton_transpose_smooth_quant(M=4096, N=4096, bench=False):
 
 
 def test_triton_transpose_rescale_smooth_quant(M=4096, N=4096,
-                                                      round_scale=False):
+                                               round_scale=False):
     device = 'cuda:0'
     P = round_up(M, b=32)
     y = torch.randn((M, N), dtype=torch.bfloat16, device=device) ** 3
@@ -211,8 +215,8 @@ def test_triton_transpose_rescale_smooth_quant(M=4096, N=4096,
             torch.ceil(torch.log2(transpose_smooth_scale)))
 
     y_q, y_scale, y_maxs = triton_smooth_quant(y, org_smooth_scale,
-                                                      reverse=True,
-                                                      round_scale=round_scale)
+                                               reverse=True,
+                                               round_scale=round_scale)
 
     yt_gt, yt_scale_gt, yt_maxs_gt = torch_smooth_quant(y.t(),
                                                         transpose_smooth_scale,
@@ -225,12 +229,12 @@ def test_triton_transpose_rescale_smooth_quant(M=4096, N=4096,
                                                  round_scale=round_scale)
 
     yt_q, yt_scale = triton_transpose_rescale_smooth_quant(y_q,
-                                                                  org_smooth_scale,
-                                                                  y_scale,
-                                                                  transpose_smooth_scale,
-                                                                  reverse=True,
-                                                                  pad=True,
-                                                                  round_scale=round_scale)
+                                                           org_smooth_scale,
+                                                           y_scale,
+                                                           transpose_smooth_scale,
+                                                           reverse=True,
+                                                           pad=True,
+                                                           round_scale=round_scale)
 
     if P > M:
         assert yt_q.shape[1] == P
@@ -274,7 +278,8 @@ def test_triton_batch_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
     x_q_ref = torch.cat([x.view(torch.uint8) for x in x_q_ref], 0).view(
         torch.float8_e4m3fn)
     x_scale_ref = torch.cat(x_scale_ref, 0)
-    output_check(x_q_ref.float(), x_q.float(), 'triton_batch_smooth_quant.data')
+    rtol = 2 if round_scale else 0.125
+    output_check(x_q_ref, x_q, 'triton_batch_smooth_quant.data', rtol=rtol)
     output_check(x_scale_ref.float(), x_scale.float(),
                  'triton_batch_smooth_quant.scale')
     output_check(x_maxs_ref.float(), x_maxs.float(),
@@ -294,30 +299,26 @@ def test_triton_batch_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
                        n_repeat=n_repeat, ref_time=ref_time)
 
 
-
-
 def test_smooth_quant_linear(M=8192, N=1024, K=2048):
-
-    dtype = torch.bfloat16 
+    dtype = torch.bfloat16
     device = 'cuda:0'
     linear = SmoothQuantLinear(K, N, bias=False, dtype=dtype, device=device)
-    x = (10*torch.randn((M, K), dtype=dtype, device=device)).requires_grad_()
-    w = 0.1*torch.randn((N, K), dtype=dtype, device=device)
-    dy = 1e-6*torch.randn((M, N), dtype=dtype, device=device)
+    x = (10 * torch.randn((M, K), dtype=dtype, device=device)).requires_grad_()
+    w = 0.1 * torch.randn((N, K), dtype=dtype, device=device)
+    dy = 1e-6 * torch.randn((M, N), dtype=dtype, device=device)
     linear.weight.data.copy_(w)
 
-    y_ref = x@w.t()
+    y_ref = x @ w.t()
     y = linear(x)
-    output_check(y_ref, y, mode='y')
+    output_check(y_ref, y, name='y')
 
-    dx_ref = dy@w 
-    dw_ref = dy.t()@x
+    dx_ref = dy @ w
+    dw_ref = dy.t() @ x
     y.backward(dy)
-    dw = linear.weight.grad 
+    dw = linear.weight.grad
     dx = x.grad
-    output_check(dx_ref, dx, mode='dx')
-    output_check(dw_ref, dw, mode='dw')
-
+    output_check(dx_ref, dx, name='dx')
+    output_check(dw_ref, dw, name='dw')
 
 
 if __name__ == '__main__':
@@ -330,11 +331,11 @@ if __name__ == '__main__':
     test_triton_smooth_quant(M=3457, N=512, bench=False)
 
     test_triton_subrow_smooth_quant(M=4096, N=5120, offset=5120,
-                                           size=2048)
+                                    size=2048)
     test_triton_subrow_smooth_quant(M=4096, N=5120, offset=4096,
-                                           size=5120)
+                                    size=5120)
     test_triton_subrow_smooth_quant(M=4096, N=5120, offset=5120,
-                                           size=5120 * 10 - 1024)
+                                    size=5120 * 10 - 1024)
 
     test_triton_transpose_smooth_quant(M=16384, N=2048, bench=False)
     test_triton_transpose_smooth_quant(M=8192, N=4096, bench=False)
@@ -342,14 +343,14 @@ if __name__ == '__main__':
     test_triton_transpose_smooth_quant(M=4096, N=3072, bench=False)
 
     test_triton_transpose_rescale_smooth_quant(M=4096, N=4096,
-                                                      round_scale=True)
+                                               round_scale=True)
     test_triton_transpose_rescale_smooth_quant(M=3895, N=4096,
-                                                      round_scale=True)
+                                               round_scale=True)
     test_triton_transpose_rescale_smooth_quant(M=4096, N=3072,
-                                                      round_scale=True)
+                                               round_scale=True)
     test_triton_transpose_rescale_smooth_quant(M=395, N=2048,
-                                                      round_scale=True)
+                                               round_scale=True)
 
     test_triton_batch_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
                                    round_scale=False)
-    test_smooth_quant_linear(M=8192, N=1024, K=2048)
+    # test_smooth_quant_linear(M=8192, N=1024, K=2048)

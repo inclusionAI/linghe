@@ -1,0 +1,86 @@
+version: "2.0"
+
+stages:
+- 前置检查
+- 构建&发布到测试库
+- 验包&确认
+- 发布正式库前检查
+- 发布正式库
+
+jobs:
+  单元测试:
+    stage: 前置检查
+    component: python-ut
+    inputs:
+      languageConfig:
+        pythonVersion: "3.9.0"
+    config:
+      execute:
+        isAllowSkip: true
+
+  代码检查:
+    stage: 前置检查
+    component: python-sast
+    inputs:
+      excludes: # 选填项，排除哪些项不进行代码扫描
+        - "**__init__.py**"
+        - "**/tests/**"
+        - ansible/*
+        - config/*
+        - benchmark/*
+        - scripts/*
+        - examples/*
+        - docs/*
+      codePath: "./" # 选填项，选择扫描目录
+    config:
+      execute:
+        timeout: 600 # 选填项，任务超时时间
+        isAllowSkip: true
+      afterExecute:
+        checkRule:  # 选填项，卡点策略, 根据实际团队质量要求进行配置
+          - ${{outputs.critical}} <= 500
+
+  STC安全扫描:
+    stage: 前置检查
+    component: stc
+    inputs:
+      tenantName: null
+    config:
+      execute:
+        isAllowSkip: true
+
+  构建并发布到测试库:
+    stage: 构建&发布到测试库
+    id: build
+    component: pypi-artifact-uploader
+    inputs:
+      buildImage: reg.docker.alibaba-inc.com/aii/aistudio:aistudio-190677225-3221750112-1752554942251
+      # buildImage: reg.docker.alibaba-inc.com/aii/aistudio:12150173-20251107143737  # max v2
+      # buildTool: poetry
+      # artifactType: "wheel" # 仅打wheel包，如需要 tgz，请删除此行
+      registry: "https://artifacts.antgroup-inc.cn/artifact/repositories/simple-dev/" # 测试库地址
+      # workdir: . # pypi 工程目录，默认在此目录下进行 python -m build 并输出到 dist 目录, 详细可参考组件首页说明
+      buildCmd:  "python setup.py bdist_wheel"
+    only:
+     - master
+
+  选择迁移制品:
+    id: check
+    stage: 发布正式库前检查
+    component: artifact-transfer-check
+    inputs:
+      artifactsConfigs:
+        - artifacts: ${{jobs.build.outputs.artifacts}}
+          antArtifactRepo: simple
+
+  同步至正式库:
+    stage: 发布正式库
+    component: ant-artifact-transfer
+    inputs:
+      transferArtifacts: ${{jobs.check.outputs.transferArtifacts}}
+    config:
+      beforeExecute:
+        isAutoSkip: ${{jobs.check.outputs.selectedCount}} = 0
+        confirm:
+          buttonName: 确认发布正式库
+          approvers: ["nanxiao.zy", "liangchen.liangche"] # 具备发布角色的用户的域账号, 如 ["yunjie.gyj"]

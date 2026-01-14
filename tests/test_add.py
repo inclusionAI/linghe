@@ -6,7 +6,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 
 from linghe.tools.benchmark import benchmark_func
-from linghe.tools.util import output_check
+from linghe.tools.check import output_check
 from linghe.utils.add import triton_inplace_add
 
 
@@ -30,9 +30,8 @@ def test_triton_inplace_add(M=4096, N=4096, bench=False):
     out_ref = outputs + x
     output_check(out_ref, out, 'sum')
 
-    n_repeat = 100
-
     if bench:
+        n_repeat = 100
         ref_time = benchmark_func(torch_add, x, out, accum=False,
                                   n_repeat=n_repeat)
         benchmark_func(triton_inplace_add, out, x, accum=False,

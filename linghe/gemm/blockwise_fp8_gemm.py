@@ -3,17 +3,13 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
-import os
 import torch
 import triton
 import triton.language as tl
-from triton import Config
 
 
 # adapt from deepseek
 # os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
-
-
 
 
 @triton.jit
@@ -79,26 +75,25 @@ def triton_bb_fp8_gemm(a: torch.Tensor,
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
 
     fp8_gemm_bb_kernel[grid](a, b, c, a_s, b_s,
-                            M, N, K,
-                            BLOCK_SIZE_K=block_size,
-                            BLOCK_SIZE_M=block_size,
-                            BLOCK_SIZE_N=block_size,
-                            num_warps=8,
-                            num_stages=4
-                            )
+                             M, N, K,
+                             BLOCK_SIZE_K=block_size,
+                             BLOCK_SIZE_M=block_size,
+                             BLOCK_SIZE_N=block_size,
+                             num_warps=8,
+                             num_stages=4
+                             )
     return c
 
 
+# fp8_gemm_configs = [
+#     Config({"BLOCK_SIZE_M": block_m, "BLOCK_SIZE_N": block_n},
+#            num_stages=num_stages, num_warps=8)
+#     for block_m in [32, 64, 128]
+#     for block_n in [32, 64, 128]
+#     for num_stages in [3, 4, 5, 6]
+# ]
 
-fp8_gemm_configs = [
-    Config({"BLOCK_SIZE_M": block_m, "BLOCK_SIZE_N": block_n},
-           num_stages=num_stages, num_warps=8)
-    for block_m in [32, 64, 128]
-    for block_n in [32, 64, 128]
-    for num_stages in [3, 4, 5, 6]
-]
-
-@triton.autotune(configs=fp8_gemm_configs, key=["N", "K"])
+# @triton.autotune(configs=fp8_gemm_configs, key=["N", "K"])
 @triton.jit
 def fp8_gemm_tt_kernel(
         a_ptr,
@@ -147,7 +142,6 @@ def fp8_gemm_tt_kernel(
     tl.store(c_ptrs, c, mask=mask)
 
 
-# use to mock mxfp8 gemm, too slow on H800
 def triton_tt_fp8_gemm(a: torch.Tensor,
                        b: torch.Tensor,
                        a_s: torch.Tensor,
@@ -165,5 +159,7 @@ def triton_tt_fp8_gemm(a: torch.Tensor,
     fp8_gemm_tt_kernel[grid](a, b, c,
                              a_s, b_s,
                              M, N, K,
-                             BLOCK_SIZE_K=block_size)
+                             BLOCK_SIZE_K=block_size,
+                             BLOCK_SIZE_M=64,
+                             BLOCK_SIZE_N=64)
     return c

@@ -9,13 +9,20 @@ import triton.language as tl
 
 
 @triton.jit
-def group_quant_kernel(x_ptr, y_ptr, s_ptr, N, BLOCK_SIZE: tl.constexpr,
-                       K: tl.constexpr, ROUND: tl.constexpr):
+def group_quant_kernel(
+        x_ptr,
+        y_ptr,
+        s_ptr,
+        N,
+        BLOCK_SIZE: tl.constexpr,
+        K: tl.constexpr,
+        ROUND: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     offs = pid * N + tl.arange(0, K * BLOCK_SIZE)
     n = tl.cdiv(N, K * BLOCK_SIZE)
-    soffs = pid * n * K + tl.arange(0, K)
-    for i in range(n):
+    soffs = pid * (N // BLOCK_SIZE) + tl.arange(0, K)
+    for i in tl.range(n, flatten=True):
         x = tl.load(x_ptr + offs).to(tl.float32)
         x = tl.reshape(x, (K, BLOCK_SIZE), can_reorder=False)
         s = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
@@ -30,9 +37,7 @@ def group_quant_kernel(x_ptr, y_ptr, s_ptr, N, BLOCK_SIZE: tl.constexpr,
         soffs += K
 
 
-def triton_group_quant(x,
-                       dtype=torch.float8_e4m3fn,
-                       group_size=128,
+def triton_group_quant(x, dtype=torch.float8_e4m3fn, group_size=128,
                        round_scale=False):
     """
     groupwise quantize x, group is in under rowwise format
@@ -46,21 +51,14 @@ def triton_group_quant(x,
         - s: quantization scale, float32
     """
     M, N = x.shape
-    K = 16
-    assert N % group_size == 0 and N % (group_size * K) == 0
+    K = 16 if N > 1024 else 8
+    assert N % group_size == 0
     assert x.is_contiguous()
 
     y = torch.empty((M, N), device=x.device, dtype=dtype)
     s = torch.empty(M, N // group_size, device=x.device, dtype=torch.float32)
     grid = (M,)  # noqa
-    group_quant_kernel[grid](x,
-                             y,
-                             s,
-                             N,
-                             group_size,
-                             K,
-                             round_scale,
-                             num_stages=5,
-                             num_warps=4)
+    group_quant_kernel[grid](
+        x, y, s, N, group_size, K, round_scale, num_stages=5, num_warps=4
+    )
     return y, s
-
