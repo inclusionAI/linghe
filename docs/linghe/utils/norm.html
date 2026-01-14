@@ -37,7 +37,7 @@
                     <a class="function" href="#triton_rms_norm_and_block_quant_forward">triton_rms_norm_and_block_quant_forward</a>
             </li>
             <li>
-                    <a class="function" href="#triton_group_rms_norm_gate_forward">triton_group_rms_norm_gate_forward</a>
+                    <a class="function" href="#triton_rms_norm_fp32_gemm_block_quant_forward">triton_rms_norm_fp32_gemm_block_quant_forward</a>
             </li>
     </ul>
 
@@ -55,7 +55,9 @@
                     <h1 class="modulename">
 <a href="./../../linghe.html">linghe</a><wbr>.<a href="./../utils.html">utils</a><wbr>.norm    </h1>
 
-                
+                        <div class="docstring"><p>Copyright (c) Ant Financial Service Group and its affiliates.</p>
+</div>
+
                 
                 
                 
@@ -64,7 +66,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_rms_norm_forward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">x</span>, </span><span class="param"><span class="n">weight</span>, </span><span class="param"><span class="n">eps</span><span class="o">=</span><span class="mf">1e-06</span>, </span><span class="param"><span class="n">out</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_rms_norm_forward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">x</span>, </span><span class="param"><span class="n">weight</span>, </span><span class="param"><span class="n">eps</span><span class="o">=</span><span class="mf">1e-06</span>, </span><span class="param"><span class="n">out</span><span class="o">=</span><span class="kc">None</span>, </span><span class="param"><span class="n">rms</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -78,12 +80,15 @@
 <li><strong>x:</strong>  input tensor</li>
 <li><strong>weight:</strong>  weight of rms norm</li>
 <li><strong>eps:</strong>  epsilon of rms norm</li>
+<li><strong>rms:</strong>  use x*rms to calculate output if rms is not None, 
+it will accelerate recompute of rms norm</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <p>out: output tensor</p>
+  <p>out: output tensor
+  rms: 1/rms of input tensor</p>
 </blockquote>
 </div>
 
@@ -133,33 +138,44 @@
 
 
                 </section>
-                <section id="triton_group_rms_norm_gate_forward">
+                <section id="triton_rms_norm_fp32_gemm_block_quant_forward">
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_group_rms_norm_gate_forward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">gate</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">eps</span><span class="o">=</span><span class="mf">1e-06</span>,</span><span class="param">	<span class="n">group_size</span><span class="o">=</span><span class="mi">4</span>,</span><span class="param">	<span class="n">transpose</span><span class="o">=</span><span class="kc">True</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_rms_norm_fp32_gemm_block_quant_forward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">norm_weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">route_weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">rms</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-06</span>,</span><span class="param">	<span class="n">output_mode</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>,</span><span class="param">	<span class="n">round_scale</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
-    <a class="headerlink" href="#triton_group_rms_norm_gate_forward"></a>
+    <a class="headerlink" href="#triton_rms_norm_fp32_gemm_block_quant_forward"></a>
     
-            <div class="docstring"><p>norm and gate in linear attention</p>
+            <div class="docstring"><p>y = rms_norm(x)
+logits = y@w_route
+x_q, x_s, xt_q, xt_s = quantization(y)</p>
 
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
-<li><strong>x:</strong>  output of attn, [bs, length, n_heads, head_dim]</li>
-<li><strong>gate:</strong>  gate tensor, [length, bs, dim] if transpose=True else [bs, length, dim]</li>
-<li><strong>weight:</strong>  rms norm weight, [dim]</li>
+<li><strong>x:</strong>  input tensor</li>
+<li><strong>norm weight:</strong>  weight tensor of rms norm</li>
+<li><strong>route_weight:</strong>  moe router weight</li>
 <li><strong>eps:</strong>  epsilon of rms norm</li>
-<li><strong>group_size:</strong>  group size of group rms norm</li>
-<li><strong>transpose:</strong>  whether gate is transposed and output will be transposed</li>
+<li><strong>output_mode:</strong>  0 or 1
+0: only output non-transpose quantizatino tensor
+1: only output transposed quantizatino tensor</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <p>output tensor, [length, bs, dim] if transpose=True else [bs, length, dim]</p>
+  <ul>
+  <li>y: rms normed tensor</li>
+  <li>rms: 1/rms</li>
+  <li>logits: router logit</li>
+  <li>x_q: </li>
+  <li>x_s: </li>
+  <li>xt_q:</li>
+  <li>xt_s:</li>
+  </ul>
 </blockquote>
 </div>
 

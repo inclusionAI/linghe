@@ -31,7 +31,7 @@
             <h2>API Documentation</h2>
                 <ul class="memberlist">
             <li>
-                    <a class="function" href="#triton_split_and_cat">triton_split_and_cat</a>
+                    <a class="function" href="#triton_sort_chunks_by_index">triton_sort_chunks_by_index</a>
             </li>
     </ul>
 
@@ -56,18 +56,18 @@
                 
                 
             </section>
-                <section id="triton_split_and_cat">
+                <section id="triton_sort_chunks_by_index">
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_split_and_cat</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">x</span>, </span><span class="param"><span class="n">counts</span>, </span><span class="param"><span class="n">indices</span>, </span><span class="param"><span class="n">scales</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_sort_chunks_by_index</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">x</span>, </span><span class="param"><span class="n">counts</span>, </span><span class="param"><span class="n">indices</span>, </span><span class="param"><span class="n">scales</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
-    <a class="headerlink" href="#triton_split_and_cat"></a>
+    <a class="headerlink" href="#triton_sort_chunks_by_index"></a>
     
             <div class="docstring"><p>split x to multiple tensors and cat with indices,
-it is used for permutation in moe</p>
+it is used for permutation in moe with all2all communication</p>
 
 <h6 id="arguments">Arguments:</h6>
 

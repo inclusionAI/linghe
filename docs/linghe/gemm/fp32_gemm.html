@@ -40,10 +40,13 @@
                     <a class="function" href="#triton_fp32_gemm_for_update">triton_fp32_gemm_for_update</a>
             </li>
             <li>
-                    <a class="function" href="#triton_scaled_fp32_gemm">triton_scaled_fp32_gemm</a>
+                    <a class="function" href="#triton_split_fp32_gemm">triton_split_fp32_gemm</a>
             </li>
             <li>
-                    <a class="function" href="#triton_scaled_fp32_gemm_for_update">triton_scaled_fp32_gemm_for_update</a>
+                    <a class="function" href="#triton_split_fp32_gemm_for_backward">triton_split_fp32_gemm_for_backward</a>
+            </li>
+            <li>
+                    <a class="function" href="#triton_split_fp32_gemm_for_update">triton_split_fp32_gemm_for_update</a>
             </li>
     </ul>
 
@@ -72,7 +75,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_fp32_gemm</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_fp32_gemm</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -102,7 +105,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_fp32_gemm_for_backward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_fp32_gemm_for_backward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">y</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -130,7 +133,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_fp32_gemm_for_update</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_fp32_gemm_for_update</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">y</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -141,8 +144,8 @@
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
-<li><strong>a:</strong>  gradient of output, fp32</li>
-<li><strong>b:</strong>  input activation, bf16/fp16</li>
+<li><strong>y:</strong>  gradient of output, fp32</li>
+<li><strong>x:</strong>  input activation, bf16/fp16</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
@@ -154,70 +157,87 @@
 
 
                 </section>
-                <section id="triton_scaled_fp32_gemm">
+                <section id="triton_split_fp32_gemm">
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_scaled_fp32_gemm</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_split_fp32_gemm</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
-    <a class="headerlink" href="#triton_scaled_fp32_gemm"></a>
+    <a class="headerlink" href="#triton_split_fp32_gemm"></a>
     
-            <div class="docstring"><p>c = (a<em>scale[:,None])</em>b
-this kernel is used to fuse RMSNorm and quantization in MoE layer
-native implementation:
-    y = rms_norm(x),
-    y_q = quantization(y),
-    router_logits = y@w
-we can not fuse rms_norm and quantization
-as we still need bf16 y for moe router gemm
-fused implementation:
-    y_q, rms = quantization(rms_norm(x))
-    router_logits = (x/rms)@y
-so we need a scaled fp32 gemm kernel</p>
+            <div class="docstring"><p>return fp32 gemm result with fp16/bf16 inputs,
+    it's mainly used for MoE router GEMM
+    and DO NOT suitable for large size GEMM</p>
 
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
-<li><strong>a:</strong>  activation tensor</li>
-<li><strong>b:</strong>   weight tensor</li>
-<li><strong>scale:</strong>  scale for activation tensor, 1/rms</li>
+<li><strong>a:</strong>  left matrix with fp16/bf16 precision</li>
+<li><strong>b:</strong>  right matrix with fp16/bf16 precision</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <p>output tensor</p>
+  <p>c: output with fp32 precision</p>
 </blockquote>
 </div>
 
 
                 </section>
-                <section id="triton_scaled_fp32_gemm_for_update">
+                <section id="triton_split_fp32_gemm_for_backward">
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_scaled_fp32_gemm_for_update</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_split_fp32_gemm_for_backward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">y</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">w</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
-    <a class="headerlink" href="#triton_scaled_fp32_gemm_for_update"></a>
+    <a class="headerlink" href="#triton_split_fp32_gemm_for_backward"></a>
     
-            <div class="docstring"><p>see triton_scaled_fp32_gemm</p>
+            <div class="docstring"><p>mix precision gemm for backward, a@b.float()</p>
 
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
-<li><strong>a:</strong>  y</li>
-<li><strong>b:</strong>  activation before RMS norm</li>
-<li><strong>scale:</strong>  1/rms</li>
+<li><strong>a:</strong>  input gradient, fp32</li>
+<li><strong>b:</strong>  gemm weight, bf16/fp16</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <p>dw</p>
+  <p>c: gradient of activation</p>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="triton_split_fp32_gemm_for_update">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">triton_split_fp32_gemm_for_update</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">y</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#triton_split_fp32_gemm_for_update"></a>
+    
+            <div class="docstring"><p>mix precision gemm for updaing weight</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>y:</strong>  gradient of output, fp32</li>
+<li><strong>x:</strong>  input activation, bf16/fp16</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>c: gradient of weight</p>
 </blockquote>
 </div>
 

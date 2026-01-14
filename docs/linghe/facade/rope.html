@@ -33,6 +33,9 @@
             <li>
                     <a class="function" href="#qk_norm_half_rope">qk_norm_half_rope</a>
             </li>
+            <li>
+                    <a class="function" href="#mla_rope">mla_rope</a>
+            </li>
     </ul>
 
 
@@ -60,7 +63,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">qk_norm_half_rope</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">qkv</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">q_norm_weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">k_norm_weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">freqs</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">H</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">32</span>,</span><span class="param">	<span class="n">h</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span>,</span><span class="param">	<span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-06</span></span><span class="return-annotation">):</span></span>
+        <span class="name">qk_norm_half_rope</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">qkv</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">q_norm_weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">k_norm_weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">freqs</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">cu_seqlens_q</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">cu_seqlens_kv</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">H</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">32</span>,</span><span class="param">	<span class="n">h</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span>,</span><span class="param">	<span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-06</span>,</span><span class="param">	<span class="n">cp_rank</span><span class="o">=</span><span class="mi">0</span>,</span><span class="param">	<span class="n">cp_size</span><span class="o">=</span><span class="mi">1</span>,</span><span class="param">	<span class="n">mscale</span><span class="o">=</span><span class="mf">1.0</span>,</span><span class="param">	<span class="n">silu</span><span class="o">=</span><span class="kc">False</span>,</span><span class="param">	<span class="n">reuse</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -71,22 +74,70 @@
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
-<li><strong>qkv:</strong>  QKV tensor with size of [S, B, dim], heads are interleaved</li>
+<li><strong>qkv:</strong>  QKV tensor with size of [S, B, dim] or [T, dim] , heads are interleaved</li>
 <li><strong>q_norm_weight:</strong>  rms norm weight for query</li>
 <li><strong>k_norm_weight:</strong>  rms norm weight for key</li>
 <li><strong>freqs:</strong>  Freqs tensor based on half dim.</li>
+<li><strong>cu_seqlens_q:</strong>  accumulated query lengths, [num_seqs + 1]</li>
+<li><strong>cu_seqlens_kv:</strong>  accumulated kv lengths, [num_seqs + 1]</li>
 <li><strong>H:</strong>  Number of attention heads.</li>
 <li><strong>h:</strong>  Number of key/value heads.</li>
 <li><strong>eps:</strong>  epsilon value for L2 normalization.</li>
+<li><strong>cp_rank:</strong>  context parallel rank</li>
+<li><strong>cp_size:</strong>  context parallel size</li>
+<li><strong>mscale:</strong>  mscale for rope</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
 
 <blockquote>
   <ul>
-  <li>qo: shape [B, S, H, head_dim]</li>
-  <li>ko: shape [B, S, h, head_dim]</li>
-  <li>vo: shape [B, S, h, head_dim]</li>
+  <li>qo: shape [B, S, H, head_dim] or [T, H, head_dim]</li>
+  <li>ko: shape [B, S, h, head_dim] or [T, h, head_dim]</li>
+  <li>vo: shape [B, S, h, head_dim] or [T, h, head_dim]</li>
+  </ul>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="mla_rope">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">mla_rope</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">q</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">kv</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">k_pos_emb</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">freqs</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">cu_seqlens_q</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">cu_seqlens_kv</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">mscale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>,</span><span class="param">	<span class="n">transpose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">cp_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>,</span><span class="param">	<span class="n">cp_rank</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>,</span><span class="param">	<span class="n">reuse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#mla_rope"></a>
+    
+            <div class="docstring"><p>inplace apply rope to tail 64 dims, split kv and apply rope to k_pos_emb and copy to k</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>q:</strong>  query tensor with size of [S, B, H, 128] (cu_seqlens is None) 
+or [N, H, 128] (cu_seqlens is not None)</li>
+<li><strong>kv:</strong>  kv tensor with size of [S, B, H, 256] (cu_seqlens is None) or 
+[N, H, 256] (cu_seqlens is not None)</li>
+<li><strong>k_pos_emb:</strong>  k pos emb with size of [S, B, 1, 64] (cu_seqlens is None) or 
+[N, 1, 64] (cu_seqlens is not None)</li>
+<li><strong>freqs:</strong>  Freqs tensor with size of [S, 64]</li>
+<li><strong>cu_seqlens_q:</strong>  cumulative query lengths tensor with size of [B+1]</li>
+<li><strong>cu_seqlens_kv:</strong>  cumulative kv lengths tensor with size of [B+1]</li>
+<li><strong>mscale:</strong>  mscale of rope</li>
+<li><strong>transpose:</strong>  whether transpose output layout to [B, S, H, DIM]</li>
+<li><strong>cp_size:</strong>  context-parallel size</li>
+<li><strong>cp_rank:</strong>  context-parallel rank</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <ul>
+  <li>qo: shape [S, B, H, 192] or [N, H, 192]</li>
+  <li>ko: shape [S, B, H, 192] or [N, H, 192]</li>
+  <li>vo: shape [S, B, H, 128] or [N, H, 128]</li>
   </ul>
 </blockquote>
 </div>

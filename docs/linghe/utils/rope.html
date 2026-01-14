@@ -39,6 +39,15 @@
             <li>
                     <a class="function" href="#triton_qk_norm_and_half_rope_backward">triton_qk_norm_and_half_rope_backward</a>
             </li>
+            <li>
+                    <a class="function" href="#triton_varlen_qk_norm_and_half_rope_forward">triton_varlen_qk_norm_and_half_rope_forward</a>
+            </li>
+            <li>
+                    <a class="function" href="#triton_varlen_qk_norm_and_half_rope_backward">triton_varlen_qk_norm_and_half_rope_backward</a>
+            </li>
+            <li>
+                    <a class="function" href="#triton_mla_rope_forward">triton_mla_rope_forward</a>
+            </li>
     </ul>
 
 
@@ -72,7 +81,7 @@
     </div>
     <a class="headerlink" href="#triton_half_rope_forward"></a>
     
-            <div class="docstring"><p>apply norm to qk, then apply half rope to qk</p>
+            <div class="docstring"><p>apply half rope to qk</p>
 
 <h6 id="arguments">Arguments:</h6>
 
@@ -98,7 +107,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_qk_norm_and_half_rope_forward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">qkv</span>,</span><span class="param">	<span class="n">q_norm_weight</span>,</span><span class="param">	<span class="n">k_norm_weight</span>,</span><span class="param">	<span class="n">freqs</span>,</span><span class="param">	<span class="n">H</span><span class="o">=</span><span class="mi">32</span>,</span><span class="param">	<span class="n">h</span><span class="o">=</span><span class="mi">4</span>,</span><span class="param">	<span class="n">eps</span><span class="o">=</span><span class="mf">1e-06</span>,</span><span class="param">	<span class="n">interleaved</span><span class="o">=</span><span class="kc">True</span>,</span><span class="param">	<span class="n">transposed</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_qk_norm_and_half_rope_forward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">qkv</span>,</span><span class="param">	<span class="n">q_norm_weight</span>,</span><span class="param">	<span class="n">k_norm_weight</span>,</span><span class="param">	<span class="n">freqs</span>,</span><span class="param">	<span class="n">H</span><span class="o">=</span><span class="mi">32</span>,</span><span class="param">	<span class="n">h</span><span class="o">=</span><span class="mi">4</span>,</span><span class="param">	<span class="n">eps</span><span class="o">=</span><span class="mf">1e-06</span>,</span><span class="param">	<span class="n">interleaved</span><span class="o">=</span><span class="kc">True</span>,</span><span class="param">	<span class="n">transposed</span><span class="o">=</span><span class="kc">True</span>,</span><span class="param">	<span class="n">silu</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -122,8 +131,8 @@ interleaved: [q...qkvq...qkv]
 non-interleaved: [q...qk...kv...v]</li>
 <li><strong>transposed:</strong>  whether qkv is tranposed
 transposed: [S, B, dim]
-non-transposed: [B, S, dim]
-only support transpose format currently</li>
+non-transposed: [B, S, dim]</li>
+<li><strong>silu:</strong>  apply silu on qkv before qk norm and rope</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
@@ -143,7 +152,7 @@ only support transpose format currently</li>
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_qk_norm_and_half_rope_backward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">gq</span>,</span><span class="param">	<span class="n">gk</span>,</span><span class="param">	<span class="n">gv</span>,</span><span class="param">	<span class="n">qkv</span>,</span><span class="param">	<span class="n">q_norm_weight</span>,</span><span class="param">	<span class="n">k_norm_weight</span>,</span><span class="param">	<span class="n">freqs</span>,</span><span class="param">	<span class="n">eps</span><span class="o">=</span><span class="mf">1e-06</span>,</span><span class="param">	<span class="n">interleaved</span><span class="o">=</span><span class="kc">True</span>,</span><span class="param">	<span class="n">transposed</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_qk_norm_and_half_rope_backward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">gq</span>,</span><span class="param">	<span class="n">gk</span>,</span><span class="param">	<span class="n">gv</span>,</span><span class="param">	<span class="n">qkv</span>,</span><span class="param">	<span class="n">q_norm_weight</span>,</span><span class="param">	<span class="n">k_norm_weight</span>,</span><span class="param">	<span class="n">freqs</span>,</span><span class="param">	<span class="n">eps</span><span class="o">=</span><span class="mf">1e-06</span>,</span><span class="param">	<span class="n">interleaved</span><span class="o">=</span><span class="kc">True</span>,</span><span class="param">	<span class="n">transposed</span><span class="o">=</span><span class="kc">True</span>,</span><span class="param">	<span class="n">silu</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -158,12 +167,17 @@ only support transpose format currently</li>
 <li><strong>gk:</strong>  gradient of ko, [len, bs, q_head, head_dim]</li>
 <li><strong>gv:</strong>  gradient of vo, [len, bs, q_head, head_dim]</li>
 <li><strong>qkv:</strong>  input qkv</li>
-<li><strong>q_norm_weight:</strong> </li>
-<li><strong>k_norm_weight:</strong> </li>
-<li><strong>freqs:</strong> </li>
-<li><strong>eps:</strong> </li>
-<li><strong>interleaved:</strong> </li>
-<li><strong>transposed:</strong> </li>
+<li><strong>q_norm_weight:</strong>  rms norm weight for query</li>
+<li><strong>k_norm_weight:</strong>  rms norm weight for key</li>
+<li><strong>freqs:</strong>  Freqs tensor based on half dim.</li>
+<li><strong>eps:</strong>  epsilon value for L2 normalization.</li>
+<li><strong>interleaved:</strong>  whether head of qkv is interleaved,
+interleaved: [q...qkvq...qkv]
+non-interleaved: [q...qk...kv...v]</li>
+<li><strong>transposed:</strong>  whether qkv is tranposed
+transposed: [S, B, dim]
+non-transposed: [B, S, dim]</li>
+<li><strong>silu:</strong>  whether silu is applied to qkv</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
@@ -173,6 +187,133 @@ only support transpose format currently</li>
   <li>dqkv: gradient of qkv</li>
   <li>dqw: gradient of q_norm_weight</li>
   <li>dkw: gradient of k_norm_weight</li>
+  </ul>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="triton_varlen_qk_norm_and_half_rope_forward">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">triton_varlen_qk_norm_and_half_rope_forward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">qkv</span>,</span><span class="param">	<span class="n">q_norm_weight</span>,</span><span class="param">	<span class="n">k_norm_weight</span>,</span><span class="param">	<span class="n">freqs</span>,</span><span class="param">	<span class="n">cu_seqlens_q</span>,</span><span class="param">	<span class="n">cu_seqlens_kv</span>,</span><span class="param">	<span class="n">H</span><span class="o">=</span><span class="mi">32</span>,</span><span class="param">	<span class="n">h</span><span class="o">=</span><span class="mi">4</span>,</span><span class="param">	<span class="n">eps</span><span class="o">=</span><span class="mf">1e-06</span>,</span><span class="param">	<span class="n">interleaved</span><span class="o">=</span><span class="kc">True</span>,</span><span class="param">	<span class="n">silu</span><span class="o">=</span><span class="kc">False</span>,</span><span class="param">	<span class="n">cp_rank</span><span class="o">=</span><span class="mi">0</span>,</span><span class="param">	<span class="n">cp_size</span><span class="o">=</span><span class="mi">1</span>,</span><span class="param">	<span class="n">mscale</span><span class="o">=</span><span class="mf">1.0</span>,</span><span class="param">	<span class="n">reuse</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#triton_varlen_qk_norm_and_half_rope_forward"></a>
+    
+            <div class="docstring"><p>split qkv to q/k/v, apply qk norm and half rope to q/k,
+    transpose q/k/v to flash-attention layout</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>qkv:</strong>  QKV tensor with size of [S, B, dim], heads are interleaved</li>
+<li><strong>q_norm_weight:</strong>  rms norm weight for query</li>
+<li><strong>k_norm_weight:</strong>  rms norm weight for key</li>
+<li><strong>freqs:</strong>  Freqs tensor based on half dim.</li>
+<li><strong>H:</strong>  Number of attention heads.</li>
+<li><strong>h:</strong>  Number of key/value heads.</li>
+<li><strong>eps:</strong>  epsilon value for L2 normalization.</li>
+<li><strong>interleaved:</strong>  whether head of qkv is interleaved,
+interleaved: [q...qkvq...qkv]
+non-interleaved: [q...qk...kv...v]</li>
+<li><strong>silu:</strong>  apply silu on qkv before qk norm and rope</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <ul>
+  <li>qo: shape [B, S, H, head_dim]</li>
+  <li>ko: shape [B, S, h, head_dim]</li>
+  <li>vo: shape [B, S, h, head_dim]</li>
+  </ul>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="triton_varlen_qk_norm_and_half_rope_backward">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">triton_varlen_qk_norm_and_half_rope_backward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">gq</span>,</span><span class="param">	<span class="n">gk</span>,</span><span class="param">	<span class="n">gv</span>,</span><span class="param">	<span class="n">qkv</span>,</span><span class="param">	<span class="n">q_norm_weight</span>,</span><span class="param">	<span class="n">k_norm_weight</span>,</span><span class="param">	<span class="n">freqs</span>,</span><span class="param">	<span class="n">cu_seqlens_q</span>,</span><span class="param">	<span class="n">cu_seqlens_kv</span>,</span><span class="param">	<span class="n">eps</span><span class="o">=</span><span class="mf">1e-06</span>,</span><span class="param">	<span class="n">interleaved</span><span class="o">=</span><span class="kc">True</span>,</span><span class="param">	<span class="n">silu</span><span class="o">=</span><span class="kc">False</span>,</span><span class="param">	<span class="n">cp_rank</span><span class="o">=</span><span class="mi">0</span>,</span><span class="param">	<span class="n">cp_size</span><span class="o">=</span><span class="mi">1</span>,</span><span class="param">	<span class="n">mscale</span><span class="o">=</span><span class="mf">1.0</span>,</span><span class="param">	<span class="n">reuse</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#triton_varlen_qk_norm_and_half_rope_backward"></a>
+    
+            <div class="docstring"><p>backward kernel of triton_qk_norm_and_half_rope_forward</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>gq:</strong>  gradient of qo, [len, bs, q_head, head_dim]</li>
+<li><strong>gk:</strong>  gradient of ko, [len, bs, q_head, head_dim]</li>
+<li><strong>gv:</strong>  gradient of vo, [len, bs, q_head, head_dim]</li>
+<li><strong>qkv:</strong>  input qkv</li>
+<li><strong>q_norm_weight:</strong>  rms norm weight for query</li>
+<li><strong>k_norm_weight:</strong>  rms norm weight for key</li>
+<li><strong>freqs:</strong>  Freqs tensor based on half dim.</li>
+<li><strong>eps:</strong>  epsilon value for L2 normalization.</li>
+<li><strong>interleaved:</strong>  whether head of qkv is interleaved,
+interleaved: [q...qkvq...qkv]
+non-interleaved: [q...qk...kv...v]</li>
+<li><strong>silu:</strong>  whether silu is applied to qkv</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <ul>
+  <li>dqkv: gradient of qkv</li>
+  <li>dqw: gradient of q_norm_weight</li>
+  <li>dkw: gradient of k_norm_weight</li>
+  </ul>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="triton_mla_rope_forward">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">triton_mla_rope_forward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">q</span>,</span><span class="param">	<span class="n">kv</span>,</span><span class="param">	<span class="n">k_pos_emb</span>,</span><span class="param">	<span class="n">freqs</span>,</span><span class="param">	<span class="n">mscale</span><span class="o">=</span><span class="mf">1.0</span>,</span><span class="param">	<span class="n">transpose</span><span class="o">=</span><span class="kc">False</span>,</span><span class="param">	<span class="n">cu_seqlens_q</span><span class="o">=</span><span class="kc">None</span>,</span><span class="param">	<span class="n">cu_seqlens_kv</span><span class="o">=</span><span class="kc">None</span>,</span><span class="param">	<span class="n">cp_rank</span><span class="o">=</span><span class="mi">0</span>,</span><span class="param">	<span class="n">cp_size</span><span class="o">=</span><span class="mi">1</span>,</span><span class="param">	<span class="n">reuse</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#triton_mla_rope_forward"></a>
+    
+            <div class="docstring"><p>apply MLA-type rope to qkv</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>q:</strong>  query tensor, [len, bs, n_heads, 192]</li>
+<li><strong>kv:</strong>  key-value tensor, [len, bs, n_heads, 256]</li>
+<li><strong>k_pos_emb:</strong>  k pos emb, [len, bs, 1, 64]</li>
+<li><strong>freqs:</strong>  rope freqs, [len, 64]</li>
+<li><strong>mscale:</strong>  mscale for rope</li>
+<li><strong>transpose:</strong>  whether transpose the output to [bs, len, n_heads, dim] layout</li>
+<li><strong>cu_seqlens_q:</strong>  accummulated query length</li>
+<li><strong>cu_seqlens_kv:</strong>  accummulated kv length</li>
+<li><strong>cp_rank:</strong>  rank of context parallel</li>
+<li><strong>cp_size:</strong>  size of context parallel</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <ul>
+  <li>qo: inplace updated query, [len, bs, n_heads, 192] if not transpose
+  else  [bs, len, n_heads, 192]</li>
+  <li>ko: key output, [len, bs, n_heads, 192] if not transpose
+  else [bs, len, n_heads, 192]</li>
+  <li>vo: value output, [len, bs, n_heads, 128] if not transpose
+  else [bs, len, n_heads, 128]</li>
   </ul>
 </blockquote>
 </div>

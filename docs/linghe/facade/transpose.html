@@ -31,7 +31,7 @@
             <h2>API Documentation</h2>
                 <ul class="memberlist">
             <li>
-                    <a class="function" href="#transpose_dim01">transpose_dim01</a>
+                    <a class="function" href="#transpose">transpose</a>
             </li>
     </ul>
 
@@ -56,22 +56,24 @@
                 
                 
             </section>
-                <section id="transpose_dim01">
+                <section id="transpose">
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">transpose_dim01</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">x</span></span><span class="return-annotation">):</span></span>
+        <span class="name">transpose</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">x</span>, </span><span class="param"><span class="n">inner</span><span class="o">=</span><span class="kc">True</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
-    <a class="headerlink" href="#transpose_dim01"></a>
+    <a class="headerlink" href="#transpose"></a>
     
-            <div class="docstring"><p>transpose a tensor with the first two dims, x.ndims should not greater than 4</p>
+            <div class="docstring"><p>transpose a tensor, x.ndims should not greater than 4</p>
 
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
 <li><strong>x:</strong>  input tensor</li>
+<li><strong>inner:</strong>   if True, transpose the first two dimensions
+if False, transpose the last two dimensions</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>

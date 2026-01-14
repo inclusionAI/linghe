@@ -34,7 +34,7 @@
                     <a class="function" href="#triton_make_row_id_map">triton_make_row_id_map</a>
             </li>
             <li>
-                    <a class="function" href="#triton_make_row_id_map_and_indices">triton_make_row_id_map_and_indices</a>
+                    <a class="function" href="#triton_make_row_id_map_and_index">triton_make_row_id_map_and_index</a>
             </li>
             <li>
                     <a class="function" href="#triton_index_select">triton_index_select</a>
@@ -53,6 +53,9 @@
             </li>
             <li>
                     <a class="function" href="#triton_smooth_permute_with_mask_map">triton_smooth_permute_with_mask_map</a>
+            </li>
+            <li>
+                    <a class="function" href="#triton_batch_block_pad_permute_with_indices">triton_batch_block_pad_permute_with_indices</a>
             </li>
     </ul>
 
@@ -105,15 +108,15 @@
 
 
                 </section>
-                <section id="triton_make_row_id_map_and_indices">
+                <section id="triton_make_row_id_map_and_index">
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_make_row_id_map_and_indices</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">routing_map</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">num_out_tokens</span><span class="p">:</span> <span class="nb">int</span>, </span><span class="param"><span class="n">multiple_of</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_make_row_id_map_and_index</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">routing_map</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">num_out_tokens</span><span class="p">:</span> <span class="nb">int</span>, </span><span class="param"><span class="n">multiple_of</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
-    <a class="headerlink" href="#triton_make_row_id_map_and_indices"></a>
+    <a class="headerlink" href="#triton_make_row_id_map_and_index"></a>
     
             <div class="docstring"><p>similar with triton_make_row_id_map, but output an indices tensor as well</p>
 
@@ -181,8 +184,8 @@
 
 <ul>
 <li><strong>inp:</strong>  [num_tokens, hidden_size], rowwise quantized tensor</li>
-<li><strong>scale:</strong>  [num_tokens], quantization scale</li>
-<li><strong>probs:</strong>  router prob, used as weight</li>
+<li><strong>scale:</strong>  optional, [num_tokens], quantization scale</li>
+<li><strong>probs:</strong>  optional, router prob, used as weight</li>
 <li><strong>row_id_map:</strong>  [n_experts, num_tokens]
 index &gt;= 0: row index of output tensor
 index == -1: ignore
@@ -341,6 +344,42 @@ x is gathered, requantized, padded to multiple of 32 and tranposed</p>
   <li>output: output tensor</li>
   <li>permuted_scale: permuted scale if scale is not None</li>
   </ul>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="triton_batch_block_pad_permute_with_indices">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">triton_batch_block_pad_permute_with_indices</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">xs</span>,</span><span class="param">	<span class="n">token_count_per_expert</span>,</span><span class="param">	<span class="n">indices</span>,</span><span class="param">	<span class="n">splits</span>,</span><span class="param">	<span class="n">probs</span><span class="o">=</span><span class="kc">None</span>,</span><span class="param">	<span class="n">round_scale</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#triton_batch_block_pad_permute_with_indices"></a>
+    
+            <div class="docstring"><p>select and quant, used in megatron 0.12 flex moe</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>xs:</strong>  [bs, dim]</li>
+<li><strong>token_count_per_expert:</strong>  [n_experts]</li>
+<li><strong>indices:</strong>  [n_experts*topk]</li>
+<li><strong>splits:</strong>  python int list of token_count_per_expert</li>
+<li><strong>probs:</strong>  route weights, [bs, n_experts]</li>
+<li><strong>round_scale:</strong>  whether round scale to power of 2</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>x_q: 
+  x_scale: 
+  xt_q: 
+  xt_scale: 
+  prob_output:</p>
 </blockquote>
 </div>
 

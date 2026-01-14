@@ -37,7 +37,10 @@
                     <a class="function" href="#triton_batch_count_zero">triton_batch_count_zero</a>
             </li>
             <li>
-                    <a class="function" href="#triton_batch_sum_with_ord">triton_batch_sum_with_ord</a>
+                    <a class="function" href="#triton_norm">triton_norm</a>
+            </li>
+            <li>
+                    <a class="function" href="#triton_batch_norm">triton_batch_norm</a>
             </li>
     </ul>
 
@@ -120,29 +123,63 @@
 
 
                 </section>
-                <section id="triton_batch_sum_with_ord">
+                <section id="triton_norm">
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_batch_sum_with_ord</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">xs</span>, </span><span class="param"><span class="nb">ord</span><span class="o">=</span><span class="mi">2</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_norm</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">x</span>, </span><span class="param"><span class="nb">ord</span><span class="o">=</span><span class="mi">2</span>, </span><span class="param"><span class="n">norm</span><span class="o">=</span><span class="kc">True</span>, </span><span class="param"><span class="n">scalar</span><span class="o">=</span><span class="kc">True</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
-    <a class="headerlink" href="#triton_batch_sum_with_ord"></a>
+    <a class="headerlink" href="#triton_norm"></a>
     
-            <div class="docstring"><p>return sum(abs(x)**ord).</p>
+            <div class="docstring"><p>calculate norm.</p>
 
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
-<li><strong>xs:</strong>  Tensor lists.</li>
-<li><strong>ord:</strong>  the order of tensor.</li>
+<li><strong>x:</strong>  input tensor.</li>
+<li><strong>ord:</strong>  the order of tensor. -1 means 'inf' ord.</li>
+<li><strong>norm:</strong>  only used with ord in (1, 2)
+True: (sum(sum(abs(x)<strong>ord) x for x in xs))</strong>(1/ord) 
+False: sum(sum(abs(x)**ord) x for x in xs))</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <p>a single-value fp32 tensor</p>
+  <p>a scalar if scalar=True else a single-value fp32 tensor</p>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="triton_batch_norm">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">triton_batch_norm</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">xs</span>, </span><span class="param"><span class="nb">ord</span><span class="o">=</span><span class="mi">2</span>, </span><span class="param"><span class="n">norm</span><span class="o">=</span><span class="kc">True</span>, </span><span class="param"><span class="n">scalar</span><span class="o">=</span><span class="kc">True</span>, </span><span class="param"><span class="n">high_precision</span><span class="o">=</span><span class="kc">True</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#triton_batch_norm"></a>
+    
+            <div class="docstring"><p>treat multiple tensors as a single tensor and calculate norm.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>xs:</strong>  Tensor lists.</li>
+<li><strong>ord:</strong>  the order of tensor. -1 means 'inf' ord.</li>
+<li><strong>norm:</strong>  only used with ord in (1, 2)
+True: (sum(sum(abs(x)<strong>ord) x for x in xs))</strong>(1/ord) 
+False: sum(sum(abs(x)**ord) x for x in xs))</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>a scalar if scalar=True else a single-value fp32 tensor</p>
 </blockquote>
 </div>
 

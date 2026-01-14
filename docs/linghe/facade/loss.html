@@ -33,6 +33,9 @@
             <li>
                     <a class="function" href="#softmax_cross_entropy">softmax_cross_entropy</a>
             </li>
+            <li>
+                    <a class="function" href="#moe_z_loss">moe_z_loss</a>
+            </li>
     </ul>
 
 
@@ -60,7 +63,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">softmax_cross_entropy</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">logits</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">labels</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">):</span></span>
+        <span class="name">softmax_cross_entropy</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">logits</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">labels</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">ignore_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">100</span>,</span><span class="param">	<span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">tp_group</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -80,6 +83,34 @@
 
 <blockquote>
   <p>a tensor of per token loss</p>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="moe_z_loss">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">moe_z_loss</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">logits</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">coef</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.001</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#moe_z_loss"></a>
+    
+            <div class="docstring"><p>softmax cross entropy</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>logits:</strong>  logits tensor, shape [...,dim]</li>
+<li><strong>coef:</strong>  z loss coef</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>z loss</p>
 </blockquote>
 </div>
 

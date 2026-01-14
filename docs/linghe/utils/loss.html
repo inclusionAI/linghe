@@ -36,6 +36,18 @@
             <li>
                     <a class="function" href="#triton_softmax_cross_entropy_backward">triton_softmax_cross_entropy_backward</a>
             </li>
+            <li>
+                    <a class="function" href="#triton_parallel_softmax_cross_entropy_forward">triton_parallel_softmax_cross_entropy_forward</a>
+            </li>
+            <li>
+                    <a class="function" href="#triton_parallel_softmax_cross_entropy_backward">triton_parallel_softmax_cross_entropy_backward</a>
+            </li>
+            <li>
+                    <a class="function" href="#triton_moe_z_loss_forward">triton_moe_z_loss_forward</a>
+            </li>
+            <li>
+                    <a class="function" href="#triton_moe_z_loss_backward">triton_moe_z_loss_backward</a>
+            </li>
     </ul>
 
 
@@ -63,7 +75,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_softmax_cross_entropy_forward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">logits</span>, </span><span class="param"><span class="n">labels</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_softmax_cross_entropy_forward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">logits</span>, </span><span class="param"><span class="n">labels</span>, </span><span class="param"><span class="n">ignore_index</span><span class="o">=-</span><span class="mi">100</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -91,7 +103,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">triton_softmax_cross_entropy_backward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">logits</span>, </span><span class="param"><span class="n">labels</span>, </span><span class="param"><span class="n">sum_exp</span>, </span><span class="param"><span class="n">max_logit</span>, </span><span class="param"><span class="n">input_grad</span>, </span><span class="param"><span class="n">output_grad</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
+        <span class="name">triton_softmax_cross_entropy_backward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">logits</span>,</span><span class="param">	<span class="n">labels</span>,</span><span class="param">	<span class="n">sum_exp</span>,</span><span class="param">	<span class="n">max_logit</span>,</span><span class="param">	<span class="n">output_grad</span>,</span><span class="param">	<span class="n">ignore_index</span><span class="o">=-</span><span class="mi">100</span>,</span><span class="param">	<span class="n">inplace</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -106,13 +118,132 @@
 <li><strong>labels:</strong>  label tensor, [bs]</li>
 <li><strong>sum_exp:</strong>   [bs]</li>
 <li><strong>max_logit:</strong>  [bs]</li>
-<li><strong>input_grad:</strong>  gradient, [bs, dim]</li>
+<li><strong>output_grad:</strong>  gradient, [bs, dim]</li>
+<li><strong>inplace:</strong>  whether to reuse logits as gradient</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <p>output_grad: [bs, dim]</p>
+  <p>grad of input: [bs, dim]</p>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="triton_parallel_softmax_cross_entropy_forward">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">triton_parallel_softmax_cross_entropy_forward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">logits</span>, </span><span class="param"><span class="n">labels</span>, </span><span class="param"><span class="n">group</span>, </span><span class="param"><span class="n">ignore_index</span><span class="o">=-</span><span class="mi">100</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#triton_parallel_softmax_cross_entropy_forward"></a>
+    
+            <div class="docstring"><p>compute token-wise softmax cross entropy loss</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>logits:</strong>  logits tensor</li>
+<li><strong>labels:</strong>  labels tensor</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>loss of each token</p>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="triton_parallel_softmax_cross_entropy_backward">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">triton_parallel_softmax_cross_entropy_backward</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">logits</span>,</span><span class="param">	<span class="n">labels</span>,</span><span class="param">	<span class="n">sum_exp</span>,</span><span class="param">	<span class="n">max_logit</span>,</span><span class="param">	<span class="n">output_grad</span>,</span><span class="param">	<span class="n">group</span>,</span><span class="param">	<span class="n">ignore_index</span><span class="o">=-</span><span class="mi">100</span>,</span><span class="param">	<span class="n">inplace</span><span class="o">=</span><span class="kc">False</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#triton_parallel_softmax_cross_entropy_backward"></a>
+    
+            <div class="docstring"><p>backward of softmax cross entropy loss</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>logits:</strong>  logit tensor, [bs, dim]</li>
+<li><strong>labels:</strong>  label tensor, [bs]</li>
+<li><strong>sum_exp:</strong>   [bs]</li>
+<li><strong>max_logit:</strong>  [bs]</li>
+<li><strong>output_grad:</strong>  gradient, [bs, dim]</li>
+<li><strong>inplace:</strong>  whether to reuse logits as gradient</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>grad of input: [bs, dim]</p>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="triton_moe_z_loss_forward">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">triton_moe_z_loss_forward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">logits</span>, </span><span class="param"><span class="n">coef</span><span class="o">=</span><span class="mf">1e-06</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#triton_moe_z_loss_forward"></a>
+    
+            <div class="docstring"><p>compute moe z loss,
+z_loss = torch.mean(torch.square(torch.logsumexp(logits, dim=-1))) * coef</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>logits:</strong>  logits tensor</li>
+<li><strong>coef:</strong>  z loss coef</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>z loss</p>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="triton_moe_z_loss_backward">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">triton_moe_z_loss_backward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">grads</span>, </span><span class="param"><span class="n">logits</span>, </span><span class="param"><span class="n">coef</span><span class="o">=</span><span class="mf">1e-06</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#triton_moe_z_loss_backward"></a>
+    
+            <div class="docstring"><p>backward of moe z loss</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>grads:</strong>  grad scalar tensor</li>
+<li><strong>logits:</strong>  logit tensor, [L, B, dim]</li>
+<li><strong>coef:</strong>  python scalar</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>output_grad: [L, B, dim]</p>
 </blockquote>
 </div>
 
