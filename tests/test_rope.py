@@ -653,7 +653,7 @@ if __name__ == '__main__':
                                transposed=True, silu=False, bench=False)
     test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
                                rope_theta=10000.0, interleaved=True,
-                               transposed=False, silu=True, bench=True)
+                               transposed=False, silu=True, bench=False)
     test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
                                rope_theta=10000.0, interleaved=True,
                                transposed=False, silu=False, bench=False)

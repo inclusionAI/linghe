@@ -147,7 +147,7 @@ if __name__ == '__main__':
                             timeout=timedelta(seconds=30))
     pg = dist.distributed_c10d._get_default_group()
     test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1.0,
-                                      inplace=False, group=pg, bench=True)
+                                      inplace=False, group=pg, bench=False)
     test_triton_softmax_cross_entropy(M=8192, N=157184, coef=1.0, grad_coef=1.0,
                                       ignore_index=-100, inplace=False,
                                       group=pg, bench=False)

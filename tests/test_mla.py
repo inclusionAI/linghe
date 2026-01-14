@@ -324,29 +324,29 @@ def test_fp8_mla(B=2, L=4096, H=16, causal=True, hpc=False, quant_value=False,
 
 
 if __name__ == "__main__":
-    # test_softmax(M=128, N=128)
+    test_softmax(M=128, N=128)
 
-    # test_dot_sum(M=128, N=128, D=128)
+    test_dot_sum(M=128, N=128, D=128)
 
     test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=False, coef=1.0,
-             clip_value=500, bench=True)
-    # test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=500.0, bench=True)
-    # test_mla(B=1, L=8192, H=64, causal=True, hpc=True, safe=False, coef=1.0, clip_value=None, bench=False)
-    # test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=True, coef=100.0, clip_value=None, bench=False)
-    # test_mla(B=1, L=4096, H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
-    # test_mla(B=1, L=4096, H=64, causal=False, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
-    # test_mla(B=1, L=8192, H=64, causal=False, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
-    # test_mla(B=1, L=8192, H=1, causal=False, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
+             clip_value=500, bench=False)
+    test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=500.0, bench=False)
+    test_mla(B=1, L=8192, H=64, causal=True, hpc=True, safe=False, coef=1.0, clip_value=None, bench=False)
+    test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=True, coef=100.0, clip_value=None, bench=False)
+    test_mla(B=1, L=4096, H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
+    test_mla(B=1, L=4096, H=64, causal=False, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
+    test_mla(B=1, L=8192, H=64, causal=False, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
+    test_mla(B=1, L=8192, H=1, causal=False, hpc=False, safe=False, coef=1.0, clip_value=None, bench=False)
 
-    # test_varlen_mla(LS=[8192], H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=None, pad=False, bench=True)
-    # test_varlen_mla(LS=[8192], H=64, causal=True, hpc=False, safe=True, coef=1.0, clip_value=100.0, pad=False, bench=True)
-    # test_varlen_mla(LS=[8192], H=64, causal=True, hpc=False, safe=True, coef=1.0, clip_value=None, pad=True, bench=True)
+    test_varlen_mla(LS=[8192], H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=None, pad=False, bench=False)
+    test_varlen_mla(LS=[8192], H=64, causal=True, hpc=False, safe=True, coef=1.0, clip_value=100.0, pad=False, bench=False)
+    test_varlen_mla(LS=[8192], H=64, causal=True, hpc=False, safe=True, coef=1.0, clip_value=None, pad=True, bench=False)
 
-    # test_varlen_mla(LS=[4096,4096], H=64, causal=True, hpc=False, safe=True, coef=1.0, bench=False)
-    # test_varlen_mla(LS=[2048,2048,4096], H=64, causal=True, hpc=True, safe=True, coef=1.0, bench=False)
-    # test_varlen_mla(LS=[127,873,3096], H=64, causal=False, hpc=False, safe=False, coef=1.0, bench=False)
-    # test_varlen_mla(LS=[127,873,3456], H=16, causal=False, hpc=False, safe=True, coef=1.0, clip_value=100.0, bench=False)
-    # test_varlen_mla(LS=[127,873,3456], H=16, causal=False, hpc=False, safe=True, coef=1.0, pad=True, bench=False)
-    # test_varlen_mla(LS=[127,873,3456], H=1, causal=True, hpc=False, safe=True, coef=1.0, bench=False)
+    test_varlen_mla(LS=[4096,4096], H=64, causal=True, hpc=False, safe=True, coef=1.0, bench=False)
+    test_varlen_mla(LS=[2048,2048,4096], H=64, causal=True, hpc=True, safe=True, coef=1.0, bench=False)
+    test_varlen_mla(LS=[127,873,3096], H=64, causal=False, hpc=False, safe=False, coef=1.0, bench=False)
+    test_varlen_mla(LS=[127,873,3456], H=16, causal=False, hpc=False, safe=True, coef=1.0, clip_value=100.0, bench=False)
+    test_varlen_mla(LS=[127,873,3456], H=16, causal=False, hpc=False, safe=True, coef=1.0, pad=True, bench=False)
+    test_varlen_mla(LS=[127,873,3456], H=1, causal=True, hpc=False, safe=True, coef=1.0, bench=False)
 
-    # test_fp8_mla(B=1, L=8192, H=64, causal=True, hpc=False, quant_value=False, bench=True)
+    test_fp8_mla(B=1, L=8192, H=64, causal=True, hpc=False, quant_value=False, bench=False)

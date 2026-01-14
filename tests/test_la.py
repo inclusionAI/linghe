@@ -197,4 +197,4 @@ def test_la(bs=1, length=4096, qo_heads=16, kv_heads=16, dim=128, digest=False,
 
 if __name__ == '__main__':
     test_la(bs=1, length=8192, qo_heads=64, kv_heads=64, dim=128, digest=False,
-            bench=True)
+            bench=False)

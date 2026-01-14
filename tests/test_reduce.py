@@ -119,4 +119,4 @@ if __name__ == '__main__':
     test_norm(M=100000, N=8192, bench=False)
     test_batch_norm(M=4096, N=1024, k=16, bench=False)
     test_batch_norm(M=4096, N=1024, k=64, bench=False)
-    test_batch_norm(M=4096, N=2048, k=1024, coef=1e12, bench=True)
+    test_batch_norm(M=4096, N=2048, k=1024, coef=1e12, bench=False)

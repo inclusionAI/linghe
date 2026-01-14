@@ -16,18 +16,13 @@ from linghe.utils.silu import (triton_weighted_silu_forward,
                                triton_batch_weighted_silu_and_smooth_quant_forward,
                                triton_batch_weighted_silu_and_block_quant_backward,
                                triton_batch_weighted_silu_and_block_quant_forward,
-                               triton_batch_weighted_silu_and_mxfp8_quant_backward,
-                               triton_batch_weighted_silu_and_mxfp8_quant_forward,
                                triton_silu_and_smooth_quant_backward,
                                triton_silu_and_smooth_quant_forward,
                                triton_silu_and_block_quant_backward,
                                triton_silu_and_block_quant_forward,
-                               triton_silu_and_mxfp8_quant_backward,
-                               triton_silu_and_mxfp8_quant_forward,
                                )
 from linghe.tools.util import (torch_smooth_quant,
-                               torch_group_quant,
-                               torch_mxfp8_quant)
+                               torch_group_quant)
 from linghe.tools.check import output_check
 
 
@@ -88,16 +83,6 @@ def torch_silu_and_block_quant_forward(x, round_scale=True):
     return y_q, y_scale, yt_q, yt_scale
 
 
-def torch_silu_and_mxfp8_quant_forward(x):
-    M, N = x.shape
-    x = x.float()
-    x1, x2 = torch.split(x, N // 2, dim=1)
-    y = torch.sigmoid(x1) * x1 * x2
-    y_q, y_scale, yt_q, yt_scale = torch_mxfp8_quant(y)
-
-    return y_q, y_scale, yt_q, yt_scale
-
-
 def torch_silu_and_smooth_quant_backward(grad, x, smooth_scale=None,
                                          transpose_smooth_scale=None,
                                          round_scale=True, reverse=True):
@@ -128,16 +113,6 @@ def torch_silu_and_block_quant_backward(grad, x, round_scale=True):
 
     return q, dx_scale, yt_q, yt_scale
 
-
-def torch_silu_and_mxfp8_quant_backward(grad, x):
-    grad = grad.float()
-    x = x.float().detach().clone().requires_grad_()
-    y = torch_silu(x)
-    y.backward(gradient=grad)
-    dx = x.grad
-    y_q, y_scale, yt_q, yt_scale = torch_mxfp8_quant(dx)
-
-    return y_q, y_scale, yt_q, yt_scale
 
 
 def torch_batch_weighted_silu_and_smooth_quant_forward(xs, weight,
@@ -208,44 +183,6 @@ def torch_batch_weighted_silu_and_block_quant_forward(xs, weight,
         scales.append(scale.t().contiguous().view(-1))
         qts.append(qt.view(-1))
         qtscales.append(qtscale.t().contiguous().view(-1))
-
-        s += c
-    qs = torch.cat(qs, 0)
-    scales = torch.cat(scales, 0)
-    qts = torch.cat(qts, 0)
-    qtscales = torch.cat(qtscales, 0)
-    return qs, scales, qts, qtscales
-
-
-def torch_batch_weighted_silu_and_mxfp8_quant_forward(xs, weight,
-                                                      counts):
-    counts = counts.tolist()
-    N = xs.shape[1]
-    if sum(counts) == 0:
-        device = xs.device
-        qs = torch.empty((0, N // 2), device=device, dtype=torch.float8_e4m3fn)
-        scales = torch.empty((0, N // 64), device=device, dtype=torch.uint8)
-        qts = torch.empty((0, N // 2), device=device, dtype=torch.float8_e4m3fn)
-        qtscales = torch.zeros((0, N // 2), device=device, dtype=torch.uint8)
-        return qs, scales, qts, qtscales
-
-    xs = xs.float()
-    weight = weight.float()
-
-    qs = []
-    scales = []
-    qts = []
-    qtscales = []
-    s = 0
-    for i, c in enumerate(counts):
-        x = xs[s:s + c]
-        y = torch_weighted_silu(x, weight[s:s + c])
-
-        y_q, y_scale, yt_q, yt_scale = torch_mxfp8_quant(y)
-        qs.append(y_q)
-        scales.append(y_scale)
-        qts.append(yt_q)
-        qtscales.append(yt_scale)
 
         s += c
     qs = torch.cat(qs, 0)
@@ -350,44 +287,6 @@ def torch_batch_weighted_silu_and_block_quant_backward(grad_output, x, weight,
     qtscales = torch.cat(qtscales, 0)
     return dx_q, dx_scale, dw, qts, qtscales
 
-
-def torch_batch_weighted_silu_and_mxfp8_quant_backward(grad_output, x, weight,
-                                                       counts):
-    if sum(counts) == 0:
-        device = x.device
-        N = x.shape[1]
-        dx_q = torch.empty((0, N), device=device, dtype=torch.float8_e4m3fn)
-        dx_scale = torch.empty((0, N // 32), device=device, dtype=torch.uint8)
-        dw = torch.empty_like(weight)
-        qts = torch.empty((0, N), device=device, dtype=torch.float8_e4m3fn)
-        qtscales = torch.zeros((0, N), device=device,
-                               dtype=torch.uint8)
-        return dx_q, dx_scale, dw, qts, qtscales
-
-    grad_output = grad_output.float()
-    x = x.float()
-    weight = weight.float()
-
-    dx, dw = torch_weighted_silu_backward(grad_output, x, weight)
-    qs = []
-    scales = []
-    qts = []
-    qtscales = []
-    s = 0
-    for i, c in enumerate(counts):
-        q, scale, qt, qtscale = torch_mxfp8_quant(dx[s:s + c])
-
-        qs.append(q)
-        scales.append(scale)
-        qts.append(qt)
-        qtscales.append(qtscale)
-
-        s += c
-    dx_q = torch.cat(qs, 0)
-    dx_scale = torch.cat(scales, 0)
-    qts = torch.cat(qts, 0)
-    qtscales = torch.cat(qtscales, 0)
-    return dx_q, dx_scale, dw, qts, qtscales
 
 
 def test_weighted_silu(M=4096, N=4096, asm=False, coef=1.0, bench=False):
@@ -522,48 +421,6 @@ def test_silu_and_block_quant(M=4096, N=4096, coef=1.0, grad_coef=1.0,
                        round_scale=round_scale, output_mode=2,
                        n_repeat=100, ref_bytes=M * N * 3)
         benchmark_func(triton_silu_and_block_quant_backward, grad_output, x,
-                       n_repeat=100, ref_bytes=M * N * 5)
-
-
-def test_silu_and_mxfp8_quant(M=4096, N=4096, coef=1.0, grad_coef=1.0,
-                              bench=False):
-    x = torch.randn((M, N), dtype=torch.bfloat16, device='cuda:0')
-    x = (x * coef).clone().detach().requires_grad_()
-    grad_output = torch.randn((M, N // 2), dtype=torch.bfloat16,
-                              device='cuda:0') * grad_coef
-
-    y_q_ref, y_scale_ref, yt_q_ref, yt_scale_ref = torch_silu_and_mxfp8_quant_forward(
-        x)
-    y_q, y_scale, yt_q, yt_scale = triton_silu_and_mxfp8_quant_forward(x,
-                                                                       output_mode=2)
-    output_check(y_q_ref.float(), y_q.float(), 'block.2.y_q')
-    output_check(y_scale_ref, y_scale, 'block.2.y_scale')
-    output_check(yt_q_ref, yt_q, 'block.2.yt_q')
-    output_check(yt_scale_ref, yt_scale, 'block.2.yt_scale')
-
-    y_q, y_scale, yt_q, yt_scale = triton_silu_and_mxfp8_quant_forward(x,
-                                                                       output_mode=0)
-    output_check(y_q_ref.float(), y_q.float(), 'block.0.y_q')
-    output_check(y_scale_ref, y_scale, 'block.0.y_scale')
-
-    y_q, y_scale, yt_q, yt_scale = triton_silu_and_mxfp8_quant_forward(x,
-                                                                       output_mode=1)
-    output_check(yt_q_ref.float(), yt_q.float(), 'block.1.yt_q')
-    output_check(yt_scale_ref, yt_scale, 'block.1.yt_scale')
-
-    dx_q_ref, dx_scale_ref, dxt_q_ref, dxt_scale_ref = torch_silu_and_mxfp8_quant_backward(
-        grad_output, x)
-    dx_q, dx_scale, dxt_q, dxt_scale = triton_silu_and_mxfp8_quant_backward(
-        grad_output, x)
-    output_check(dx_q_ref, dx_q, 'block.dx_q', rtol=0.125)
-    output_check(dx_scale_ref, dx_scale, 'block.dx_scale')
-    output_check(dxt_q_ref, dxt_q, 'block.dxt_q', rtol=0.125)
-    output_check(dxt_scale_ref, dxt_scale, 'block.dxt_scale')
-
-    if bench:
-        benchmark_func(triton_silu_and_mxfp8_quant_forward, x,
-                       n_repeat=100, ref_bytes=M * N * 3)
-        benchmark_func(triton_silu_and_mxfp8_quant_backward, grad_output, x,
                        n_repeat=100, ref_bytes=M * N * 5)
 
 
@@ -735,68 +592,6 @@ def test_triton_batch_weighted_silu_and_block_quant(M=1024, N=4096,
                        ref_bytes=n_experts * M * N * 4, ref_time=ref_time)
 
 
-def test_triton_batch_weighted_silu_and_mxfp8_quant(M=1024, N=4096,
-                                                    n_experts=32,
-                                                    coef=1.0,
-                                                    grad_coef=1.0,
-                                                    bench=False):
-    count_list = [random.randint(M // 2, M // 2 * 3) // 16 * 16 for _ in
-                  range(n_experts)]
-    counts = torch.tensor(count_list, device='cuda:0', dtype=torch.int32)
-    bs = sum(count_list)
-
-    x = torch.randn((bs, N), dtype=torch.bfloat16,
-                    device='cuda:0') * coef
-    weight = torch.randn((bs, 1), dtype=torch.float32, device='cuda:0')
-
-    grad_output = torch.randn((bs, N // 2), dtype=torch.bfloat16,
-                              device='cuda:0') * grad_coef
-
-    x_q_ref, x_scale_ref, xt_q_ref, xt_scale_ref = torch_batch_weighted_silu_and_mxfp8_quant_forward(
-        x,
-        weight,
-        counts)
-    x_q, x_scale, xt_q, xt_scale = triton_batch_weighted_silu_and_mxfp8_quant_forward(
-        x,
-        weight,
-        counts,
-        count_list,
-        output_mode=2)
-
-    rtol = 2
-    output_check(x_q_ref, x_q, 'mxfp8.q', rtol=rtol)
-    output_check(x_scale_ref, x_scale, 'mxfp8.scale', itol=1)
-    output_check(xt_q_ref, xt_q, 'mxfp8.qt', rtol=rtol)
-    output_check(xt_scale_ref, xt_scale, 'mxfp8.t_scale', itol=1)
-
-    dx_ref, dx_scale_ref, dw_ref, dxt_ref, dxt_scale_ref = torch_batch_weighted_silu_and_mxfp8_quant_backward(
-        grad_output, x, weight, counts)
-    dx, dx_scale, dw, dxt, dxt_scale = triton_batch_weighted_silu_and_mxfp8_quant_backward(
-        grad_output, x, weight, counts, splits=count_list)
-    output_check(dx_ref, dx, 'mxfp8.dx', rtol=rtol)
-    output_check(dx_scale_ref, dx_scale, 'mxfp8.dx_scale', itol=1)
-    rate = coef ** 0.75 if coef > 1 else 1
-    output_check(dw_ref, dw, 'mxfp8.dw', rtol=1e-3 * rate, atol=1e-3 * rate)
-    output_check(dxt_ref, dxt, 'mxfp8.dxt', rtol=rtol)
-    output_check(dxt_scale_ref, dxt_scale, 'mxfp8.dxt_scale', itol=1)
-
-    if bench:
-        ref_time = None
-        benchmark_func(triton_batch_weighted_silu_and_mxfp8_quant_forward, x,
-                       weight,
-                       counts, splits=count_list,
-                       output_mode=0, n_repeat=100,
-                       ref_bytes=n_experts * M * N * 2.5, ref_time=ref_time)
-        benchmark_func(triton_batch_weighted_silu_and_mxfp8_quant_forward, x,
-                       weight,
-                       counts, splits=count_list,
-                       output_mode=2, n_repeat=100,
-                       ref_bytes=n_experts * M * N * 3, ref_time=ref_time)
-        benchmark_func(triton_batch_weighted_silu_and_mxfp8_quant_backward,
-                       grad_output, x, weight, counts,
-                       splits=count_list, n_repeat=100,
-                       ref_bytes=n_experts * M * N * 4, ref_time=ref_time)
-
 
 if __name__ == '__main__':
     test_weighted_silu(M=16384, N=4096, coef=1.0, asm=False, bench=False)
@@ -818,10 +613,6 @@ if __name__ == '__main__':
     test_silu_and_block_quant(M=4096, N=1536 * 8, coef=0.0, grad_coef=0.0,
                               bench=False)
 
-    test_silu_and_mxfp8_quant(M=16384, N=1024, bench=False)
-    test_silu_and_mxfp8_quant(M=2345, N=1024, bench=False)
-    test_silu_and_mxfp8_quant(M=2345, N=1536, bench=False)
-
     test_triton_batch_weighted_silu_and_smooth_quant(M=0, N=2048, n_experts=32,
                                                      bench=False)
     test_triton_batch_weighted_silu_and_smooth_quant(M=2048, N=2048,
@@ -838,14 +629,3 @@ if __name__ == '__main__':
     test_triton_batch_weighted_silu_and_block_quant(M=12080, N=1536,
                                                     n_experts=32, coef=0.0,
                                                     grad_coef=0.0, bench=False)
-
-    test_triton_batch_weighted_silu_and_mxfp8_quant(M=0, N=2048, n_experts=32,
-                                                    bench=False)
-    test_triton_batch_weighted_silu_and_mxfp8_quant(M=2048, N=2048,
-                                                    n_experts=32, bench=False)
-    test_triton_batch_weighted_silu_and_mxfp8_quant(M=2048, N=1536,
-                                                    n_experts=32, bench=False)
-    test_triton_batch_weighted_silu_and_mxfp8_quant(M=2048, N=1536,
-                                                    n_experts=32, coef=10000.0,
-                                                    grad_coef=10000.0,
-                                                    bench=False)

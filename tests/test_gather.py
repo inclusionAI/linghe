@@ -6,14 +6,12 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import torch
 
 from linghe.quant.block import triton_batch_blockwise_quant
-from linghe.quant.mxfp8 import triton_batch_mxfp8_quant
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.tools.util import (torch_batch_smooth_quant,
                                torch_blockwise_quant,
                                torch_make_indices,
-                               torch_smooth_quant,
-                               torch_mxfp8_quant)
+                               torch_smooth_quant)
 from linghe.utils.gather import (triton_make_row_id_map,
                                  triton_make_row_id_map_and_index,
                                  triton_index_select,
@@ -23,7 +21,6 @@ from linghe.utils.gather import (triton_make_row_id_map,
                                  triton_smooth_weighted_permute_with_indices,
                                  triton_batch_transpose_smooth_permute_with_indices,
                                  triton_batch_block_pad_permute_with_indices,
-                                 triton_batch_mxfp8_permute_with_indices
                                  )
 
 
@@ -186,51 +183,6 @@ def torch_batch_block_pad_permute_with_indices(x,
         s_refs.append(y_scale.view(-1))
         qt_refs.append(yt_q.view(-1))
         st_refs.append(yt_scale.view(-1))
-        probs_refs.append(p_slice)
-        s += c
-    q_ref = torch.cat(q_refs, 0)
-    s_ref = torch.cat(s_refs, 0)
-    qt_ref = torch.cat(qt_refs, 0)
-    st_ref = torch.cat(st_refs, 0)
-    probs_refs = torch.cat(probs_refs, 0)
-    return q_ref, s_ref, qt_ref, st_ref, probs_refs
-
-
-def torch_batch_mxfp8_permute_with_indices(x,
-                                           indices,
-                                           probs,
-                                           token_count_per_expert_list):
-    M, DIM = x.shape
-    if M == 0:
-        device = x.device
-        q_ref = torch.empty((0, DIM), device=device, dtype=torch.float8_e4m3fn)
-        s_ref = torch.empty((0, DIM // 32), device=device, dtype=torch.float32)
-        qt_ref = torch.empty((0, DIM), device=device, dtype=torch.float8_e4m3fn)
-        st_ref = torch.empty((0, DIM), device=device, dtype=torch.float32)
-        probs_refs = torch.empty((0,), device=device, dtype=torch.float32)
-        return q_ref, s_ref, qt_ref, st_ref, probs_refs
-
-    q_refs = []
-    s_refs = []
-    qt_refs = []
-    st_refs = []
-    probs_refs = []
-    s = 0
-    for i, c in enumerate(token_count_per_expert_list):
-        c = token_count_per_expert_list[i]
-        if c == 0:
-            continue
-        index = indices[s:s + c]
-        assert len(index) == c
-        y = x[index]
-        y = y.float()
-        p_slice = probs[:, i][index]
-
-        y_q, y_scale, yt_q, yt_scale = torch_mxfp8_quant(y)
-        q_refs.append(y_q)
-        s_refs.append(y_scale)
-        qt_refs.append(yt_q)
-        st_refs.append(yt_scale)
         probs_refs.append(p_slice)
         s += c
     q_ref = torch.cat(q_refs, 0)
@@ -576,54 +528,6 @@ def test_batch_block_pad_permute_with_indices(M=16384, N=2048, n_experts=32,
                        ref_bytes=num_out_tokens * N * 4)
 
 
-def test_batch_mxfp8_permute_with_indices(M=16384, N=2048, n_experts=32, topk=2,
-                                          bench=False):
-    device = 'cuda:0'
-    logits = torch.randn((M, n_experts), dtype=torch.float32,
-                         device=device) ** 3
-    logits[:, 0] -= 1000
-    logits[:, 2] -= 100
-    probs, mask_map, token_count_per_expert, indices, row_id_map = torch_make_indices(
-        logits, topk=topk, bias=-0.01)
-    token_count_per_expert_list = token_count_per_expert.tolist()
-
-    x = torch.randn((M, N), dtype=torch.bfloat16, device=device)
-
-    x_q_ref, x_s_ref, xt_q_ref, xt_s_ref, p_ref = torch_batch_mxfp8_permute_with_indices(
-        x,
-        indices,
-        probs,
-        token_count_per_expert_list)
-
-    x_q, x_s, xt_q, xt_s, p = triton_batch_mxfp8_permute_with_indices(x,
-                                                                      token_count_per_expert,
-                                                                      indices,
-                                                                      token_count_per_expert_list,
-                                                                      probs=probs)
-    output_check(x_q_ref.float(), x_q.float(), 'data')
-    output_check(x_s_ref.float(), x_s.float(), 'scale')
-    output_check(xt_q_ref.float(), xt_q.float(), 't.data')
-    output_check(xt_s_ref.float(), xt_s.float(), 't.scale')
-    output_check(p_ref.float(), p.float(), 'prob')
-
-    if bench:
-        num_out_tokens = sum(token_count_per_expert_list)
-        benchmark_func(triton_batch_mxfp8_permute_with_indices, x,
-                       token_count_per_expert,
-                       indices,
-                       token_count_per_expert_list,
-                       probs=probs,
-                       ref_bytes=num_out_tokens * N * 4)
-
-        benchmark_func(triton_permute_with_mask_map, x, None, probs,
-                       row_id_map, num_out_tokens, contiguous=False,
-                       tokens_per_expert=token_count_per_expert,
-                       ref_bytes=num_out_tokens * N * 4)
-        xs = x[indices]
-        benchmark_func(triton_batch_mxfp8_quant, xs, token_count_per_expert,
-                       token_count_per_expert_list,
-                       ref_bytes=num_out_tokens * N * 4)
-
 
 if __name__ == '__main__':
     test_make_id_map(M=4098, n_experts=32, topk=2, bias=0.0, bench=False)
@@ -653,10 +557,3 @@ if __name__ == '__main__':
                                               bench=False)
     test_batch_block_pad_permute_with_indices(M=8192, N=1536, n_experts=32,
                                               topk=2, bench=False)
-
-    test_batch_mxfp8_permute_with_indices(M=3095, N=2048, n_experts=32, topk=2,
-                                          bench=False)
-    test_batch_mxfp8_permute_with_indices(M=0, N=2048, n_experts=32, topk=2,
-                                          bench=False)
-    test_batch_mxfp8_permute_with_indices(M=1024, N=1536, n_experts=32, topk=2,
-                                          bench=False)
