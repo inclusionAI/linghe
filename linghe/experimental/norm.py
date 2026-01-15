@@ -42,6 +42,7 @@ def rms_norm_forward_kernel(x_ptr,
     tl.atomic_add(cache_ptr + indices, s, sem='acq_rel', scope='sys')
     # tl.debug_barrier()
     tl.atomic_add(signal_ptr + rid, 1, sem='acq_rel', scope='sys')
+    tl.atomic_add(signal_ptr + rid, 0, sem='acq_rel', scope='sys')
     tl.debug_barrier()
     # tl.inline_asm_elementwise(
     #         "membar.gl;", "=r", [], dtype=tl.int32, is_pure=False, pack=1
@@ -108,8 +109,8 @@ def triton_rms_norm_forward(x: torch.Tensor,
         n,
         H,
         B,
-        num_stages=1,
-        num_warps=1
+        num_stages=3,
+        num_warps=2
     )
     return out, rms
 
