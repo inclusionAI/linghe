@@ -10,24 +10,24 @@ import triton.language as tl
 
 @triton.jit
 def mxfp8_quant_kernel(
-        x_ptr,
-        x_q_ptr,
-        x_s_ptr,
-        xt_q_ptr,
-        xt_s_ptr,
-        m,
-        N: tl.constexpr,
-        B: tl.constexpr,
-        OUTPUT_MODE: tl.constexpr,
+    x_ptr,
+    x_q_ptr,
+    x_s_ptr,
+    xt_q_ptr,
+    xt_s_ptr,
+    m,
+    N: tl.constexpr,
+    B: tl.constexpr,
+    OUTPUT_MODE: tl.constexpr,
 ):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
 
     offs = (
-            rid * 32 * N
-            + cid * B
-            + tl.arange(0, 32)[:, None] * N
-            + tl.arange(0, B)[None, :]
+        rid * 32 * N
+        + cid * B
+        + tl.arange(0, 32)[:, None] * N
+        + tl.arange(0, B)[None, :]
     )
     indices = rid * 32 + tl.arange(0, 32)
     mask = indices[:, None] < m
@@ -49,8 +49,7 @@ def mxfp8_quant_kernel(
             + tl.arange(0, sb),
             log_scale + 127,
         )
-        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(
-            x_q_ptr.dtype.element_ty)
+        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(x_q_ptr.dtype.element_ty)
         tl.store(
             x_q_ptr
             + rid * 32 * N
@@ -65,8 +64,7 @@ def mxfp8_quant_kernel(
         scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        tl.store(xt_s_ptr + rid * N + cid * B + tl.arange(0, B),
-                 log_scale + 127)
+        tl.store(xt_s_ptr + rid * N + cid * B + tl.arange(0, B), log_scale + 127)
         xq = (x / scale).to(xt_q_ptr.dtype.element_ty)
         tl.store(
             xt_q_ptr
@@ -108,8 +106,7 @@ def triton_mxfp8_quant(x, output_mode=2):
     B = 128
     grid = (M // 32, N // B)
     mxfp8_quant_kernel[grid](
-        x, x_q, x_scale, xt_q, xt_scale, m, N, B, output_mode, num_stages=3,
-        num_warps=2
+        x, x_q, x_scale, xt_q, xt_scale, m, N, B, output_mode, num_stages=3, num_warps=2
     )
 
     return x_q, x_scale, xt_q, xt_scale
@@ -117,16 +114,16 @@ def triton_mxfp8_quant(x, output_mode=2):
 
 @triton.jit
 def batch_mxfp8_quant_kernel(
-        x_ptr,
-        count_ptr,
-        xq_ptr,
-        xs_ptr,
-        xtq_ptr,
-        xts_ptr,
-        N: tl.constexpr,
-        B: tl.constexpr,
-        E: tl.constexpr,
-        OUTPUT_MODE: tl.constexpr,
+    x_ptr,
+    count_ptr,
+    xq_ptr,
+    xs_ptr,
+    xtq_ptr,
+    xts_ptr,
+    N: tl.constexpr,
+    B: tl.constexpr,
+    E: tl.constexpr,
+    OUTPUT_MODE: tl.constexpr,
 ):
     eid = tl.program_id(axis=0)
     rid = tl.program_id(axis=1)
@@ -138,16 +135,15 @@ def batch_mxfp8_quant_kernel(
     if rid >= tl.cdiv(count, 128) * 4:
         return
 
-    m_block = tl.sum(
-        tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 128), 0)) * 4
+    m_block = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 128), 0)) * 4
     si = tl.sum(tl.where(tl.arange(0, E) < eid, counts, 0))
 
     offs = (
-            si * N
-            + rid * 32 * N
-            + cid * B
-            + tl.arange(0, 32)[:, None] * N
-            + tl.arange(0, B)[None, :]
+        si * N
+        + rid * 32 * N
+        + cid * B
+        + tl.arange(0, 32)[:, None] * N
+        + tl.arange(0, B)[None, :]
     )
     indices = rid * 32 + tl.arange(0, 32)
     mask = indices[:, None] < count
@@ -170,8 +166,7 @@ def batch_mxfp8_quant_kernel(
             + tl.arange(0, sb),
             log_scale + 127,
         )
-        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(
-            xq_ptr.dtype.element_ty)
+        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(xq_ptr.dtype.element_ty)
         tl.store(xq_ptr + offs, xq, mask=mask)
 
     if OUTPUT_MODE > 0:
@@ -179,8 +174,7 @@ def batch_mxfp8_quant_kernel(
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
         tl.store(
-            xts_ptr + m_block * N + rid * N + cid * B + tl.arange(0, B),
-            log_scale + 127
+            xts_ptr + m_block * N + rid * N + cid * B + tl.arange(0, B), log_scale + 127
         )
         xq = (x / scale).to(xtq_ptr.dtype.element_ty)
         tl.store(xtq_ptr + offs, xq, mask=mask)
