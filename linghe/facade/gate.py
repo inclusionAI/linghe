@@ -13,17 +13,19 @@ class GroupRMSNormGateFunction(torch.autograd.Function):
     """"""
 
     @staticmethod
-    def forward(ctx, attn_output, gate, weight, eps=1e-6, group_size=4):
+    def forward(ctx, attn_output, gate, weight, eps=1e-6, group_size=4, transpose=True):
         output = triton_group_rms_norm_gate_forward(
             attn_output,
             gate,
             weight,
             eps=eps,
-            group_size=group_size
+            group_size=group_size,
+            transpose=transpose
         )
         ctx.save_for_backward(attn_output, gate, weight)
         ctx.eps = eps
         ctx.group_size = group_size
+        ctx.transpose = transpose
 
         return output
 
@@ -36,18 +38,20 @@ class GroupRMSNormGateFunction(torch.autograd.Function):
             attn_output,
             gate,
             weight,
-            ctx.eps,
-            ctx.group_size
+            eps=ctx.eps,
+            group_size=ctx.group_size,
+            transpose=ctx.transpose
         )
 
-        return dx, dg, dw, None, None
+        return dx, dg, dw, None, None, None
 
 
 def group_rms_norm_gate(attn_output: torch.Tensor,
                         gate: torch.Tensor,
                         weight: torch.Tensor,
                         eps: float = 1e-6,
-                        group_size: int = 4):
+                        group_size: int = 4,
+                        transpose: bool = True):
     """
     return group_rms_norm(transpose(attn_output, [0,1]), weight) * sigmoid(gate)
     Args:
@@ -56,8 +60,9 @@ def group_rms_norm_gate(attn_output: torch.Tensor,
         weight: weight of RMS norm, shape [dim]
         eps: epsilon for RMS
         group_size: group size of group RMS norm
+        transpose: whether gate is transposed
     Returns:
         output with shape [length, bs, dim]
     """
     return GroupRMSNormGateFunction.apply(attn_output, gate, weight, eps,
-                                          group_size)
+                                          group_size, transpose)
