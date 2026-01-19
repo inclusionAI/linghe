@@ -1,6 +1,9 @@
 # Changelog
 
 
+## linghe 0.3.2
+
+- add the parameter `transpose` to `group_rms_norm_gate`
 
 
 ## linghe 0.3.0
