@@ -42,6 +42,19 @@ def test_norm(M=4096, N=4096, bench=False):
     output_check(rms_ref, rms, name="rms", rtol=0.001)
     output_check(output_ref, output, name="output", rtol=0.001)
 
+    # x = torch.ones(M, N, dtype=dtype, requires_grad=False, device=device)
+    # weight = torch.ones(N, dtype=dtype, requires_grad=False, device=device)
+    # output_ref, rms_ref = torch_rms_forward(x, weight)
+    # output, rms = triton_rms_norm_forward(x, weight)
+    # output_check(rms_ref, rms, name="rms", rtol=0.001)
+    # output_check(output_ref, output, name="output", rtol=0.001)
+
+
+    if bench:
+        benchmark_func(triton_rms_norm_forward, x, weight,
+                       ref_bytes=M * N * 4,
+                       n_profile=2)
+
 
 def test_parallel_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
     dtype = torch.bfloat16
@@ -82,6 +95,9 @@ def test_parallel_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
 
 
 if __name__ == '__main__':
-    # /usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas -lineinfo -v --gpu-name=sm_90a /tmp/tmp3l_m5rfp.ptx -o /tmp/tmp3l_m5rfp.ptx.o
-    test_norm(M=1024, N=4096, bench=False)
+    # /usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas -lineinfo -v 
+    # --gpu-name=sm_90a ~/.triton/cache/X/rms_norm_forward_kernel.ptx -o /tmp/rms.ptx.o
+    # pass: M=1024 N=4096
+    # error: M>1024 N>4096
+    test_norm(M=1024, N=1024, bench=True)
     # test_parallel_rmsnorm_and_block_quant(M=4096, N=4096, bench=False)

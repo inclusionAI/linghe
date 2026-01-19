@@ -254,7 +254,7 @@ def test_varlen_mla(LS=[2048, 4096], H=16, causal=True, hpc=False, safe=True,
                                     padded_cu_seqlens=padded_cu_seqlens,
                                     max_q_length=max_q_length, causal=causal,
                                     safe=safe,
-                                    clip_value=clip_value)
+                                    clip_value=0.0 if clip_value is None else clip_value)
     output.backward(g)
     gq = q.grad
     gk = k.grad
