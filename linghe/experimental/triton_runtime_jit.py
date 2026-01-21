@@ -416,7 +416,7 @@ class KernelInterface(Generic[T]):
         Hence JITFunction.__getitem__ returns a callable proxy that
         memorizes the grid.
         """
-        return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+        return lambda *args, **kwargs: self._run(grid=grid, warmup=False, *args, **kwargs)
         # return cast(T, functools.partial(cast(Callable, self.run), grid=grid))
 
 
@@ -706,28 +706,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
 
         return options, signature, constexprs, attrs
 
-    def run(self, *args, grid, warmup, specialize=True, **kwargs):
-
-        if self.kernel is not None:
-            kernel = self.kernel
-            # bound_args, specialization, options = self.binder(*args, spec=False, **kwargs)
-            # canonicalize grid
-            # assert grid is not None
-            # if callable(grid):
-            #     grid = grid(bound_args)
-            grid_size = len(grid)
-            grid_0 = grid[0]
-            grid_1 = grid[1] if grid_size > 1 else 1
-            grid_2 = grid[2] if grid_size > 2 else 1
-            # launch kernel
-            # launch_metadata = self.kernel.launch_metadata(grid, self.stream, *bound_args.values())
-            launch_metadata = None
-            enter_hook = None
-            exit_hook = None
-            kernel.run(grid_0, grid_1, grid_2, self.stream, kernel.function, kernel.packed_metadata, launch_metadata,
-                       enter_hook, exit_hook, *args)
-            return kernel
-
+    def run(self, *args, grid, warmup, **kwargs):
         kwargs["debug"] = kwargs.get("debug", self.debug) or knobs.runtime.debug
 
         # parse options
@@ -739,9 +718,6 @@ class JITFunction(JITCallable, KernelInterface[T]):
             hook(*args, **kwargs)
 
         kernel_cache, kernel_key_cache, target, backend, binder = self.device_caches[device]
-        if not specialize:
-            self.binder = binder
-            self.stream = stream
         # specialization is list[tuple[str, Any]], where first element of tuple is
         # the type and the second parameter is the 'specialization' value.
         bound_args, specialization, options = binder(*args, **kwargs)
@@ -780,10 +756,88 @@ class JITFunction(JITCallable, KernelInterface[T]):
             launch_metadata = kernel.launch_metadata(grid, stream, *bound_args.values())
             kernel.run(grid_0, grid_1, grid_2, stream, kernel.function, kernel.packed_metadata, launch_metadata,
                        knobs.runtime.launch_enter_hook, knobs.runtime.launch_exit_hook, *bound_args.values())
-            if not specialize:
-                self.kernel = kernel
-            else:
-                self.kernel = None
+        return kernel
+
+    def _run(self, *args, grid, warmup, check_count=128, **kwargs):
+
+        if self.kernel is not None:
+            kernel = self.kernel
+            # bound_args, specialization, options = self.binder(*args, spec=False, **kwargs)
+            # canonicalize grid
+            # assert grid is not None
+            # if callable(grid):
+            #     grid = grid(bound_args)
+            grid_size = len(grid)
+            grid_0 = grid[0]
+            grid_1 = grid[1] if grid_size > 1 else 1
+            grid_2 = grid[2] if grid_size > 2 else 1
+            # launch kernel
+            # launch_metadata = self.kernel.launch_metadata(grid, self.stream, *bound_args.values())
+            launch_metadata = None
+            enter_hook = None
+            exit_hook = None
+            kernel.run(grid_0, grid_1, grid_2, self.stream, kernel.function, kernel.packed_metadata, launch_metadata,
+                       enter_hook, exit_hook, *args)
+            return kernel
+
+        kwargs["debug"] = kwargs.get("debug", self.debug) or knobs.runtime.debug
+
+        # parse options
+        device = driver.active.get_current_device()
+        stream = driver.active.get_current_stream(device)
+
+        # Execute pre run hooks with args and kwargs
+        for hook in self.pre_run_hooks:
+            hook(*args, **kwargs)
+
+        kernel_cache, kernel_key_cache, target, backend, binder = self.device_caches[device]
+        # specialization is list[tuple[str, Any]], where first element of tuple is
+        # the type and the second parameter is the 'specialization' value.
+        bound_args, specialization, options = binder(*args, **kwargs)
+
+        key = compute_cache_key(kernel_key_cache, specialization, options)
+        kernel = kernel_cache.get(key, None)
+
+        # Kernel is not cached; we have to compile.
+        if kernel is None:
+            options, signature, constexprs, attrs = self._pack_args(backend, kwargs, bound_args, specialization,
+                                                                    options)
+
+            kernel = self._do_compile(key, signature, device, constexprs, options, attrs, warmup)
+            self.count = 0
+            if kernel is None:
+                return None
+
+        if (self.count >= check_count
+            and len(kernel_cache) == 1
+            and not callable(grid)
+                and len(self.pre_run_hooks) == 0):
+            self.kernel = kernel
+            self.stream = stream
+
+        # Check that used global values have not changed.
+        not_present = object()
+        for (name, _), (val, globals_dict) in self.used_global_vals.items():
+            if (newVal := globals_dict.get(name, not_present)) != val:
+                raise RuntimeError(
+                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}")
+
+        if not warmup:
+            # canonicalize grid
+            assert grid is not None
+            if callable(grid):
+                grid = grid(bound_args)
+            grid_size = len(grid)
+            grid_0 = grid[0]
+            grid_1 = grid[1] if grid_size > 1 else 1
+            grid_2 = grid[2] if grid_size > 2 else 1
+            if hasattr(kernel, "result"):
+                kernel = kernel.result()
+            # launch kernel
+            launch_metadata = kernel.launch_metadata(grid, stream, *bound_args.values())
+            kernel.run(grid_0, grid_1, grid_2, stream, kernel.function, kernel.packed_metadata, launch_metadata,
+                       knobs.runtime.launch_enter_hook, knobs.runtime.launch_exit_hook, *bound_args.values())
+            self.count += 1
         return kernel
 
     def repr(self, _):

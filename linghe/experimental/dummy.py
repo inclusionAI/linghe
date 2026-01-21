@@ -49,10 +49,28 @@ def triton_dummy(x: torch.Tensor, y: torch.Tensor):
     return x
 
 
-def triton_fast_dummy(x: torch.Tensor, y: torch.Tensor):
+@triton.heuristics({
+    'K': lambda args: args['D'] > 1024,
+})
+@triton.jit(do_not_specialize=[])
+def dummy_heuristics_kernel(x_ptr,
+                 y_ptr,
+                 y1_ptr,
+                 y2_ptr,
+                 y3_ptr,
+                 y4_ptr,
+                 M,
+                 D: tl.constexpr,
+                 K: tl.constexpr):
+    pid = tl.program_id(axis=0)
+    x = tl.load(x_ptr + pid * D + tl.arange(0, D))
+    tl.store(y_ptr + pid * D + tl.arange(0, D), x)
+
+
+def triton_heuristics_dummy(x: torch.Tensor, y: torch.Tensor):
     M, D = x.shape
     grid = (M, )
-    dummy_kernel[grid](
+    dummy_heuristics_kernel[grid](
         x,
         y,
         y,
@@ -61,12 +79,50 @@ def triton_fast_dummy(x: torch.Tensor, y: torch.Tensor):
         y,
         M,
         D,
-        specialize=False,
         num_stages=3,
         num_warps=2
     )
     return x
 
+
+@triton.autotune(
+    configs=[
+        triton.Config({'K': K}, num_warps=num_warps, num_stages=num_stages)
+        for K in [32, 64]
+        for num_warps in [1, 2]
+        for num_stages in [2, 3]
+    ],
+    key=["D"],
+)
+@triton.jit(do_not_specialize=[])
+def dummy_autotune_kernel(x_ptr,
+                 y_ptr,
+                 y1_ptr,
+                 y2_ptr,
+                 y3_ptr,
+                 y4_ptr,
+                 M,
+                 D: tl.constexpr,
+                 K: tl.constexpr):
+    pid = tl.program_id(axis=0)
+    x = tl.load(x_ptr + pid * D + tl.arange(0, D))
+    tl.store(y_ptr + pid * D + tl.arange(0, D), x)
+
+
+def triton_autotune_dummy(x: torch.Tensor, y: torch.Tensor):
+    M, D = x.shape
+    grid = (M, )
+    dummy_autotune_kernel[grid](
+        x,
+        y,
+        y,
+        y,
+        y,
+        y,
+        M,
+        D,
+    )
+    return x
 
 def test_dummy(M=4096, D=4096, bench=False):
     dtype = torch.bfloat16
@@ -75,7 +131,8 @@ def test_dummy(M=4096, D=4096, bench=False):
     x = torch.ones(M, D, dtype=dtype, requires_grad=False, device=device)
     y = torch.ones(M, D, dtype=dtype, requires_grad=False, device=device)
 
-    triton_dummy(x, y)
+    for i in range(256):
+        triton_dummy(x, y)
 
     if bench:
         benchmark_func(triton_dummy, x, y,
@@ -83,14 +140,24 @@ def test_dummy(M=4096, D=4096, bench=False):
                        n_profile=0,
                        trace_dir='/tmp/org.json')
 
-    time.sleep(1)
+    for i in range(256):
+        triton_heuristics_dummy(x, y)
 
-    triton_fast_dummy(x, y)
     if bench:
-        benchmark_func(triton_fast_dummy, x, y,
+        benchmark_func(triton_heuristics_dummy, x, y,
                        ref_bytes=M * D * 4,
                        n_profile=0,
-                       trace_dir='/tmp/opt.json')
+                       trace_dir='/tmp/org.json')
+
+
+    for i in range(256):
+        triton_autotune_dummy(x, y)
+
+    if bench:
+        benchmark_func(triton_autotune_dummy, x, y,
+                       ref_bytes=M * D * 4,
+                       n_profile=0,
+                       trace_dir='/tmp/org.json')
 
 
 if __name__ == '__main__':
