@@ -1,7 +1,12 @@
+# -*- coding: utf-8 -*-
+"""
+Copyright (c) Ant Financial Service Group and its affiliates.
+"""
+
 import torch
 import triton
 import triton.language as tl
-from linghe.tools.benchmark import benchmark_func
+
 
 @triton.jit
 def split_fp32_gemm_kernel(

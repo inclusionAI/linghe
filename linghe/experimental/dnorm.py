@@ -4,17 +4,19 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 
+from typing import Optional
+
 import torch
+import torch.distributed as dist
+
 import triton
 import triton.language as tl
-from typing import Optional
-import torch.distributed as dist
-import torch.distributed._symmetric_memory as symm_mem
-from linghe.utils.copy_engine import _copy_engine_all_gather_w_progress
-from linghe.utils.ptx_util import symm_mem_sync
+
+from linghe.experimental.symm_mem_barrier import symm_mem_sync
+
 
 @triton.jit
-def rms_norm_forward_dist_kernel(
+def sp_rms_norm_forward_kernel(
     x_ptr,
     weight_ptr,
     out_ptr,
@@ -85,7 +87,7 @@ def rms_norm_forward_dist_kernel(
             tl.store(out_ptr+offs, tmp)
 
 
-def triton_rms_norm_gather_forward(x, weight, hdl, eps=1e-6, rms=None):
+def triton_sp_rms_norm_forward(x, weight, hdl, eps=1e-6, rms=None):
     """
     rms norm
     Args:
@@ -117,7 +119,7 @@ def triton_rms_norm_gather_forward(x, weight, hdl, eps=1e-6, rms=None):
         rms = torch.empty((M, ), device=device, dtype=torch.float32)
 
     grid = (triton.cdiv(M, T*W),)
-    rms_norm_forward_dist_kernel[grid](
+    sp_rms_norm_forward_kernel[grid](
         x,
         weight,
         out,

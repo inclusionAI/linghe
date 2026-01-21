@@ -1,13 +1,21 @@
+# -*- coding: utf-8 -*-
+"""
+Copyright (c) Ant Financial Service Group and its affiliates.
+"""
+
 import os
 import sys
+from datetime import timedelta
 
 import torch
 import torch.distributed as dist
 import torch.distributed._symmetric_memory as symm_mem
-from linghe.utils.norm import triton_rms_norm_gather_forward, triton_rms_norm_forward
+
+from linghe.utils.norm import triton_rms_norm_forward
+from linghe.experimental.dnorm import triton_sp_rms_norm_forward
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
-from datetime import timedelta
+
 
 def torch_rms_gather_forward(x, weight, group):
     M, N = x.shape
@@ -34,7 +42,7 @@ def test_norm_gather(M=4096, N=2048, group=None, bench=False):
     x = torch.randn(M // group_size, N, dtype=dtype, requires_grad=True, device=device) ** 3
     weight = torch.randn(N, dtype=dtype, requires_grad=True, device=device)
 
-    tri_out, _ = triton_rms_norm_gather_forward(x, weight, hdl)
+    tri_out, _ = triton_sp_rms_norm_forward(x, weight, hdl)
     
     # ### linghe impl + torch all gather ###
     torch_x = x.clone()
@@ -43,10 +51,8 @@ def test_norm_gather(M=4096, N=2048, group=None, bench=False):
     output_check(torch_out, tri_out, 'norm out')
 
     if bench:
-        benchmark_func(triton_rms_norm_gather_forward, x, weight, hdl)
+        benchmark_func(triton_sp_rms_norm_forward, x, weight, hdl)
         benchmark_func(torch_rms_gather_forward, x, weight, group)
-
-
 
 
 if __name__ == "__main__":
