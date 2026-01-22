@@ -1,4 +1,5 @@
 from __future__ import annotations, division
+import os
 import ast
 import copy
 import hashlib
@@ -25,6 +26,7 @@ TRITON_MODULE = "triton.language"
 GLUON_MODULE = "triton.experimental.gluon.language"
 
 T = TypeVar("T")
+MAX_CHECK_COUNT = int(os.environ.get("TRITON_MAX_CHECK_COUNT", 128))
 
 # -----------------------------------------------------------------------------
 # Dependencies Finder
@@ -416,8 +418,10 @@ class KernelInterface(Generic[T]):
         Hence JITFunction.__getitem__ returns a callable proxy that
         memorizes the grid.
         """
-        return lambda *args, **kwargs: self._run(grid=grid, warmup=False, *args, **kwargs)
-        # return cast(T, functools.partial(cast(Callable, self.run), grid=grid))
+        if isinstance(self, JITFunction):
+            return lambda *args, **kwargs: self.run_with_cache(grid=grid, warmup=False, *args, **kwargs)
+        else:
+            return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
 
 
 def serialize_specialization_data(name, signature, constants, attrs, options, key):
@@ -758,7 +762,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
                        knobs.runtime.launch_enter_hook, knobs.runtime.launch_exit_hook, *bound_args.values())
         return kernel
 
-    def _run(self, *args, grid, warmup, check_count=128, **kwargs):
+    def run_with_cache(self, *args, grid, warmup, **kwargs):
 
         if self.kernel is not None:
             kernel = self.kernel
@@ -808,10 +812,12 @@ class JITFunction(JITCallable, KernelInterface[T]):
             if kernel is None:
                 return None
 
-        if (self.count >= check_count
+        if (self.invoke_count >= MAX_CHECK_COUNT
             and len(kernel_cache) == 1
             and not callable(grid)
-                and len(self.pre_run_hooks) == 0):
+            and len(self.pre_run_hooks) == 0
+            and len(bound_args) == len(args)
+            ):
             self.kernel = kernel
             self.stream = stream
 
@@ -837,7 +843,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
             launch_metadata = kernel.launch_metadata(grid, stream, *bound_args.values())
             kernel.run(grid_0, grid_1, grid_2, stream, kernel.function, kernel.packed_metadata, launch_metadata,
                        knobs.runtime.launch_enter_hook, knobs.runtime.launch_exit_hook, *bound_args.values())
-            self.count += 1
+            self.invoke_count += 1
         return kernel
 
     def repr(self, _):
@@ -870,6 +876,9 @@ class JITFunction(JITCallable, KernelInterface[T]):
         self.kernel = None
         self.debug = debug
         self.noinline = noinline
+
+        # invoke count
+        self.invoke_count = 0
 
         # TODO(jlebar): Remove uses of these fields outside this file, then
         # remove the fields here.

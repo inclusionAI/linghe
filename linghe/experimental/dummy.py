@@ -2,7 +2,7 @@
 """
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
-
+import os
 import time
 from typing import Optional
 
@@ -125,6 +125,7 @@ def triton_autotune_dummy(x: torch.Tensor, y: torch.Tensor):
     return x
 
 def test_dummy(M=4096, D=4096, bench=False):
+    os.environ['TRITON_MAX_CHECK_COUNT'] = '128'
     dtype = torch.bfloat16
     device = 'cuda:0'
 
@@ -161,5 +162,6 @@ def test_dummy(M=4096, D=4096, bench=False):
 
 
 if __name__ == '__main__':
+    # cp -f /ossfs/workspace/linghe/linghe/experimental/triton_runtime_jit_331.py /usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py
     # torchrun --nproc_per_node=2 dummy.py
     test_dummy(M=128, D=128, bench=True)
