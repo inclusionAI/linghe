@@ -261,7 +261,7 @@ def triton_mla_forward(q, k, v, causal=True, safe=True, clip_value=None):
     max_logits = torch.empty((B, H, L), dtype=torch.float32, device=q.device)
     softmax_scale = 128 ** (-0.5)
 
-    clip = clip_value is not None
+    clip = clip_value is not None and clip_value > 0.0
     clip_value = clip_value * softmax_scale if clip else 0.0
 
     if clip and clip_value + math.log(L) < 88.7:
@@ -844,7 +844,7 @@ def triton_mla_backward(go, o, q, k, v, lse, max_logits, causal=True, safe=True,
     ds = torch.empty((B, H, L), dtype=torch.float32, device=device)
 
     softmax_scale = 128 ** (-0.5)
-    clip = clip_value is not None
+    clip = clip_value is not None and clip_value > 0.0
     clip_value = clip_value * softmax_scale if clip else 0.0
 
     M = 64
@@ -1097,7 +1097,7 @@ def triton_varlen_mla_forward(q, k, v, cu_seqlens, max_q_length,
     lse = torch.empty((H, T), dtype=torch.float32, device=q.device)
     max_logits = torch.empty((H, T), dtype=torch.float32, device=q.device)
     softmax_scale = 128 ** (-0.5)
-    clip = clip_value is not None
+    clip = clip_value is not None and clip_value > 0.0
     clip_value = clip_value * softmax_scale if clip else 0.0
     if clip and clip_value + math.log(max_q_length) < 88.7:
         safe = False
@@ -1387,9 +1387,23 @@ def varlen_mla_rs_kernel(
     T = tl.num_programs(0).to(tl.int64)
     kid = tl.program_id(1)
 
-    cu = tl.load(CU + tl.arange(0, PB), mask=tl.arange(0, PB) <= B)
-    c0 = tl.max(tl.where(cu > tid, 0, cu), 0)
-    c1 = tl.min(tl.where(cu <= c0, 2 ** 24, cu), 0)
+
+    # cu = tl.load(CU + tl.arange(0, PB), mask=tl.arange(0, PB) <= B)
+    # c0 = tl.max(tl.where(cu > tid, 0, cu), 0)
+    # c1 = tl.min(tl.where(cu <= c0, 2 ** 24, cu), 0)
+
+    c0 = 0
+    c1 = 1048576
+    for i in range(tl.cdiv(B + 1, PB)):
+        cus = tl.load(CU + i * PB + tl.arange(0, PB),
+                    mask=i * PB + tl.arange(0, PB) <= B)
+        c0 = tl.maximum(tl.max(tl.where(cus > tid, 0, cus), 0), c0)
+    for i in range(tl.cdiv(B, PB)):
+        cus = tl.load(CU + i * PB + tl.arange(0, PB),
+                    mask=i * PB + tl.arange(0, PB) <= B)
+        c1 = tl.minimum(tl.min(tl.where(cus <= c0, 2 ** 24, cus), 0), c1)
+
+
     length = c1 - c0
     pid = tid - c0
 
@@ -1444,7 +1458,7 @@ def triton_varlen_mla_backward(go, o, q, k, v, lse,
     ds = torch.empty((H, T), dtype=torch.float32, device=device)
 
     softmax_scale = 128 ** (-0.5)
-    clip = clip_value is not None
+    clip = clip_value is not None and clip_value > 0.0
     clip_value = clip_value * softmax_scale if clip else 0.0
 
     M = 64
@@ -1517,7 +1531,7 @@ def triton_varlen_mla_backward(go, o, q, k, v, lse,
         grid = (T, NB)
         num_warps = 4
         num_stages = 3
-        PB = max(triton.next_power_of_2(B), 128)
+        PB = 128
         varlen_mla_rs_kernel[grid](gq,
                                    qo,
                                    padded_cu_seqlens if PADDED else cu_seqlens,

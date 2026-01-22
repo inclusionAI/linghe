@@ -1568,12 +1568,18 @@ def triton_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
 
 
 @triton.jit
-def _get_varlen_token_idx(cu_seqlens, pid_m, seq_num, padded_seq_num, cp_rank,
+def _get_varlen_token_idx(cu_seqlens, pid_m, seq_num, block, cp_rank,
                           cp_size):
-    cus = tl.load(cu_seqlens + tl.arange(0, padded_seq_num),
-                  mask=tl.arange(0, padded_seq_num) <= seq_num) // cp_size
-    cu = tl.max(tl.where(cus > pid_m, 0, cus), 0)
-    cun = tl.min(tl.where(cus <= cu, 2 ** 24, cus), 0)
+    cu = 0
+    cun = 1048576
+    for i in range(tl.cdiv(seq_num + 1, block)):
+        cus = tl.load(cu_seqlens + i * block + tl.arange(0, block),
+                    mask=i * block + tl.arange(0, block) <= seq_num) // cp_size
+        cu = tl.maximum(tl.max(tl.where(cus > pid_m, 0, cus), 0), cu)
+    for i in range(tl.cdiv(seq_num + 1, block)):
+        cus = tl.load(cu_seqlens + i * block + tl.arange(0, block),
+                    mask=i * block + tl.arange(0, block) <= seq_num) // cp_size
+        cun = tl.minimum(tl.min(tl.where(cus <= cu, 2 ** 24, cus), 0), cun)
     length = cun - cu
     token_idx = pid_m - cu
 
@@ -1585,6 +1591,26 @@ def _get_varlen_token_idx(cu_seqlens, pid_m, seq_num, padded_seq_num, cp_rank,
                     2 * cp_size - cp_rank - 1
             ) * length // 2
     return token_idx
+
+
+# @triton.jit
+# def _get_varlen_token_idx(cu_seqlens, pid_m, seq_num, padded_seq_num, cp_rank,
+#                           cp_size):
+#     cus = tl.load(cu_seqlens + tl.arange(0, padded_seq_num),
+#                   mask=tl.arange(0, padded_seq_num) <= seq_num) // cp_size
+#     cu = tl.max(tl.where(cus > pid_m, 0, cus), 0)
+#     cun = tl.min(tl.where(cus <= cu, 2 ** 24, cus), 0)
+#     length = cun - cu
+#     token_idx = pid_m - cu
+
+#     if cp_size > 1:
+#         if token_idx < length // 2:
+#             token_idx = token_idx + cp_rank * length // 2
+#         else:
+#             token_idx = (token_idx - length // 2) + (
+#                     2 * cp_size - cp_rank - 1
+#             ) * length // 2
+#     return token_idx
 
 
 # not used
@@ -1964,7 +1990,7 @@ def triton_varlen_qk_norm_and_half_rope_forward(qkv, q_norm_weight,
     stride = qkv.stride(0)  # qkv may be a slice of a tensor
     D = Dim // (H + 2 * h)
     B = cu_seqlens_q.size(0) - 1
-    PB = max(triton.next_power_of_2(B), 128)  # reduce jit
+    PB = 128
     dtype = qkv.dtype
     device = qkv.device
     qo = torch.empty((T, H, D), dtype=dtype, device=device)
@@ -2576,7 +2602,7 @@ def triton_varlen_qk_norm_and_half_rope_backward(gq, gk, gv, qkv, q_norm_weight,
     stride = qkv.stride(0)
     h = gk.shape[1]
     B = cu_seqlens_q.size(0) - 1
-    PB = max(triton.next_power_of_2(B), 128)
+    PB = 128
     num_stages = 5
     num_warps = 1
 
@@ -2822,7 +2848,7 @@ def triton_mla_rope_forward(q, kv, k_pos_emb, freqs, mscale=1.0,
         assert cu_seqlens_kv is not None
         N, H, D = q.shape
         B = cu_seqlens_q.shape[0] - 1
-        PB = max(triton.next_power_of_2(B), 128)
+        PB = 128
         qo = None
         ko = torch.empty((N, H, 192), dtype=dtype, device=device)
         vo = torch.empty((N, H, 128), dtype=dtype, device=device)
@@ -3037,8 +3063,7 @@ def triton_mla_rope_backward(q_grad, k_grad, v_grad, freqs, mscale=1.0,
         assert cu_seqlens_kv is not None
         N, H, D = q_grad.shape
         B = cu_seqlens_q.shape[0] - 1
-        PB = max(triton.next_power_of_2(B), 128)
-        assert B <= 128
+        PB = 128
         dq = None
         dkv = torch.empty((N, H, 256), dtype=dtype, device=device)
         dp = torch.empty((N, 1, 64), dtype=dtype, device=device)
