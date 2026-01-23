@@ -329,8 +329,7 @@ if __name__ == "__main__":
 
     test_dot_sum(M=128, N=128, D=128)
 
-    test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=False, coef=1.0,
-             clip_value=500, bench=False)
+    test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=None, bench=True)
     test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=False, coef=1.0, clip_value=500.0, bench=False)
     test_mla(B=1, L=8192, H=64, causal=True, hpc=True, safe=False, coef=1.0, clip_value=None, bench=False)
     test_mla(B=1, L=8192, H=64, causal=True, hpc=False, safe=True, coef=100.0, clip_value=None, bench=False)
