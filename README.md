@@ -25,7 +25,7 @@
 
 ## Introduction
 ---
-Our repo, linghe, is designed for LLM training, especially for MoE training with FP8 quantizaiton. It provides 2 main categories of kernels:
+Our repo, linghe, is designed for LLM training, especially for MoE training with FP8 quantizaiton. It provides 3 main categories of kernels:
 
 - **Fused quantization kernels**: fuse quantization with previous layer, e.g., RMS norm and Silu.
 - **Memory-efficiency kernels**: fuse multiple IO-itensive operations, e.g., ROPE with qk-norm.
@@ -67,3 +67,13 @@ Examples can be found in tests.
 ---
 
 Please refer to [API](https://inclusionai.github.io/linghe/)
+
+## Citations
+
+[TBD]
+```
+@misc{zhao2025linghe,
+title={Linghe: Enabling Efficient Trillion-Scale LLM Training via Optimized Kernels},
+author={Yao Zhao and Chen Liang and Jingyu Hu and Zixuan Cheng and Zhen Wang and Longfei Li}
+}
+```
