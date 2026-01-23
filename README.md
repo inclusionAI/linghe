@@ -74,6 +74,6 @@ Please refer to [API](https://inclusionai.github.io/linghe/)
 ```
 @misc{zhao2025linghe,
 title={Linghe: Enabling Efficient Trillion-Scale LLM Training via Optimized Kernels},
-author={Yao Zhao and Chen Liang and Jingyu Hu and Zixuan Cheng and Zhen Wang and Longfei Li}
+author={Yao Zhao and Chen Liang and Jingyu Hu and Zixuan Cheng and Longfei Li}
 }
 ```
