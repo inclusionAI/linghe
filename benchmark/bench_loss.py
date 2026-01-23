@@ -127,11 +127,10 @@ if __name__ == '__main__':
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.bar(x - 1.5*width, fused_times, width, label='Fused CE', color='#1f77b4')
     ax.bar(x - 0.5*width, te_times, width, label='TE CE', color='#ff7f0e')
-    ax.bar(x + 0.5*width, triton_times, width, label='Triton CE', color='#2ca02c')
+    ax.bar(x + 0.5*width, triton_times, width, label='LINGHE CE', color='#2ca02c')
     ax.bar(x + 1.5*width, fa_times, width, label='FlashAttention CE', color='#d62728')
 
-    ax.set_ylabel('Time (s)')
-    ax.set_xlabel('Test Cases')
+    ax.set_ylabel('Time (us)')
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.set_title('Cross Entropy Benchmark')
