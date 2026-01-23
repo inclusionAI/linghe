@@ -400,7 +400,9 @@ def embedding_backward_kernel(grad_output_ptr,
     else:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.bfloat16))
 
-    outputs = tl.zeros((DIM,), dtype=tl.float32)
+    # outputs = tl.zeros((DIM,), dtype=tl.float32)
+    outputs = tl.load(grad_ptr + input_id * dim + tl.arange(0, DIM), 
+                      mask=tl.arange(0, DIM) < dim).to(tl.float32)
 
     for i in range(count):
         pos = tl.load(sorted_indices_ptr + c0 + i)

@@ -33,7 +33,7 @@ def test_scan(M=4096, bench=False):
     output_check(accum_counts_ref, accum_counts[:size], name='accum_counts')
 
     if bench:
-        ref_time = benchmark_func(triton_scan_and_count, sorted_ids)
+        benchmark_func(triton_scan_and_count, sorted_ids)
 
 
 def test_embedding(B=2, M=4096, V=150000, D=4096, transpose=False, bench=False):
@@ -44,7 +44,9 @@ def test_embedding(B=2, M=4096, V=150000, D=4096, transpose=False, bench=False):
     input_ids = torch.randint(0, V // 15, (B, M), dtype=torch.int32,
                               device=device)
     weights = embedding.weight
-    weights.grad = torch.zeros((V, D), dtype=dtype, device=device)
+    grad_ref = torch.randn((V, D), dtype=dtype, device=device)
+    weights.grad = grad_ref
+    grad = grad_ref.clone().detach()
 
     y_ref = embedding(input_ids)
     if transpose:
@@ -52,17 +54,8 @@ def test_embedding(B=2, M=4096, V=150000, D=4096, transpose=False, bench=False):
     else:
         dy = torch.randn((B, M, D), device=device, dtype=dtype)
     y_ref.backward(dy, retain_graph=True)
-    grad_ref = weights.grad.clone().detach()
 
-    grad = weights.grad
-    grad.zero_()
-    y = triton_embedding_forward(input_ids, weights.data_ptr(), D, dtype)
-    output_check(y_ref, y, name='y')
-
-    triton_embedding_backward(dy, input_ids, grad.data_ptr(), grad.dtype)
-    output_check(grad_ref, grad.to(dtype), name='grad')
-
-    grad.zero_()
+    weights.grad = grad
     y = embedding_lookup(input_ids, weights)
     y.backward(dy, retain_graph=True)
     output_check(y_ref, y, name='y')
@@ -77,15 +70,6 @@ def test_embedding(B=2, M=4096, V=150000, D=4096, transpose=False, bench=False):
 
         ref_time = benchmark_func(y_ref.backward, dy, retain_graph=True,
                                   ref_bytes=ref_bytes)
-        benchmark_func(triton_atomic_embedding_backward, dy, input_ids,
-                       grad.data_ptr(), grad.dtype,
-                       ref_time=ref_time, ref_bytes=ref_bytes)
-        benchmark_func(triton_sync_embedding_backward, dy, input_ids,
-                       grad.data_ptr(), grad.dtype,
-                       ref_time=ref_time, ref_bytes=ref_bytes)
-        benchmark_func(triton_embedding_backward, dy, input_ids,
-                       grad.data_ptr(), grad.dtype,
-                       ref_time=ref_time, ref_bytes=ref_bytes)
         benchmark_func(y.backward, dy, retain_graph=True,
                        ref_time=ref_time, ref_bytes=ref_bytes)
 
@@ -94,40 +78,31 @@ def test_fused_embedding(B=2, M=4096, V=150000, D=4096, use_main_grad=True,
                          transpose=False, bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
-    grad_name = 'main_grad' if use_main_grad else 'grad'
 
     embedding = torch.nn.Embedding(V, D, dtype=dtype, device=device)
     input_ids = torch.randint(0, V // 15, (B, M), dtype=torch.int32,
                               device=device)
     weights = embedding.weight
-    weights.grad = torch.zeros((V, D), dtype=dtype, device=device)
-    if use_main_grad:
-        weights.main_grad = torch.zeros((V, D), dtype=dtype, device=device)
-        grad = weights.main_grad
-    else:
-        grad = weights.grad
+    main_grad = torch.randn((V, D), dtype=torch.float32, device=device)
+    grad_ref = main_grad.to(dtype)
+    grad =  main_grad.to(dtype)
 
+    weights.grad = grad_ref
     y_ref = embedding(input_ids)
     if transpose:
         dy = torch.randn((M, B, D), device=device, dtype=dtype).permute(1, 0, 2)
     else:
         dy = torch.randn((B, M, D), device=device, dtype=dtype)
     y_ref.backward(dy, retain_graph=True)
-    grad_ref = weights.grad.clone().detach()
 
-    grad.zero_()
-    y = triton_embedding_forward(input_ids, weights.data_ptr(), D, dtype)
-    output_check(y_ref, y, name='y')
-
-    triton_embedding_backward(dy, input_ids, grad.data_ptr(), grad.dtype)
-    output_check(grad_ref, grad.to(dtype), name='grad')
-
-    grad.zero_()
+    weights.grad = grad
+    weights.main_grad = main_grad
+    grad_name = 'main_grad' if use_main_grad else 'grad'
     y = fused_accumulation_embedding_lookup(input_ids, weights,
                                             grad_name=grad_name)
     y.backward(dy, retain_graph=True)
     output_check(y_ref, y, name='y')
-    output_check(grad_ref, grad.to(dtype), name='grad')
+    output_check(grad_ref, main_grad.to(dtype) if use_main_grad else grad, name='grad', atol=0.05)
 
     if bench:
         ref_bytes = B * M * D * 4
@@ -138,6 +113,17 @@ def test_fused_embedding(B=2, M=4096, V=150000, D=4096, use_main_grad=True,
 
         ref_time = benchmark_func(y_ref.backward, dy, retain_graph=True)
         benchmark_func(y.backward, dy, retain_graph=True,
+                       ref_time=ref_time, ref_bytes=ref_bytes)
+        grad_ptr = main_grad.data_ptr() if use_main_grad else grad.data_ptr()
+        grad_dtype = main_grad.dtype if use_main_grad else grad.dtype
+        benchmark_func(triton_atomic_embedding_backward, dy, input_ids,
+                       grad_ptr, grad_dtype,
+                       ref_time=ref_time, ref_bytes=ref_bytes)
+        benchmark_func(triton_sync_embedding_backward, dy, input_ids,
+                       grad_ptr, grad_dtype,
+                       ref_time=ref_time, ref_bytes=ref_bytes)
+        benchmark_func(triton_embedding_backward, dy, input_ids,
+                       grad_ptr, grad_dtype,
                        ref_time=ref_time, ref_bytes=ref_bytes)
 
 

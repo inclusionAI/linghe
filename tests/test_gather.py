@@ -482,7 +482,7 @@ def test_triton_batch_transpose_smooth_permute_with_indices(M=1024, N=2048,
                                                                       token_count_per_expert,
                                                                       token_count_per_expert_list,
                                                                       round_scale=True)
-    output_check(x_q_ref.float(), x_q.float(), name='smoothed.data', rtol=0.125)
+    output_check(x_q_ref, x_q, name='smoothed.data', rtol=0.125)
     output_check(x_scale_ref.float(), x_scale.float(), 'smoothed.scale')
 
     x_q_ref, x_scale_ref = torch_batch_transpose_smooth_permute_with_indices(x,
