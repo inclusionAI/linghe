@@ -10,7 +10,7 @@ from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.gate import (triton_group_rms_norm_gate_forward,
                                triton_group_rms_norm_gate_backward)
-
+from linghe.infer.gate import triton_group_rms_norm_gate_infer_forward
 
 # @torch.compile
 def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4,
@@ -37,6 +37,25 @@ def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4,
     outputs = torch.stack(outputs, 2).view(bs, length, dim)
     if transpose:
         outputs = outputs.transpose(0, 1)
+    gate = F.sigmoid(gate)
+    outputs = (outputs * gate).to(dtype)
+    return outputs
+
+@torch.compile
+def torch_group_rms_norm_gate_infer_forward(x, gate, weight, eps=1e-6, group_size=4):
+    dtype = x.dtype
+    x = x.float()
+    gate = gate.float()
+    weight = weight.float()
+    tokens, dim = gate.shape
+    d = dim // group_size
+    attn_output = x.view(tokens, group_size, d)
+    outputs = []
+    for i in range(group_size):
+        outputs.append(F.rms_norm(attn_output[:, i], [d],
+                                  weight=weight[i * d:(i + 1) * d], eps=eps))
+    outputs = torch.stack(outputs, 1)
+    outputs = outputs.view(tokens, dim)
     gate = F.sigmoid(gate)
     outputs = (outputs * gate).to(dtype)
     return outputs
@@ -113,6 +132,34 @@ def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
                        ref_bytes=bs * length * dim * 10)
 
 
+def test_group_rms_norm_gate_infer(bs=1, length=4096, dim=4096, group_size=4,
+                               bench=False):
+    dtype = torch.bfloat16
+    device = 'cuda:0'
+    tokens = bs * length
+    x = torch.randn(tokens, dim, dtype=dtype, device=device) ** 2
+    weight = torch.randn(dim, dtype=dtype, device=device)
+
+    gate = torch.randn(tokens, dim, dtype=dtype, device=device)
+
+    output_ref = torch_group_rms_norm_gate_infer_forward(x, gate, weight,
+                                               group_size=group_size)
+    output = triton_group_rms_norm_gate_infer_forward(x, gate, weight,
+                                            group_size=group_size,
+                                            )
+    output_check(output_ref, output, name='group_norm_gate_infer.y')
+
+
+    if bench:
+        benchmark_func(torch_group_rms_norm_gate_infer_forward, x, gate, weight,
+                       group_size=group_size,
+                       ref_bytes=bs * length * dim * 6)
+
+        benchmark_func(triton_group_rms_norm_gate_infer_forward, x, gate, weight,
+                       group_size=group_size,
+                       ref_bytes=bs * length * dim * 6)
+
+
 if __name__ == '__main__':
     test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
                              transpose=True,
@@ -138,3 +185,5 @@ if __name__ == '__main__':
                              coef=0.0,
                              grad_coef=0.0,
                              bench=False)
+    test_group_rms_norm_gate_infer(bs=2, length=4096, dim=2048, group_size=4,
+                        bench=True)
