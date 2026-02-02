@@ -165,7 +165,7 @@ def triton_transpose(x: torch.Tensor, inner=True):
 
 
 @triton.jit
-def transpose_and_pad_kernel(x_ptr, t_ptr,
+def pad_transpose_kernel(x_ptr, t_ptr,
                              M, N, P,
                              H: tl.constexpr,
                              W: tl.constexpr,
@@ -192,7 +192,7 @@ def transpose_and_pad_kernel(x_ptr, t_ptr,
                  mask=(rid * H + tl.arange(0, H)[None, :] < P))
 
 
-def triton_transpose_and_pad(x, out=None, pad=True):
+def triton_pad_transpose(x, out=None, multiple=32):
     """
     transpose x and padding the column size to be mutiplier of 32,
     it is used for calculated gradient of weight with torch._scaled__mm
@@ -207,7 +207,7 @@ def triton_transpose_and_pad(x, out=None, pad=True):
     # fat block, shape:[H,W]
     assert x.is_contiguous()
     M, N = x.shape
-    P = round_up(M, b=32) if pad else M
+    P = round_up(M, b=multiple)
     device = x.device
     if out is None:
         out = torch.empty((N, P), device=device, dtype=x.dtype)
@@ -219,7 +219,7 @@ def triton_transpose_and_pad(x, out=None, pad=True):
     assert N % W == 0
     EVEN = M % H == 0 and M == P
     grid = (triton.cdiv(P, H), triton.cdiv(N, W))
-    transpose_and_pad_kernel[grid](
+    pad_transpose_kernel[grid](
         x, out,
         M, N, P,
         H, W,
@@ -282,9 +282,14 @@ def triton_batch_transpose(xs, xts=None):
 
 
 @triton.jit
-def batch_transpose_and_pad_kernel(x_ptr, t_ptr, count_ptr, accum_ptr,
-                                   pad_accum_ptr, N, H: tl.constexpr,
-                                   W: tl.constexpr):
+def batch_pad_transpose_kernel(x_ptr,
+                               t_ptr,
+                               count_ptr,
+                               accum_ptr,
+                               pad_accum_ptr,
+                               N,
+                               H: tl.constexpr,
+                               W: tl.constexpr):
     eid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     count = tl.load(count_ptr + eid)
@@ -305,7 +310,7 @@ def batch_transpose_and_pad_kernel(x_ptr, t_ptr, count_ptr, accum_ptr,
         toffs += H
 
 
-def triton_batch_transpose_and_pad(x, count_list, x_t=None, pad=True):
+def triton_batch_pad_transpose(x, count_list, x_t=None, multiple=32):
     """
     transpose and pad each tensor stored in x
     Args:
@@ -318,12 +323,11 @@ def triton_batch_transpose_and_pad(x, count_list, x_t=None, pad=True):
         x_t: output tensor
     """
     assert x.is_contiguous()
-    assert pad
     # block shape:[H,W]
     M, N = x.shape
     n_experts = len(count_list)
     # NOTE: b must be 32, or kernel will miscalculated padding size with original size
-    pad_sizes = [round_up(x, b=32) for x in count_list]
+    pad_sizes = [round_up(x, b=multiple) for x in count_list]
     counts = torch.tensor(count_list, dtype=torch.int32, device=x.device)
     pad_accum_sizes = torch.tensor(
         list(itertools.accumulate(pad_sizes, initial=0)), dtype=torch.int32,
@@ -337,12 +341,15 @@ def triton_batch_transpose_and_pad(x, count_list, x_t=None, pad=True):
     num_stages = 2
     num_warps = 8
     grid = (n_experts, N // W)
-    batch_transpose_and_pad_kernel[grid](
-        x, x_t,
-        counts, accums,
+    batch_pad_transpose_kernel[grid](
+        x,
+        x_t,
+        counts,
+        accums,
         pad_accum_sizes,
         N,
-        H, W,
+        H,
+        W,
         num_stages=num_stages,
         num_warps=num_warps
     )

@@ -11,9 +11,9 @@ from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.transpose import (round_up,
                                     triton_batch_transpose,
-                                    triton_batch_transpose_and_pad,
+                                    triton_batch_pad_transpose,
                                     triton_transpose,
-                                    triton_transpose_and_pad)
+                                    triton_pad_transpose)
 
 
 def torch_nd_transpose(x, dim0, dim1):
@@ -33,7 +33,7 @@ def triton_split_transpose(xs, count_list):
     outputs = []
     for i, c in enumerate(count_list):
         x = xs[s:s + c]
-        output = triton_transpose_and_pad(x, pad=True)
+        output = triton_pad_transpose(x, multiple=32)
         outputs.append(output)
         s += c
     return outputs
@@ -106,7 +106,7 @@ def test_nd_transpose(B=4096, M=4, N=4096, bench=False):
                        ref_bytes=B * M * N * 4, ref_time=ref_time)
 
 
-def test_transpose_and_pad(M=4095, N=4096, bench=False):
+def test_pad_transpose(M=4095, N=4096, bench=False):
     # M, N, K = 8192, 4096, 13312
     # M, N, K = 4096, 4096, 6144
     # M, N, K = 4096, 4096, 4096
@@ -123,14 +123,14 @@ def test_transpose_and_pad(M=4095, N=4096, bench=False):
     ref_output = x_q.t().contiguous()
     opt_output = torch.randn((N, P), dtype=dtype, device=device).to(
         torch.float8_e4m3fn)
-    opt_output = triton_transpose_and_pad(x_q, out=opt_output, pad=True)
+    opt_output = triton_pad_transpose(x_q, out=opt_output, multiple=32)
     output_check(ref_output.float(), opt_output[:, :M].float(),
                  'transpose_and_pad')
     if tail > 0:
         assert opt_output[:, -tail:].float().abs().sum().item() == 0
 
     if bench:
-        benchmark_func(triton_transpose_and_pad, x_q,
+        benchmark_func(triton_pad_transpose, x_q,
                        ref_bytes=M * N * 2)
 
 
@@ -147,7 +147,7 @@ def test_batch_transpose(M=4096, N=4096, k=32, bench=False):
     x_t_ref = triton_sequence_transpose(xs)
     x_t_ref = torch.cat([x.view(-1) for x in x_t_ref])
 
-    output_check(x_t_ref, xts, f'batch_transpose')
+    output_check(x_t_ref, xts, 'batch_transpose')
 
     if bench:
         n_repeat = 100
@@ -157,32 +157,31 @@ def test_batch_transpose(M=4096, N=4096, k=32, bench=False):
                        ref_bytes=M * N * 2 * k, ref_time=ref_time)
 
 
-def test_batch_transpose_and_pad(M=4096, N=4096, k=32, bench=False):
+def test_batch_pad_transpose(M=4096, N=4096, k=32, bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
     count_list = [random.randint(1500, 2600) for x in range(k)]
     xs = torch.randn((sum(count_list), N), dtype=dtype, device=device).to(
         torch.float8_e4m3fn)
-    x_t = triton_batch_transpose_and_pad(xs, count_list, x_t=None, pad=True)
+    x_t = triton_batch_pad_transpose(xs, count_list, x_t=None, multiple=32)
     x_t = torch.cat([x.view(-1) for x in x_t])
 
     x_t_ref = triton_split_transpose(xs, count_list)
     x_t_ref = torch.cat([x.view(-1) for x in x_t_ref])
 
-    output_check(x_t_ref, x_t,
-                 f'batch_transpose_and_pad')
+    output_check(x_t_ref, x_t, 'batch_pad_transpose')
 
     if bench:
         n_repeat = 100
         ref_time = benchmark_func(triton_split_transpose, xs, count_list,
                                   n_repeat=n_repeat)
-        benchmark_func(triton_batch_transpose_and_pad, xs, count_list, x_t=None,
+        benchmark_func(triton_batch_pad_transpose, xs, count_list, x_t=None,
                        pad=True, n_repeat=n_repeat, ref_time=ref_time)
 
 
 if __name__ == '__main__':
-    test_transpose(M=4096, N=4096)
-    test_transpose_and_pad(M=4095, N=4096)
+    test_transpose(M=4096, N=4096, bench=False)
+    test_pad_transpose(M=4095, N=4096, bench=False)
     test_nd_transpose(B=4096, M=4, N=2048, bench=False)
     test_batch_transpose(M=4096, N=4096, k=32, bench=False)
-    test_batch_transpose_and_pad(M=4096, N=4096, k=32)
+    test_batch_pad_transpose(M=4096, N=4096, k=32, bench=False)

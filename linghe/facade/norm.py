@@ -10,6 +10,7 @@ from linghe.utils.norm import (
     triton_rms_norm_backward,
     triton_rms_norm_and_block_quant_forward,
     triton_rms_norm_and_mxfp8_quant_forward,
+    triton_rms_norm_and_smooth_quant_forward
 )
 
 
@@ -174,3 +175,51 @@ def mxfp8_rms_norm(input, weight, rms, quantizer, cls, eps=1e-6,
     )
     output_rms = output_rms.detach()
     return output, output_rms
+
+
+# used in attention rms norm
+class SmoothRMSNorm(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, weight, quantizer, cls, eps, is_first_microbatch):
+        shape = input.shape 
+        assert len(shape) == 3
+        input = input.view(shape[0]*shape[1], shape[2])
+        ctx.input_requires_grad = input.requires_grad
+        ctx.weight_requires_grad = weight.requires_grad
+        ctx.shape = shape 
+        ctx.eps = eps
+        ctx.save_for_backward(input, weight)
+        x_q, x_scale, x_maxs, rms = triton_rms_norm_and_smooth_quant_forward(input, 
+                                                                      weight.data, 
+                                                                      smooth_scale=quantizer.smooth_scale, 
+                                                                      eps=eps, 
+                                                                      calibrate=is_first_microbatch, 
+                                                                      output_rms=False,
+                                                                      round_scale=quantizer.force_pow_2_scales)
+        output = cls(
+                    shape=(shape[0],shape[1],shape[2]),
+                    dtype=input.dtype,
+                    fp8_dtype=quantizer.dtype,
+                    rowwise_data=x_q,
+                    rowwise_scale_inv=x_scale,
+                    columnwise_data=None,
+                    columnwise_scale_inv=quantizer.smooth_scale,
+                    quantizer=quantizer,
+                    requires_grad=input.requires_grad,
+                )
+        return output, x_maxs
+
+    @staticmethod
+    def backward(ctx, grad_output, grad_max):
+        shape = grad_output.shape 
+        grad_output = grad_output.view(shape[0]*shape[1], shape[2])
+        input, weight = ctx.saved_tensors
+        dx, dw = triton_rms_norm_backward(grad_output, input, weight, eps=ctx.eps)
+        dx = dx.view(*shape)
+        return dx, dw, None, None, None, None
+
+
+def smooth_rms_norm(input, weight, quantizer, cls, eps=1e-6, is_first_microbatch=False):
+    # input: [length,bs,dim]
+    output, x_maxs = SmoothRMSNorm.apply(input, weight, quantizer, cls, eps, is_first_microbatch)
+    return output, x_maxs

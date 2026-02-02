@@ -126,7 +126,7 @@ def torch_mxfp8_quant(x):
 
 def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
     x = x.float()
-    x_maxs = x.abs().amax(0)
+    # x_maxs = x.abs().amax(0)
     if reverse:
         x_smooth = x * smooth_scale
     else:
@@ -137,7 +137,7 @@ def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
     x_q = (x_smooth / scale[:, None]).to(torch.float8_e4m3fn)
-    return x_q, scale, x_maxs
+    return x_q, scale
 
 
 def torch_batch_smooth_quant(xs, smooth_scales, indices, token_count_per_expert,

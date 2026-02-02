@@ -7,6 +7,7 @@
 - use fix chunk size in loading cu_seqlens in rope and mla kernels
 - fix accumulation bug in embedding lookup kernel
 
+
 ## linghe 0.3.2
 
 - add the parameter `transpose` to `group_rms_norm_gate`
