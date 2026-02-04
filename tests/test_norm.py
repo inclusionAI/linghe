@@ -18,7 +18,7 @@ from linghe.utils.norm import (triton_rms_norm_and_smooth_quant_forward,
                                triton_rms_norm_fp32_gemm_block_quant_forward,
                                triton_rms_norm_backward,
                                triton_rms_norm_forward)
-from linghe.infer.norm import triton_rms_norm_and_block_quant_infer_forward, triton_residual_rms_norm_and_block_quant_infer_forward
+from linghe.infer.rmsnorm_quant import triton_rms_norm_and_block_quant_infer_forward, triton_residual_rms_norm_and_block_quant_infer_forward
 
 def torch_rms_forward(x, weight):
     dtype = x.dtype

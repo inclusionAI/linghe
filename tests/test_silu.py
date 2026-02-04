@@ -28,7 +28,7 @@ from linghe.utils.silu import (triton_weighted_silu_forward,
 from linghe.tools.util import (torch_smooth_quant,
                                torch_group_quant,
                                torch_mxfp8_quant)
-from linghe.infer.silu import triton_silu_and_block_quant_infer_forward
+from linghe.infer.silu_quant import triton_silu_and_block_quant_infer_forward
 from linghe.tools.check import output_check
 
 
