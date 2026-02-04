@@ -283,12 +283,11 @@ def triton_transpose_smooth_quant(x,
                                   pad=True,
                                   round_scale=False):
     # M should be padded to mutiple of 32 if pad is True
-    """"""
     M, N = x.shape
     device = x.device
     P = (M + 31) // 32 * 32 if pad else M
     x_q = torch.empty((N, P), device=device, dtype=torch.float8_e4m3fn)
-    x_scale = torch.empty((N,), device=device, dtype=torch.float32)
+    x_scale = torch.empty((N, ), device=device, dtype=torch.float32)
     H = 1024
     W = 16  # if N >= 4096 else 16
     assert N % W == 0
@@ -352,22 +351,20 @@ def batch_smooth_quant_kernel(x_ptr,
         tl.store(q_ptr + si * N + i * N + tl.arange(0, N), xq)
 
 
-"""
-select and smooth and quant
-x: [bs, dim]
-smooth_scales: [n_experts, dim]
-token_count_per_expert: [n_experts]
-x_q: [bs, dim]
-x_scale: [bs]
-"""
-
 
 def triton_batch_smooth_quant(x,
                               smooth_scales,
                               token_count_per_expert,
                               reverse=False,
                               round_scale=False):
-    """"""
+    """
+    smooth quant
+    x: [sum(tokens), dim]
+    smooth_scales: [n_experts, dim]
+    token_count_per_expert: [n_experts]
+    reverse: x * smooth_scale if reverse else x / smooth_scale
+    x_scale: [bs]
+    """
     M, N = x.shape
     device = x.device
     n_expert = token_count_per_expert.shape[0]

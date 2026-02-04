@@ -12,7 +12,7 @@ from linghe.quant.smooth import (triton_smooth_quant,
                                  triton_batch_smooth_quant,
                                  triton_batch_transpose_smooth_quant,
                                  triton_subrow_smooth_quant)
-
+from linghe.utils.transpose import triton_pad_transpose
 
 """
 smooth quantization v2 for fp8 training
@@ -36,10 +36,18 @@ smooth quantization v2 for fp8 training
 
 class SmoothQuantize(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, hidden_states, quantizer, cls):
+    def forward(ctx, hidden_states, quantizer, grad_quantizer, cls):
+        ctx.grad_quantizer = grad_quantizer
+        ctx.cls = cls
+
         shape = hidden_states.shape 
         if len(shape) == 3:
             hidden_states = hidden_states.view(-1,shape[-1])
+
+        if hasattr(hidden_states, '_quantizer') or quantizer is None:
+            return hidden_states
+
+        ctx.grad_quantizer = grad_quantizer
         x_q, x_scale = triton_smooth_quant(hidden_states,
                                               quantizer.smooth_scale, 
                                               reverse=False, 
@@ -59,34 +67,19 @@ class SmoothQuantize(torch.autograd.Function):
 
     @staticmethod 
     def backward(ctx, grad_output):
-        return grad_output, None, None
-    
-
-def smooth_quantize(hidden_states, quantizer, cls):
-    return SmoothQuantize.apply(hidden_states, quantizer, cls)
-
-
-class ReverseSmoothQuantize(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, hidden_states, quantizer, cls):
-        ctx.quantizer = quantizer  # grad_quantizer
-        ctx.input_requires_grad = hidden_states.requires_grad
-        ctx.cls = cls
-        return hidden_states
-
-    @staticmethod 
-    def backward(ctx, grad_output):
+        if hasattr(grad_output, '_quantizer') or ctx.grad_quantizer is None:
+            return grad_output, 
         shape = grad_output.shape  # rank-3 tensor
         grad_output = grad_output.view(-1,shape[-1])
         # import pydevd
         # pydevd.settrace(suspend=False, trace_only_current_thread=True)
-
+        grad_quantizer = ctx.grad_quantizer
         y_q, y_scale = triton_smooth_quant(grad_output,
-                                              ctx.quantizer.smooth_scale_inv,
+                                           grad_quantizer.smooth_scale_inv,
                                               reverse=True,
                                               round_scale=False)
         yt_q, yt_scale = triton_transpose_smooth_quant(grad_output,
-                                                    ctx.quantizer.transpose_smooth_scale_inv,
+                                                    grad_quantizer.transpose_smooth_scale_inv,
                                                     reverse=True,
                                                     pad=True,
                                                     round_scale=False)
@@ -96,32 +89,42 @@ class ReverseSmoothQuantize(torch.autograd.Function):
         output = ctx.cls(
             shape=shape,
             dtype=grad_output.dtype,
-            fp8_dtype=ctx.quantizer.dtype,
+            fp8_dtype=grad_quantizer.dtype,
             rowwise_data=y_q,
             rowwise_scale_inv=y_scale,
             columnwise_data=yt_q,
             columnwise_scale_inv=yt_scale,
-            quantizer=ctx.quantizer,
-            requires_grad=ctx.input_requires_grad
+            quantizer=grad_quantizer,
+            requires_grad=False
         )
-        return output, None, None
+        return output, None, None, None
 
 
-
-def reverse_smooth_quantize(hidden_states, quantizer, cls):
-    return ReverseSmoothQuantize.apply(hidden_states, quantizer, cls)
+def smooth_quantize(hidden_states, quantizer, grad_quantizer, cls):
+    return SmoothQuantize.apply(hidden_states, quantizer, grad_quantizer, cls)
 
 
 class BatchSmoothQuantize(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, hidden_states, token_count_per_expert, quantizers, splits, cls):
-        shape = hidden_states.shape 
+    def forward(ctx, hidden_states, token_count_per_expert, quantizers, grad_quantizers, splits, cls):
+        ctx.grad_quantizers = grad_quantizers
+        ctx.splits = splits
+        ctx.cls = cls
+        ctx.token_count_per_expert = None
+
+        if hasattr(hidden_states, '_quantizer') or quantizers is None:
+            return hidden_states
+
+        shape = hidden_states.shape
         if len(shape) == 3:
             hidden_states = hidden_states.view(-1,shape[-1])
+
         if token_count_per_expert is None:
             token_count_per_expert = torch.tensor(splits).cuda(non_blocking=True)
+            ctx.token_count_per_expert = token_count_per_expert
+
         smooth_scales = [x.smooth_scale for x in quantizers]
-        if any(x is None for x in smooth_scales):
+        if any([x is None for x in smooth_scales]):
             smooth_scales = torch.ones((len(smooth_scales), hidden_states.shape[-1]),
                                        dtype=torch.float32,
                                        device=hidden_states.device)
@@ -149,53 +152,37 @@ class BatchSmoothQuantize(torch.autograd.Function):
 
     @staticmethod 
     def backward(ctx, grad_output):
-        return grad_output, None, None, None, None
-    
+        if hasattr(grad_output, '_quantizer') or ctx.grad_quantizers is None:
+            return grad_output, None, None, None, None, None
 
-def batch_smooth_quantize(hidden_states, token_count_per_expert, quantizers, splits, cls):
-    return BatchSmoothQuantize.apply(hidden_states, token_count_per_expert, quantizers, splits, cls)
-
-
-class BatchReverseSmoothQuantize(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, hidden_states, token_count_per_expert, quantizers, splits, cls):
-        ctx.quantizers = quantizers  # grad_quantizer
-        ctx.cls = cls
-        ctx.splits = splits
+        token_count_per_expert = ctx.token_count_per_expert
         if token_count_per_expert is None:
-            token_count_per_expert = torch.tensor(splits).cuda(non_blocking=True)
-        ctx.token_count_per_expert = token_count_per_expert
-        ctx.dtype = hidden_states.dtype
-        ctx.device = hidden_states.device
-        ctx.dim = hidden_states.shape[-1]
-        return hidden_states
+            token_count_per_expert = torch.tensor(ctx.splits).cuda(non_blocking=True)
 
-    @staticmethod 
-    def backward(ctx, grad_output):
         shape = grad_output.shape  # rank-3 tensor
         grad_output = grad_output.view(-1,shape[-1])
         # import pydevd
         # pydevd.settrace(suspend=False, trace_only_current_thread=True)
 
-        smooth_scale_invs = [x.smooth_scale_inv for x in ctx.quantizers]
+        grad_quantizers = ctx.grad_quantizers
+        smooth_scale_invs = [x.smooth_scale_inv for x in grad_quantizers]
         smooth_scale_invs = torch.stack(smooth_scale_invs, 0)
 
         y_q, y_scale = triton_batch_smooth_quant(grad_output,
                                               smooth_scale_invs, 
-                                              ctx.token_count_per_expert,
+                                              token_count_per_expert,
                                               reverse=True, 
-                                              round_scale=ctx.quantizers[0].force_pow_2_scales)
+                                              round_scale=grad_quantizers[0].force_pow_2_scales)
 
-        transpose_smooth_scale_invs = [x.transpose_smooth_scale_inv for x in ctx.quantizers]
+        transpose_smooth_scale_invs = [x.transpose_smooth_scale_inv for x in grad_quantizers]
         transpose_smooth_scale_invs = torch.cat(transpose_smooth_scale_invs, 0)
-        assert all(x is not None for x in transpose_smooth_scale_invs)
 
         yt_q, yt_scale = triton_batch_transpose_smooth_quant(grad_output,
                                             transpose_smooth_scale_invs,
-                                            ctx.token_count_per_expert,
+                                            token_count_per_expert,
                                             ctx.splits,
                                             reverse=True,
-                                            round_scale=False)
+                                            round_scale=grad_quantizers[0].force_pow_2_scales)
 
         # import math
         # if math.isnan(yt_q.float().max()):
@@ -203,44 +190,19 @@ class BatchReverseSmoothQuantize(torch.autograd.Function):
         output = ctx.cls(
             shape=shape,
             dtype=grad_output.dtype,
-            fp8_dtype=ctx.quantizers[0].dtype,
+            fp8_dtype=ctx.grad_quantizers[0].dtype,
             rowwise_data=y_q,
             rowwise_scale_inv=y_scale,
             columnwise_data=yt_q,
             columnwise_scale_inv=yt_scale,
-            quantizer=ctx.quantizers,
+            quantizer=ctx.grad_quantizers,
             requires_grad=False
         )
-        return output, None, None, None, None
+        return output, None, None, None, None, None
 
 
-def batch_reverse_smooth_quantize(hidden_states, token_count_per_expert, quantizers, splits, cls):
-    return BatchReverseSmoothQuantize.apply(hidden_states, token_count_per_expert, quantizers, splits, cls)
-
-
-
-"""
-megatron fp8 training steps:
-step 0: init w smooth scale w_smooth
-step 1: smooth and quant w after w is updated by optimizer
-step 2: in forward step, columnwise smooth x and rowwise quant x, calc y=x@w; 
-            meanwhile, record the columnwise max of x, it is used to update w_smooth
-step 3: in dgrad step, columnwise smooth y and rowwise quant y, transpose x, calc dx=y@wT 
-step 4: in wgrad step, dequant then smooth an then quant y_q to get yt_q, calc dw=yT@x
-
-alternative (it's not suitable for fp8 combine):
-step 4: in wgrad step, rowwise smooth y and columnwise quant y and transpose to get yt_q, calc dw=yT@x
-
-"""
-
-"""
-divide x by smooth_scale and row-wise quantization
-smooth scale is updated by square root of x's column-wise maxs, and set in weight's x_maxs attr
-
-transpose: transpose quantized x for wgrad
-pad: # pad M to be multiplier of 32, including quant scales and transposed x
-
-"""
+def batch_smooth_quantize(hidden_states, token_count_per_expert, quantizers, grad_quantizers, splits, cls):
+    return BatchSmoothQuantize.apply(hidden_states, token_count_per_expert, quantizers, grad_quantizers, splits, cls)
 
 
 # y = x @ w
@@ -255,7 +217,7 @@ def triton_smooth_quant_activation(x, smooth_scale, x_q=None, x_scale=None,
                                                round_scale=round_scale)
 
     if transpose:
-        xt_q = triton_transpose_and_pad(x_q, out=xt_q, pad=pad)
+        xt_q = triton_pad_transpose(x_q, out=xt_q, multiple=32)
     else:
         xt_q = None
     xt_scale = smooth_scale

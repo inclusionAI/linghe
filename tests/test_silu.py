@@ -65,15 +65,9 @@ def torch_silu_and_smooth_quant_forward(x, smooth_scale=None, round_scale=True):
     y = torch.sigmoid(x1) * x1 * x2
 
     # smooth
-    y_q, y_scale, x_maxs = torch_smooth_quant(y, smooth_scale, reverse=False,
+    y_q, y_scale = torch_smooth_quant(y, smooth_scale, reverse=False,
                                               round_scale=round_scale)
-    # y_smooth = y / smooth_scale
-    # x_maxs = y.abs().float().amax(0)
-    # y_scale = y_smooth.abs().amax(1) / 448
-    # if round_scale:
-    #     y_scale = torch.exp2(torch.ceil(torch.log2(y_scale)))
-    # y_q = (y_smooth / y_scale[:, None]).to(torch.float8_e4m3fn)
-    return y_q, y_scale, x_maxs
+    return y_q, y_scale
 
 
 def torch_silu_and_block_quant_forward(x, round_scale=True):
@@ -107,9 +101,9 @@ def torch_silu_and_smooth_quant_backward(grad, x, smooth_scale=None,
     y.backward(gradient=grad)
     dx = x.grad
 
-    q, dx_scale, ms = torch_smooth_quant(dx, smooth_scale, reverse=reverse,
+    q, dx_scale = torch_smooth_quant(dx, smooth_scale, reverse=reverse,
                                          round_scale=round_scale)
-    yt_q, yt_scale, ms = torch_smooth_quant(dx.t().contiguous(),
+    yt_q, yt_scale = torch_smooth_quant(dx.t().contiguous(),
                                             transpose_smooth_scale,
                                             reverse=reverse,
                                             round_scale=round_scale)
@@ -151,8 +145,7 @@ def torch_batch_weighted_silu_and_smooth_quant_forward(xs, weight,
         device = xs.device
         qs = torch.empty((0, N // 2), device=device, dtype=torch.float8_e4m3fn)
         scales = torch.empty((0,), device=device, dtype=torch.float32)
-        maxs = torch.zeros((len(counts), N), device=device, dtype=torch.float32)
-        return qs, scales, maxs
+        return qs, scales
 
     xs = xs.float()
     weight = weight.float()
@@ -160,22 +153,19 @@ def torch_batch_weighted_silu_and_smooth_quant_forward(xs, weight,
 
     qs = []
     scales = []
-    maxs = []
     s = 0
     for i, c in enumerate(counts):
         x = xs[s:s + c]
         y = torch_weighted_silu(x, weight[s:s + c])
-        q, scale, ms = torch_smooth_quant(y, smooth_scales[i], reverse=reverse,
+        q, scale = torch_smooth_quant(y, smooth_scales[i], reverse=reverse,
                                           round_scale=round_scale)
         qs.append(q)
         scales.append(scale)
-        maxs.append(ms)
 
         s += c
     qs = torch.cat(qs, 0)
     scales = torch.cat(scales, 0)
-    maxs = torch.cat(maxs, 0)
-    return qs, scales, maxs
+    return qs, scales
 
 
 def torch_batch_weighted_silu_and_block_quant_forward(xs, weight,
@@ -285,7 +275,7 @@ def torch_batch_weighted_silu_and_smooth_quant_backward(grad_output, x, weight,
     qtscales = []
     s = 0
     for i, c in enumerate(counts):
-        q, scale, dx_max = torch_smooth_quant(dx[s:s + c], smooth_scales[i],
+        q, scale = torch_smooth_quant(dx[s:s + c], smooth_scales[i],
                                               reverse=reverse,
                                               round_scale=round_scale)
         dxt = dx[s:s + c].t().contiguous()
@@ -294,7 +284,7 @@ def torch_batch_weighted_silu_and_smooth_quant_backward(grad_output, x, weight,
         if padding_size > 0:
             dxt = torch.nn.functional.pad(dxt, (0, padding_size, 0, 0))
             dxt_s = torch.nn.functional.pad(dxt_s, (0, padding_size))
-        qt, t_scale, dx_max = torch_smooth_quant(dxt, dxt_s,
+        qt, t_scale = torch_smooth_quant(dxt, dxt_s,
                                                  reverse=reverse,
                                                  round_scale=round_scale)
 
@@ -427,16 +417,14 @@ def test_silu_and_smooth_quant(M=4096, N=4096, coef=1.0, grad_coef=1.0,
                                                  device='cuda:0')
 
     round_scale = False
-    y_q_ref, y_scale_ref, y_maxs_ref = torch_silu_and_smooth_quant_forward(x,
+    y_q_ref, y_scale_ref = torch_silu_and_smooth_quant_forward(x,
                                                                            smooth_scale=smooth_scale,
                                                                            round_scale=round_scale)
-    y_q, y_scale, y_maxs = triton_silu_and_smooth_quant_forward(x,
+    y_q, y_scale = triton_silu_and_smooth_quant_forward(x,
                                                                 smooth_scale=smooth_scale,
-                                                                round_scale=round_scale,
-                                                                calibrate=True)
+                                                                round_scale=round_scale)
     output_check(y_q_ref, y_q, 'smooth.y_q', rtol=0.125)
     output_check(y_scale_ref, y_scale, 'smooth.y_scale')
-    output_check(y_maxs_ref, y_maxs, 'smooth.y_max')
 
     dx_q_ref, dx_scale_ref, dxt_q_ref, dxt_scale_ref = torch_silu_and_smooth_quant_backward(
         grad_output, x,
@@ -590,14 +578,14 @@ def test_triton_batch_weighted_silu_and_smooth_quant(M=1024, N=4096,
                                                   device='cuda:0') * 10
     round_scale = True
     rtol = 2 if round_scale else 0.125
-    x_q_ref, x_scale_ref, x_max_ref = torch_batch_weighted_silu_and_smooth_quant_forward(
+    x_q_ref, x_scale_ref = torch_batch_weighted_silu_and_smooth_quant_forward(
         x,
         weight,
         counts,
         smooth_scales=smooth_scales,
         round_scale=round_scale,
         reverse=False)
-    x_q, x_scale, maxs = triton_batch_weighted_silu_and_smooth_quant_forward(x,
+    x_q, x_scale = triton_batch_weighted_silu_and_smooth_quant_forward(x,
                                                                              weight,
                                                                              counts,
                                                                              smooth_scale=smooth_scales,

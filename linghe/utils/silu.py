@@ -1794,19 +1794,21 @@ def triton_batch_weighted_silu_and_mxfp8_quant_backward(g, x, weight,
 
 # n is power of 2
 @triton.jit
-def silu_and_smooth_quant_forward_kernel(x_ptr, smooth_scale_ptr, out_ptr,
+def silu_and_smooth_quant_forward_kernel(x_ptr,
+                                         smooth_scale_ptr,
+                                         out_ptr,
                                          scale_ptr,
-                                         max_ptr, M, T, n: tl.constexpr,
-                                         W: tl.constexpr, ROUND: tl.constexpr,
-                                         CALIBRATE: tl.constexpr):
+                                         M,
+                                         T,
+                                         n: tl.constexpr,
+                                         W: tl.constexpr,
+                                         ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
 
     row_offs = pid * T * W * n + tl.arange(0, W)[:, None] * n
     col_offs = tl.arange(0, n)[None, :]
     smooth_scale = tl.load(smooth_scale_ptr + tl.arange(0, n))
     smooth_scale = 1.0 / smooth_scale
-    if CALIBRATE:
-        maxs = tl.zeros((W, n), dtype=tl.float32)
 
     for i in range(T):
         indices = pid * T * W + i * W + tl.arange(0, W)
@@ -1815,8 +1817,6 @@ def silu_and_smooth_quant_forward_kernel(x_ptr, smooth_scale_ptr, out_ptr,
         x2 = tl.load(x_ptr + n + row_offs * 2 + col_offs, mask=mask).to(
             tl.float32)
         x = x1 * tl.sigmoid(x1) * x2
-        if CALIBRATE:
-            maxs = tl.maximum(x.abs(), maxs)
         x = x * smooth_scale
         scale = tl.maximum(tl.max(x.abs(), 1) / 448, 1e-30)
         if ROUND:
@@ -1826,21 +1826,18 @@ def silu_and_smooth_quant_forward_kernel(x_ptr, smooth_scale_ptr, out_ptr,
         tl.store(out_ptr + row_offs + col_offs, x, mask=mask)
         row_offs += n * W
 
-    if CALIBRATE:
-        maxs = tl.max(maxs, 0)
-        tl.store(max_ptr + pid * n + tl.arange(0, n), maxs)
-
 
 # n is NOT power of 2
 @triton.jit
-def compatible_silu_and_smooth_quant_forward_kernel(x_ptr, smooth_scale_ptr,
+def compatible_silu_and_smooth_quant_forward_kernel(x_ptr,
+                                                    smooth_scale_ptr,
                                                     out_ptr,
-                                                    scale_ptr, max_ptr, M,
+                                                    scale_ptr,
+                                                    M,
                                                     T: tl.constexpr,
                                                     n: tl.constexpr,
                                                     B: tl.constexpr,
-                                                    ROUND: tl.constexpr,
-                                                    CALIBRATE: tl.constexpr):
+                                                    ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
 
     # rowwise read with block size [T, B]
@@ -1850,14 +1847,10 @@ def compatible_silu_and_smooth_quant_forward_kernel(x_ptr, smooth_scale_ptr,
     nb = n // B
     maxs = tl.zeros((T,), dtype=tl.float32)
     for i in range(nb):
-
         smooth_scale = tl.load(smooth_scale_ptr + i * B + tl.arange(0, B))
         x1 = tl.load(x_ptr + row_offs * 2 + col_offs).to(tl.float32)
         x2 = tl.load(x_ptr + n + row_offs * 2 + col_offs).to(tl.float32)
         x = x1 * tl.sigmoid(x1) * x2
-        if CALIBRATE:
-            x_maxs = tl.max(x.abs(), 0)
-            tl.store(max_ptr + pid * n + i * B + tl.arange(0, B), x_maxs)
         x = x / smooth_scale
         maxs = tl.maximum(tl.max(x.abs(), 1), maxs)
         col_offs += B
@@ -1882,10 +1875,11 @@ def compatible_silu_and_smooth_quant_forward_kernel(x_ptr, smooth_scale_ptr,
 
 
 # used in shared expert
-def triton_silu_and_smooth_quant_forward(x, smooth_scale=None, out=None,
+def triton_silu_and_smooth_quant_forward(x,
+                                         smooth_scale,
+                                         out=None,
                                          scale=None,
-                                         maxs=None, round_scale=False,
-                                         calibrate=False):
+                                         round_scale=False):
     """"""
     assert x.is_contiguous()
     M, N = x.shape
@@ -1902,21 +1896,17 @@ def triton_silu_and_smooth_quant_forward(x, smooth_scale=None, out=None,
         assert M % (T * W) == 0
         g = M // (T * W)
         # T = triton.cdiv(M, sm * W)
-        if maxs is None and calibrate:
-            maxs = torch.empty((g, n), device=device, dtype=torch.float32)
         grid = (g,)
         silu_and_smooth_quant_forward_kernel[grid](
             x,
             smooth_scale,
             out,
             scale,
-            maxs,
             M,
             T,
             n,
             W,
             round_scale,
-            calibrate,
             num_stages=2,
             num_warps=16
         )
@@ -1925,35 +1915,30 @@ def triton_silu_and_smooth_quant_forward(x, smooth_scale=None, out=None,
         T = 16
         assert n % B == 0 and M % T == 0
         grid = (M // T,)
-        if maxs is None and calibrate:
-            maxs = torch.empty((M // T, n), device=device, dtype=torch.float32)
         compatible_silu_and_smooth_quant_forward_kernel[grid](
             x,
             smooth_scale,
             out,
             scale,
-            maxs,
             M,
             T,
             N // 2,
             B,
             round_scale,
-            calibrate,
             num_stages=2,
             num_warps=16
         )
 
-    if calibrate:
-        maxs = maxs.amax(0)
-
-    return out, scale, maxs
+    return out, scale
 
 
 @triton.jit
-def silu_and_smooth_quant_backward_kernel(g_ptr, x_ptr,
+def silu_and_smooth_quant_backward_kernel(g_ptr,
+                                          x_ptr,
                                           smooth_scale_ptr,
                                           transpose_smooth_scale_ptr,
-                                          dx_ptr, dx_scale_ptr,
+                                          dx_ptr,
+                                          dx_scale_ptr,
                                           transpose_dx_ptr,
                                           transpose_dx_scale_ptr,
                                           M,
@@ -2140,18 +2125,18 @@ def triton_silu_and_smooth_quant_backward(g, x,
 
 
 @triton.jit
-def batch_weighted_silu_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
+def batch_weighted_silu_and_smooth_quant_forward_kernel(x_ptr,
+                                                        weight_ptr,
                                                         smooth_scale_ptr,
                                                         out_ptr,
-                                                        scale_ptr, max_ptr,
+                                                        scale_ptr,
                                                         count_ptr,
                                                         accum_ptr,
                                                         M,
                                                         n: tl.constexpr,
                                                         W: tl.constexpr,
                                                         ROUND: tl.constexpr,
-                                                        REVERSE: tl.constexpr,
-                                                        CALIBRATE: tl.constexpr):
+                                                        REVERSE: tl.constexpr):
     eid = tl.program_id(axis=0)
     tid = tl.program_id(axis=1)
     sm = tl.num_programs(axis=1)
@@ -2167,9 +2152,6 @@ def batch_weighted_silu_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
     if not REVERSE:
         smooth_scale = 1.0 / smooth_scale
 
-    if CALIBRATE:
-        maxs = tl.zeros((W, n), dtype=tl.float32)
-
     for i in range(c):
         indices = tid * c * W + i * W + tl.arange(0, W)
         mask = indices[:, None] < count
@@ -2182,9 +2164,6 @@ def batch_weighted_silu_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
             None]
         x = x1 * tl.sigmoid(x1) * x2
 
-        if CALIBRATE:
-            maxs = tl.maximum(x.abs(), maxs)
-
         x *= w * smooth_scale
         scale = tl.maximum(tl.max(x.abs(), 1) / 448, 1e-30)
         if ROUND:
@@ -2193,10 +2172,6 @@ def batch_weighted_silu_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
         x = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
         tl.store(out_ptr + row_offs + col_offs, x, mask=mask)
         row_offs += n * W
-
-    if CALIBRATE:
-        maxs = tl.max(maxs, 0)
-        tl.store(max_ptr + eid * sm * n + tid * n + tl.arange(0, n), maxs)
 
 
 # used in routed experts
@@ -2208,8 +2183,7 @@ def triton_batch_weighted_silu_and_smooth_quant_forward(x,
                                                         out=None,
                                                         scale=None,
                                                         round_scale=False,
-                                                        reverse=False,
-                                                        calibrate=False):
+                                                        reverse=False):
     """"""
     assert x.is_contiguous() and weight.is_contiguous()
     M, N = x.shape
@@ -2221,23 +2195,11 @@ def triton_batch_weighted_silu_and_smooth_quant_forward(x,
         out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
 
     sm = 128
-    tmp_maxs = None
     if scale is None:
         scale = torch.empty((M,), device=device, dtype=torch.float32)
-    if M == 0:
-        maxs = torch.zeros((n_experts, n), device=device,
-                           dtype=torch.float32)
-
-    elif calibrate:
-        tmp_maxs = torch.empty((n_experts, sm, n), device=device,
-                               dtype=torch.float32)
-        maxs = torch.empty((n_experts, n), device=device,
-                           dtype=torch.float32)
-    else:
-        maxs = None
 
     if M == 0:
-        return out, scale, maxs
+        return out, scale
 
     accums = torch.cumsum(counts, 0)
     W = 8192 // N
@@ -2248,7 +2210,6 @@ def triton_batch_weighted_silu_and_smooth_quant_forward(x,
         smooth_scale,
         out,
         scale,
-        tmp_maxs,
         counts,
         accums,
         M,
@@ -2256,14 +2217,11 @@ def triton_batch_weighted_silu_and_smooth_quant_forward(x,
         W,
         round_scale,
         reverse,
-        calibrate,
         num_stages=3,
         num_warps=16
     )
-    if calibrate:
-        maxs = tmp_maxs.amax(1)
 
-    return out, scale, maxs
+    return out, scale
 
 
 @triton.jit
@@ -2420,7 +2378,9 @@ def batch_weighted_silu_and_smooth_quant_backward_kernel(g_ptr, x_ptr,
 
 # requant multi-column quantized tensor
 @triton.jit
-def _batch_requant_kernel(x_ptr, scale_ptr, scales_ptr,
+def _batch_requant_kernel(x_ptr,
+                          scale_ptr,
+                          scales_ptr,
                           count_ptr,
                           N,
                           H: tl.constexpr,

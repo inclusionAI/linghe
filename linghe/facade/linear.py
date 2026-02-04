@@ -251,7 +251,7 @@ class _SmoothQuantLinear(torch.autograd.Function):
         dw = torch._scaled_mm(yt_q,
                               xt_q.t(),
                               scale_a=yt_scale.view(-1, 1),
-                              scale_b=1 / smooth_scale.view(1, -1),
+                              scale_b=1.0 / smooth_scale.view(1, -1),
                               out_dtype=ctx.out_dtype,
                               use_fast_accum=True)
 

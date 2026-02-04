@@ -72,9 +72,10 @@ def torch_rms_and_smooth_quant_forward(x, weight, smooth_scale=None,
         rmsnorm.weight.copy_(weight)
     y = rmsnorm(x)
     # smooth
-    y_q, y_scale, y_maxs = torch_smooth_quant(y, smooth_scale, reverse=False,
+    y_q, y_scale = torch_smooth_quant(y, smooth_scale, reverse=False,
                                               round_scale=round_scale)
-    return y_q, y_scale, y_maxs
+    y_rms = torch.rsqrt(torch.sum(x ** 2, -1) / N + 1e-6)
+    return y_q, y_scale, y_rms
 
 
 def torch_rms_and_block_quant_forward(x, weight, round_scale=False):
@@ -189,29 +190,23 @@ def test_rmsnorm_and_smooth_quant(M=4096, N=4096, bench=False):
     weight = torch.randn(N, dtype=dtype, requires_grad=True, device=device)
     smooth_scale = torch.rand(N, dtype=torch.float32, requires_grad=False,
                               device=device) + 0.1
-    calibrate = True
 
     # smooth
-    q_ref, scale_ref, maxs_ref = torch_rms_and_smooth_quant_forward(x, weight,
+    q_ref, scale_ref, rms_ref = torch_rms_and_smooth_quant_forward(x, weight,
                                                                     smooth_scale=smooth_scale,
                                                                     round_scale=True)
 
-    q, scale, maxs, rms = triton_rms_norm_and_smooth_quant_forward(x, weight,
+    q, scale, rms = triton_rms_norm_and_smooth_quant_forward(x, weight,
                                                                    smooth_scale=smooth_scale,
-                                                                   calibrate=calibrate,
-                                                                   output_rms=True,
                                                                    round_scale=True)
     output_check(q_ref, q, name="smooth.data", atol=-1)
     output_check(scale_ref, scale, name='smooth.scale')
-    if calibrate:
-        output_check(maxs_ref, maxs, name="smooth.maxs")
+    output_check(rms_ref, rms, name="smooth.rms")
 
     if bench:
         benchmark_func(triton_rms_norm_and_smooth_quant_forward, x, weight,
                        smooth_scale=smooth_scale,
-                       calibrate=True,
                        round_scale=True,
-                       output_rms=True,
                        ref_bytes=M * N * 3)
 
 
