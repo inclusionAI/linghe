@@ -5,7 +5,7 @@ import triton.language as tl
 
 
 @triton.jit
-def varlen_qk_norm_and_half_rope_infer_forward_kernel(qkv_ptr,
+def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
                                             q_norm_weight_ptr, k_norm_weight_ptr,
                                             freqs_ptr,
                                             position_ids,
@@ -155,7 +155,7 @@ def varlen_qk_norm_and_half_rope_infer_forward_kernel(qkv_ptr,
 
 
 @triton.jit
-def compatible_varlen_qk_norm_and_half_rope_infer_forward_kernel(qkv_ptr,
+def compatible_varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
                                             q_norm_weight_ptr, k_norm_weight_ptr,
                                             freqs_ptr,
                                             position_ids,
@@ -315,7 +315,7 @@ def compatible_varlen_qk_norm_and_half_rope_infer_forward_kernel(qkv_ptr,
             0, D)[None, :], v1, mask=v_mask)
 
 
-def triton_varlen_qk_norm_and_half_rope_infer_forward(qkv, q_norm_weight, k_norm_weight,
+def triton_varlen_qk_norm_and_half_rope(qkv, q_norm_weight, k_norm_weight,
                                          freqs, 
                                          position_ids, 
                                          H=32, h=4, eps=1e-6,
@@ -369,7 +369,7 @@ def triton_varlen_qk_norm_and_half_rope_infer_forward(qkv, q_norm_weight, k_norm
     ph = triton.next_power_of_2(h)
 
     if PH == H and ph == h:
-        varlen_qk_norm_and_half_rope_infer_forward_kernel[grid](
+        varlen_qk_norm_and_half_rope_kernel[grid](
             qkv,
             q_norm_weight, k_norm_weight,
             freqs,
@@ -395,7 +395,7 @@ def triton_varlen_qk_norm_and_half_rope_infer_forward(qkv, q_norm_weight, k_norm
             num_warps=num_warps
         )
     else:
-        compatible_varlen_qk_norm_and_half_rope_infer_forward_kernel[grid](
+        compatible_varlen_qk_norm_and_half_rope_kernel[grid](
             qkv,
             q_norm_weight, k_norm_weight,
             freqs,

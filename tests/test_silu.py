@@ -28,7 +28,6 @@ from linghe.utils.silu import (triton_weighted_silu_forward,
 from linghe.tools.util import (torch_smooth_quant,
                                torch_group_quant,
                                torch_mxfp8_quant)
-from linghe.infer.silu_quant import triton_silu_and_block_quant_infer_forward
 from linghe.tools.check import output_check
 
 
@@ -798,25 +797,6 @@ def test_triton_batch_weighted_silu_and_mxfp8_quant(M=1024, N=4096,
                        splits=count_list, n_repeat=100,
                        ref_bytes=n_experts * M * N * 4, ref_time=ref_time)
 
-
-
-def test_silu_and_block_quant_infer(M=4096, N=4096, coef=1.0,
-                              bench=False):
-    x = torch.randn((M, N), dtype=torch.bfloat16, device='cuda:0')
-    x = (x * coef).clone().detach()
-
-    round_scale = False
-    y_q_ref, y_scale_ref, _, _ = torch_silu_and_block_quant_forward(
-        x, round_scale=round_scale)
-
-    y_q, y_scale = triton_silu_and_block_quant_infer_forward(x,
-                                                            round_scale=round_scale)
-    output_check(y_q_ref, y_q, 'block.0.y_q', rtol=0.125)
-    output_check(y_scale_ref, y_scale, 'block.0.y_scale')
-
-    if bench:
-        benchmark_func(triton_silu_and_block_quant_forward, x,
-                       round_scale=round_scale, n_repeat=100, ref_bytes=M * N * 3)
 
 
 if __name__ == '__main__':

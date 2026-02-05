@@ -9,7 +9,7 @@ import triton
 import triton.language as tl
 
 @triton.jit
-def silu_and_block_quant_infer_forward_kernel(
+def silu_and_block_quant_kernel(
     x_ptr,
     out_ptr,
     scale_ptr,
@@ -56,7 +56,7 @@ def silu_and_block_quant_infer_forward_kernel(
     )
 
 
-def triton_silu_and_block_quant_infer_forward(
+def triton_silu_and_block_quant(
     x, out=None, scale=None, round_scale=False
 ):
     """
@@ -78,7 +78,7 @@ def triton_silu_and_block_quant_infer_forward(
     
 
     grid = (triton.cdiv(M, 128), n // 128)
-    silu_and_block_quant_infer_forward_kernel[grid](
+    silu_and_block_quant_kernel[grid](
         x,
         out,
         scale,

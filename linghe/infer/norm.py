@@ -10,7 +10,7 @@ from typing import Optional
 
 
 @triton.jit
-def rms_norm_and_block_quant_infer_forward_kernel(
+def rms_norm_and_block_quant_kernel(
     x_ptr,
     weight_ptr,
     residual_ptr,
@@ -59,7 +59,7 @@ def rms_norm_and_block_quant_infer_forward_kernel(
         offs += N * W
 
 
-def triton_rms_norm_and_block_quant_infer_forward(
+def triton_rms_norm_and_block_quant(
     x: torch.Tensor,
     weight: torch.Tensor,
     residual: Optional[torch.Tensor] = None,
@@ -100,7 +100,7 @@ def triton_rms_norm_and_block_quant_infer_forward(
     T = 4 // W  
     grid = (triton.cdiv(M, 4),)
 
-    rms_norm_and_block_quant_infer_forward_kernel[grid](
+    rms_norm_and_block_quant_kernel[grid](
         x,
         weight,
         residual,
@@ -122,7 +122,7 @@ def triton_rms_norm_and_block_quant_infer_forward(
 
 
 @triton.jit
-def residual_rms_norm_and_block_quant_infer_forward_kernel(
+def residual_rms_norm_and_block_quant_kernel(
     x_ptr,
     weight_ptr,
     residual_ptr,
@@ -169,7 +169,7 @@ def residual_rms_norm_and_block_quant_infer_forward_kernel(
     tl.store(out_ptr + offs, x, mask=indices[:, None] < M)
 
 
-def triton_residual_rms_norm_and_block_quant_infer_forward(
+def triton_residual_rms_norm_and_block_quant(
     x: torch.Tensor,
     weight: torch.Tensor,
     residual: torch.Tensor,
@@ -206,7 +206,7 @@ def triton_residual_rms_norm_and_block_quant_infer_forward(
     W = 8192 // N
     grid = (triton.cdiv(M, W),)
 
-    residual_rms_norm_and_block_quant_infer_forward_kernel[grid](
+    residual_rms_norm_and_block_quant_kernel[grid](
         x,
         weight,
         residual,

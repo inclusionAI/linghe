@@ -9,8 +9,9 @@ import torch
 import triton
 import triton.language as tl
 
+
 @triton.jit
-def group_rms_norm_gate_infer_forward_kernel(x_ptr, gate_ptr, weight_ptr, out_ptr, eps,
+def group_rms_norm_gate_kernel(x_ptr, gate_ptr, weight_ptr, out_ptr, eps,
                             DIM: tl.constexpr, 
                             D: tl.constexpr, 
                             GROUP_SIZE: tl.constexpr):
@@ -28,7 +29,7 @@ def group_rms_norm_gate_infer_forward_kernel(x_ptr, gate_ptr, weight_ptr, out_pt
     tl.store(out_ptr + offs, x)
 
 
-def triton_group_rms_norm_gate_infer_forward(x: torch.Tensor, 
+def triton_group_rms_norm_gate(x: torch.Tensor, 
                                        gate: torch.Tensor, 
                                        weight: torch.Tensor, 
                                        eps=1e-6, 
@@ -52,7 +53,7 @@ def triton_group_rms_norm_gate_infer_forward(x: torch.Tensor,
     device = x.device
     out = torch.empty((tokens, dim), device=device, dtype=x.dtype)
     grid = (tokens,)
-    group_rms_norm_gate_infer_forward_kernel[grid](
+    group_rms_norm_gate_kernel[grid](
         x,
         gate,
         weight.data,
