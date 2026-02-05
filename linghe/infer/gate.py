@@ -11,10 +11,14 @@ import triton.language as tl
 
 
 @triton.jit
-def group_rms_norm_gate_kernel(x_ptr, gate_ptr, weight_ptr, out_ptr, eps,
-                            DIM: tl.constexpr, 
-                            D: tl.constexpr, 
-                            GROUP_SIZE: tl.constexpr):
+def group_rms_norm_gate_kernel(x_ptr,
+                               gate_ptr,
+                               weight_ptr,
+                               out_ptr,
+                               eps,
+                               DIM: tl.constexpr, 
+                               D: tl.constexpr, 
+                               GROUP_SIZE: tl.constexpr):
     pid = tl.program_id(axis=0)
     weight = tl.load(weight_ptr + tl.arange(0, DIM))
     weight = tl.reshape(weight, [GROUP_SIZE, D])

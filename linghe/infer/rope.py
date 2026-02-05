@@ -4,184 +4,27 @@ import triton
 import triton.language as tl
 
 
+
 @triton.jit
 def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
-                                            q_norm_weight_ptr, k_norm_weight_ptr,
-                                            freqs_ptr,
-                                            position_ids,
-                                            # cu_seqlens_q_ptr,
-                                            # cu_seqlens_kv_ptr,
-                                            qo_ptr, ko_ptr, vo_ptr,
-                                            stride,
-                                            eps,
-                                            mscale,
-                                            cp_rank,
-                                            # B,
-                                            # PB: tl.constexpr,
-                                            H: tl.constexpr,
-                                            h: tl.constexpr,
-                                            D: tl.constexpr,
-                                            d: tl.constexpr,
-                                            INTERLEAVED: tl.constexpr,
-                                            SILU: tl.constexpr,
-                                            CP_SIZE: tl.constexpr,
-                                            REUSE: tl.constexpr
-                                            ):
+                                        q_norm_weight_ptr,
+                                        k_norm_weight_ptr,
+                                        freqs_ptr,
+                                        position_ids,
+                                        qo_ptr, ko_ptr, vo_ptr,
+                                        stride,
+                                        eps,
+                                        mscale,
+                                        H: tl.constexpr,
+                                        h: tl.constexpr,
+                                        PH: tl.constexpr,
+                                        ph: tl.constexpr,
+                                        D: tl.constexpr,
+                                        d: tl.constexpr,
+                                        INTERLEAVED: tl.constexpr,
+                                        SILU: tl.constexpr):
     pid = tl.program_id(0)
 
-    # pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, PB, cp_rank, CP_SIZE)
-    pos = tl.load(position_ids + pid)
-
-    DD = D * 2
-
-    freqs = tl.load(freqs_ptr + pos * d + tl.arange(0, D) % d ).to(tl.float32)
-    cos = tl.cos(freqs) * mscale
-    sin = tl.sin(freqs) * mscale
-    signs = tl.arange(0, 2).to(tl.float32) * 2 - 1
-
-    q_weight_0 = tl.load(q_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
-    q_weight_1 = tl.load(q_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
-    q_ptr = qkv_ptr
-    w = H // h
-
-    # [len, bs, q_head, head_dim] -> [bs, len, q_head, head_dim]
-    if INTERLEAVED:
-        row_offs = tl.arange(0, H) + tl.arange(0, H) // w * 2
-    else:
-        row_offs = tl.arange(0, H)
-
-
-    q0 = tl.load(q_ptr + pid * stride + DD * row_offs[:,
-                                                            None] + tl.arange(
-        0, D)[None, :]).to(tl.float32)
-    q1 = tl.load(q_ptr + pid * stride + D + DD * row_offs[:,
-                                                        None] + tl.arange(
-            0, D)[None, :]).to(tl.float32)
-
-    if SILU:
-        q0 = q0 * tl.sigmoid(q0)
-        q1 = q1 * tl.sigmoid(q1)
-    rms = tl.rsqrt((tl.sum(q0 * q0, 1) + tl.sum(q1 * q1, 1)) / DD + eps)
-    q1 *= rms[:, None]
-    q1 *= q_weight_1
-    tl.store(
-        qo_ptr + pid * H * DD + D + DD * tl.arange(0, H)[:,
-                                                            None] + tl.arange(
-            0, D)[None, :], q1)
-
-    q0 *= rms[:, None]
-    q0 *= q_weight_0
-    qr = tl.reshape(tl.permute(
-        tl.flip(tl.permute(tl.reshape(q0, (H, 2, d)), (0, 2, 1)),
-                dim=2) * signs, (0, 2, 1)), (H, D))
-    q0 = q0 * cos + qr * sin
-    tl.store(
-        qo_ptr + pid * H * DD + DD * tl.arange(0, H)[:,
-                                                        None] + tl.arange(0,
-                                                                        D)[
-                                                                None, :], q0)
-
-    k_weight_0 = tl.load(k_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
-    k_weight_1 = tl.load(k_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
-
-    if INTERLEAVED:
-        row_offs = tl.arange(0, h) * (w + 2)
-        k_ptr = qkv_ptr + DD * w
-    else:
-        row_offs = tl.arange(0, h)
-        k_ptr = qkv_ptr + DD * H
-        
-    k0 = tl.load(k_ptr + pid * stride + DD * row_offs[:,
-                                                            None] + tl.arange(
-        0, D)[None, :]).to(tl.float32)
-    k1 = tl.load(
-        k_ptr + pid * stride + D + DD * row_offs[:,
-                                                        None] + tl.arange(
-            0, D)[None, :]).to(tl.float32)
-
-    if SILU:
-        k0 = k0 * tl.sigmoid(k0)
-        k1 = k1 * tl.sigmoid(k1)
-    rms = tl.rsqrt((tl.sum(k0 * k0, 1) + tl.sum(k1 * k1, 1)) / DD + eps)
-    k1 *= rms[:, None]
-    k1 *= k_weight_1
-    tl.store(
-        ko_ptr + pid * h * DD + D + DD * tl.arange(0, h)[:,
-                                                            None] + tl.arange(
-            0, D)[None, :], k1)
-
-    k0 *= rms[:, None]
-    k0 *= k_weight_0
-    kr = tl.reshape(tl.permute(
-        tl.flip(tl.permute(tl.reshape(k0, (h, 2, d)), (0, 2, 1)),
-                dim=2) * signs, (0, 2, 1)), (h, D))
-    k0 = k0 * cos + kr * sin
-    tl.store(
-        ko_ptr + pid * h * DD + DD * tl.arange(0, h)[:,
-                                                        None] + tl.arange(0,
-                                                                        D)[
-                                                                None, :], k0)
-
-    if INTERLEAVED:
-        row_offs = tl.arange(0, h) * (w + 2)
-        v_ptr = qkv_ptr + DD * w + DD
-    else:
-        row_offs = tl.arange(0, h)
-        v_ptr = qkv_ptr + DD * H + DD * h
-
-
-    v0 = tl.load(v_ptr + pid * stride + DD * row_offs[:,
-                                                            None] + tl.arange(
-        0, D)[None, :]).to(tl.float32)
-    v1 = tl.load(
-        v_ptr + pid * stride + D + DD * row_offs[:,
-                                                        None] + tl.arange(
-            0, D)[None, :]).to(tl.float32)
-
-    if SILU:
-        v0 = v0 * tl.sigmoid(v0)
-        v1 = v1 * tl.sigmoid(v1)
-
-    tl.store(
-        vo_ptr + pid * h * DD + DD * tl.arange(0, h)[:,
-                                                    None] + tl.arange(0,
-                                                                        D)[
-                                                            None, :], v0)
-    tl.store(
-        vo_ptr + pid * h * DD + D + DD * tl.arange(0, h)[:,
-                                                            None] + tl.arange(
-            0, D)[None, :], v1)
-
-
-
-@triton.jit
-def compatible_varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
-                                            q_norm_weight_ptr, k_norm_weight_ptr,
-                                            freqs_ptr,
-                                            position_ids,
-                                            # cu_seqlens_q_ptr,
-                                            # cu_seqlens_kv_ptr,
-                                            qo_ptr, ko_ptr, vo_ptr,
-                                            stride,
-                                            eps,
-                                            mscale,
-                                            cp_rank,
-                                            # B,
-                                            # PB: tl.constexpr,
-                                            H: tl.constexpr,
-                                            h: tl.constexpr,
-                                            PH: tl.constexpr,
-                                            ph: tl.constexpr,
-                                            D: tl.constexpr,
-                                            d: tl.constexpr,
-                                            INTERLEAVED: tl.constexpr,
-                                            SILU: tl.constexpr,
-                                            CP_SIZE: tl.constexpr,
-                                            REUSE: tl.constexpr
-                                            ):
-    pid = tl.program_id(0)
-
-    # pos = _get_varlen_token_idx(cu_seqlens_q_ptr, pid, B, PB, cp_rank, CP_SIZE)
     pos = tl.load(position_ids + pid)
 
     DD = D * 2
@@ -315,21 +158,21 @@ def compatible_varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
             0, D)[None, :], v1, mask=v_mask)
 
 
-def triton_varlen_qk_norm_and_half_rope(qkv, q_norm_weight, k_norm_weight,
-                                         freqs, 
-                                         position_ids, 
-                                         H=32, h=4, eps=1e-6,
-                                         interleaved=True,
-                                         silu=False, 
-                                         cp_rank=0, 
-                                         cp_size=1,
-                                         mscale=1.0,
-                                         reuse=False
-                                         ):
+def triton_varlen_qk_norm_and_half_rope(qkv,
+                                        q_norm_weight,
+                                        k_norm_weight,
+                                        freqs, 
+                                        position_ids, 
+                                        H=32,
+                                        h=4,
+                                        eps=1e-6,
+                                        interleaved=False,
+                                        silu=False, 
+                                        mscale=1.0,
+                                        output_dtype=None):
 
     """
-    split qkv to q/k/v, apply qk norm and half rope to q/k,
-        transpose q/k/v to flash-attention layout
+    split qkv to q/k/v, apply qk norm and half rope to q/k
     Args:
         qkv: QKV tensor with size of [S, B, dim], heads are interleaved
         q_norm_weight: rms norm weight for query
@@ -354,7 +197,7 @@ def triton_varlen_qk_norm_and_half_rope(qkv, q_norm_weight, k_norm_weight,
     D = Dim // (H + 2 * h)
     # B = pos.size(0) - 1
     # PB = max(triton.next_power_of_2(B), 128)  # reduce jit
-    dtype = qkv.dtype
+    dtype = qkv.dtype if output_dtype is None else output_dtype
     device = qkv.device
     qo = torch.empty((T, H, D), dtype=dtype, device=device)
     ko = torch.empty((T, h, D), dtype=dtype, device=device)
@@ -364,62 +207,30 @@ def triton_varlen_qk_norm_and_half_rope(qkv, q_norm_weight, k_norm_weight,
     num_warps = 2
     grid = (T,)
 
-
     PH = triton.next_power_of_2(H)
     ph = triton.next_power_of_2(h)
 
-    if PH == H and ph == h:
-        varlen_qk_norm_and_half_rope_kernel[grid](
-            qkv,
-            q_norm_weight, k_norm_weight,
-            freqs,
-            # cu_seqlens_q,
-            # cu_seqlens_kv,
-            position_ids,
-            qo, ko, vo,
-            stride,
-            eps,
-            mscale,
-            cp_rank,
-            # B,
-            # PB,
-            H,
-            h,
-            D // 2,
-            D // 4,
-            interleaved,
-            silu,
-            cp_size,
-            reuse,
-            num_stages=num_stages,
-            num_warps=num_warps
-        )
-    else:
-        compatible_varlen_qk_norm_and_half_rope_kernel[grid](
-            qkv,
-            q_norm_weight, k_norm_weight,
-            freqs,
-            #cu_seqlens_q,
-            #cu_seqlens_kv,
-            position_ids,
-            qo, ko, vo,
-            stride,
-            eps,
-            mscale,
-            cp_rank,
-            # B,
-            # PB,
-            H,
-            h,
-            PH,
-            ph,
-            D // 2,
-            D // 4,
-            interleaved,
-            silu,
-            cp_size,
-            reuse,
-            num_stages=num_stages,
-            num_warps=num_warps
-        )
+    varlen_qk_norm_and_half_rope_kernel[grid](
+        qkv,
+        q_norm_weight,
+        k_norm_weight,
+        freqs,
+        position_ids,
+        qo,
+        ko,
+        vo,
+        stride,
+        eps,
+        mscale,
+        H,
+        h,
+        PH,
+        ph,
+        D // 2,
+        D // 4,
+        interleaved,
+        silu,
+        num_stages=num_stages,
+        num_warps=num_warps
+    )
     return qo, ko, vo
