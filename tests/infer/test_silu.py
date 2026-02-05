@@ -1,4 +1,3 @@
-
 import torch
 from linghe.tools.util import torch_group_quant
 from linghe.infer.silu import triton_silu_and_block_quant
@@ -18,7 +17,6 @@ def torch_silu_and_block_quant_forward(x, round_scale=True):
     return y_q, y_scale, yt_q, yt_scale
 
 
-
 def test_silu_and_block_quant_infer(M=4096, N=4096, coef=1.0,
                               bench=False):
     x = torch.randn((M, N), dtype=torch.bfloat16, device='cuda:0')
@@ -28,11 +26,13 @@ def test_silu_and_block_quant_infer(M=4096, N=4096, coef=1.0,
     y_q_ref, y_scale_ref, _, _ = torch_silu_and_block_quant_forward(
         x, round_scale=round_scale)
 
-    y_q, y_scale = triton_silu_and_block_quant(x,
-                                                            round_scale=round_scale)
+    y_q, y_scale = triton_silu_and_block_quant(x, round_scale=round_scale)
     output_check(y_q_ref, y_q, 'block.0.y_q', rtol=0.125)
     output_check(y_scale_ref, y_scale, 'block.0.y_scale')
 
     if bench:
         benchmark_func(triton_silu_and_block_quant, x,
                        round_scale=round_scale, n_repeat=100, ref_bytes=M * N * 3)
+
+if __name__ == "__main__":
+    test_silu_and_block_quant_infer(M=16384, N=1024, bench=True)
