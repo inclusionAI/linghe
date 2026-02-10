@@ -1,4 +1,3 @@
-
 import torch
 from linghe.tools.util import torch_group_quant
 from linghe.infer.silu import triton_silu_and_block_quant
@@ -28,8 +27,7 @@ def test_silu_and_block_quant(M=4096, N=4096, coef=1.0,
     y_q_ref, y_scale_ref, _, _ = torch_silu_and_block_quant(
         x, round_scale=round_scale)
 
-    y_q, y_scale = triton_silu_and_block_quant(x,
-                                                            round_scale=round_scale)
+    y_q, y_scale = triton_silu_and_block_quant(x, round_scale=round_scale)
     output_check(y_q_ref, y_q, 'block.0.y_q', rtol=0.125)
     output_check(y_scale_ref, y_scale, 'block.0.y_scale')
 
