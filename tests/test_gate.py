@@ -11,6 +11,7 @@ from linghe.tools.check import output_check
 from linghe.utils.gate import (triton_group_rms_norm_gate_forward,
                                triton_group_rms_norm_gate_backward)
 
+
 # @torch.compile
 def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4,
                                       transpose=True):
@@ -36,25 +37,6 @@ def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4,
     outputs = torch.stack(outputs, 2).view(bs, length, dim)
     if transpose:
         outputs = outputs.transpose(0, 1)
-    gate = F.sigmoid(gate)
-    outputs = (outputs * gate).to(dtype)
-    return outputs
-
-@torch.compile
-def torch_group_rms_norm_gate_infer_forward(x, gate, weight, eps=1e-6, group_size=4):
-    dtype = x.dtype
-    x = x.float()
-    gate = gate.float()
-    weight = weight.float()
-    tokens, dim = gate.shape
-    d = dim // group_size
-    attn_output = x.view(tokens, group_size, d)
-    outputs = []
-    for i in range(group_size):
-        outputs.append(F.rms_norm(attn_output[:, i], [d],
-                                  weight=weight[i * d:(i + 1) * d], eps=eps))
-    outputs = torch.stack(outputs, 1)
-    outputs = outputs.view(tokens, dim)
     gate = F.sigmoid(gate)
     outputs = (outputs * gate).to(dtype)
     return outputs

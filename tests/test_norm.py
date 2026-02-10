@@ -368,7 +368,6 @@ def test_rms_norm_fp32_gemm_block_quant_forward(M=8192, N=256, K=2048,
                        ref_bytes=M * K * 9)
 
 
-
 if __name__ == '__main__':
     test_rmsnorm(M=16384, N=2048, bench=False)
     test_rmsnorm(M=16384, N=1664, bench=False)

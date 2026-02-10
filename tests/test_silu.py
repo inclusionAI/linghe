@@ -798,7 +798,6 @@ def test_triton_batch_weighted_silu_and_mxfp8_quant(M=1024, N=4096,
                        ref_bytes=n_experts * M * N * 4, ref_time=ref_time)
 
 
-
 if __name__ == '__main__':
     test_weighted_silu(M=16384, N=4096, coef=1.0, asm=False, bench=False)
     test_weighted_silu(M=16384, N=4096, coef=1.0, asm=True, bench=False)
@@ -850,6 +849,4 @@ if __name__ == '__main__':
                                                     n_experts=32, coef=10000.0,
                                                     grad_coef=10000.0,
                                                     bench=False)
-
-    test_silu_and_block_quant_infer(M=4096, N=1024, bench=True)
 
