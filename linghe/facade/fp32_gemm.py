@@ -7,18 +7,22 @@ import torch
 
 from linghe.gemm.fp32_gemm import (triton_fp32_gemm,
                                    triton_fp32_gemm_for_backward,
-                                   triton_fp32_gemm_for_update)
+                                   triton_fp32_gemm_for_update,
+                                   triton_tma_persistent_matmul)
 
 
 class Fp32GEMM(torch.autograd.Function):
     """"""
 
     @staticmethod
-    def forward(ctx, input: torch.Tensor, weight: torch.Tensor):
+    def forward(ctx, input: torch.Tensor, weight: torch.Tensor, impl: str):
         shape = input.shape
         if len(shape) == 3:
             input = input.view(shape[0] * shape[1], shape[2])
-        logits = triton_fp32_gemm(input, weight)
+        if impl == 'tma':
+            logits = triton_tma_persistent_matmul(input, weight)
+        else:
+            logits = triton_fp32_gemm(input, weight)
 
         ctx.input_requires_grad = input.requires_grad
         ctx.weight_requires_grad = weight.requires_grad
@@ -43,10 +47,10 @@ class Fp32GEMM(torch.autograd.Function):
 
         dw = triton_fp32_gemm_for_update(grad_output, input)
 
-        return dx, dw
+        return dx, dw, None
 
 
-def fp32_gemm(input: torch.Tensor, weight: torch.Tensor):
+def fp32_gemm(input: torch.Tensor, weight: torch.Tensor, impl: str = 'native'):
     """
     gemm with bf16/fp16 inputs and float32 output,
     currently used in MoE router gemm.
@@ -56,4 +60,5 @@ def fp32_gemm(input: torch.Tensor, weight: torch.Tensor):
     Returns:
         output of gemm
     """
-    return Fp32GEMM.apply(input, weight)
+    assert impl in ('native', 'tma')
+    return Fp32GEMM.apply(input, weight, impl)
