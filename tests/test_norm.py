@@ -19,7 +19,6 @@ from linghe.utils.norm import (triton_rms_norm_and_smooth_quant_forward,
                                triton_rms_norm_backward,
                                triton_rms_norm_forward)
 
-
 def torch_rms_forward(x, weight):
     dtype = x.dtype
     x = x.float()
