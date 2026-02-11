@@ -9,34 +9,37 @@ import triton.language as tl
 
 
 @triton.jit
-def abs_max_kernel(x_ptr,
-                   scale_ptr,
-                   smooth_scale_ptr,
-                   output_ptr,
-                   min_value,
-                   M, N,
-                   H: tl.constexpr,
-                   W: tl.constexpr,
-                   EVEN: tl.constexpr,
-                   QUANTIZED: tl.constexpr):
+def abs_max_kernel(
+    x_ptr,
+    scale_ptr,
+    smooth_scale_ptr,
+    output_ptr,
+    min_value,
+    M,
+    N,
+    H: tl.constexpr,
+    W: tl.constexpr,
+    EVEN: tl.constexpr,
+    QUANTIZED: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     # col-wise read, col-wise write
     x_max = tl.zeros((W,), dtype=tl.float32)
     m = tl.cdiv(M, H)
     offs = pid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)
     if QUANTIZED:
-        smooth_scale = tl.load(smooth_scale_ptr + pid * W + tl.arange(0, W))[
-                       None, :]
+        smooth_scale = tl.load(smooth_scale_ptr + pid * W + tl.arange(0, W))[None, :]
     for i in range(m):
         if EVEN:
             x = tl.load(x_ptr + offs).to(tl.float32)
         else:
-            x = tl.load(x_ptr + offs,
-                        mask=i * H + tl.arange(0, H)[:, None] < M).to(
-                tl.float32)
+            x = tl.load(x_ptr + offs, mask=i * H + tl.arange(0, H)[:, None] < M).to(
+                tl.float32
+            )
         if QUANTIZED:
-            scale = tl.load(scale_ptr + i * H + tl.arange(0, H),
-                            mask=i * H + tl.arange(0, H) < M)
+            scale = tl.load(
+                scale_ptr + i * H + tl.arange(0, H), mask=i * H + tl.arange(0, H) < M
+            )
             x = x * scale[:, None] * smooth_scale
         x_max = tl.maximum(x_max, tl.max(tl.abs(x), axis=0))
         offs += H * N
@@ -77,12 +80,14 @@ def triton_abs_max(x, scale=None, smooth_scale=None, min_value=1e-30, axis=0):
         smooth_scale,
         maxs,
         min_value,
-        M, N,
-        H, W,
+        M,
+        N,
+        H,
+        W,
         EVEN,
         quantized,
         num_stages=2,
-        num_warps=4
+        num_warps=4,
     )
     return maxs
 
@@ -117,33 +122,25 @@ def triton_batch_count_zero(xs):
     """
     assert all([x.is_contiguous() for x in xs])
     device = xs[0].device
-    sizes = torch.tensor([x.numel() for x in xs],
-                         dtype=torch.int64).cuda(device, non_blocking=True)
-    ptrs = torch.tensor([x.data_ptr() for x in xs],
-                        dtype=torch.int64).cuda(device, non_blocking=True)
+    sizes = torch.tensor([x.numel() for x in xs], dtype=torch.int64).cuda(
+        device, non_blocking=True
+    )
+    ptrs = torch.tensor([x.data_ptr() for x in xs], dtype=torch.int64).cuda(
+        device, non_blocking=True
+    )
 
     block = 2048
     tensor_count = len(xs)
-    counts = torch.empty((tensor_count, block), device=device,
-                         dtype=torch.int64)
+    counts = torch.empty((tensor_count, block), device=device, dtype=torch.int64)
     B = 1024
     grid = (tensor_count, block)
-    batch_count_zero_kernel[grid](
-        ptrs,
-        sizes,
-        counts,
-        B,
-        num_stages=2,
-        num_warps=2
-    )
+    batch_count_zero_kernel[grid](ptrs, sizes, counts, B, num_stages=2, num_warps=2)
     count = counts.sum()
     return count
 
 
 @triton.jit
-def norm_kernel(input_ptr, tmp_ptr, m,
-                B: tl.constexpr,
-                ORD: tl.constexpr):
+def norm_kernel(input_ptr, tmp_ptr, m, B: tl.constexpr, ORD: tl.constexpr):
     pid = tl.program_id(axis=0).to(tl.int64)
 
     offs = pid * B + tl.arange(0, B)
@@ -166,7 +163,7 @@ def triton_norm(x, ord=2, norm=True, scalar=True):
         ord: the order of tensor. -1 means 'inf' ord.
         norm:
             only used with ord in (1, 2)
-            True: (sum(sum(abs(x)**ord) x for x in xs))**(1/ord) 
+            True: (sum(sum(abs(x)**ord) x for x in xs))**(1/ord)
             False: sum(sum(abs(x)**ord) x for x in xs))
 
     Returns:
@@ -181,15 +178,7 @@ def triton_norm(x, ord=2, norm=True, scalar=True):
     T = triton.cdiv(m, B)
     tmp = torch.empty((T,), device=device, dtype=torch.float32)
     grid = (T,)
-    norm_kernel[grid](
-        x,
-        tmp,
-        m,
-        B,
-        ord,
-        num_stages=2,
-        num_warps=2
-    )
+    norm_kernel[grid](x, tmp, m, B, ord, num_stages=2, num_warps=2)
     if ord == -1:
         output = tmp.max()
     else:
@@ -202,11 +191,15 @@ def triton_norm(x, ord=2, norm=True, scalar=True):
 
 
 @triton.jit
-def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr,
-                      DT: tl.constexpr,
-                      B: tl.constexpr,
-                      ORD: tl.constexpr,
-                      HP: tl.constexpr):
+def batch_norm_kernel(
+    input_ptrs,
+    size_ptr,
+    tmp_ptr,
+    DT: tl.constexpr,
+    B: tl.constexpr,
+    ORD: tl.constexpr,
+    HP: tl.constexpr,
+):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1).to(tl.int64)
     sm = tl.num_programs(axis=1)
@@ -251,43 +244,39 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
         ord: the order of tensor. -1 means 'inf' ord.
         norm:
             only used with ord in (1, 2)
-            True: (sum(sum(abs(x)**ord) x for x in xs))**(1/ord) 
+            True: (sum(sum(abs(x)**ord) x for x in xs))**(1/ord)
             False: sum(sum(abs(x)**ord) x for x in xs))
 
     Returns:
         a scalar if scalar=True else a single-value fp32 tensor
     """
     if len(xs) == 0:
-        return torch.zeros(() if scalar else (1,), device='cuda',
-                           dtype=torch.float32)
+        return torch.zeros(() if scalar else (1,), device="cuda", dtype=torch.float32)
     dtype = xs[0].dtype
     assert dtype in (torch.float32, torch.bfloat16)
     assert all([x.is_contiguous() and x.dtype == dtype for x in xs])
     assert ord in (1, 2, -1)
 
     device = xs[0].device
-    sizes = torch.tensor([x.numel() for x in xs],
-                         dtype=torch.int64).cuda(device, non_blocking=True)
-    ptrs = torch.tensor([x.data_ptr() for x in xs],
-                        dtype=torch.int64).cuda(device, non_blocking=True)
+    sizes = torch.tensor([x.numel() for x in xs], dtype=torch.int64).cuda(
+        device, non_blocking=True
+    )
+    ptrs = torch.tensor([x.data_ptr() for x in xs], dtype=torch.int64).cuda(
+        device, non_blocking=True
+    )
 
     DT = 0 if dtype == torch.float32 else 1
     sm = 256
     tensor_count = len(xs)
-    tmp = torch.empty((tensor_count, sm), device=device,
-                      dtype=torch.float64 if high_precision else torch.float32)
+    tmp = torch.empty(
+        (tensor_count, sm),
+        device=device,
+        dtype=torch.float64 if high_precision else torch.float32,
+    )
     B = 128
     grid = (tensor_count, sm)
     batch_norm_kernel[grid](
-        ptrs,
-        sizes,
-        tmp,
-        DT,
-        B,
-        ord,
-        high_precision,
-        num_stages=2,
-        num_warps=2
+        ptrs, sizes, tmp, DT, B, ord, high_precision, num_stages=2, num_warps=2
     )
     if ord == -1:
         output = tmp.max()

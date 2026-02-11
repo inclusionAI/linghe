@@ -20,7 +20,7 @@ def torch_add(x, outputs, accum=True):
 
 def test_triton_inplace_add(M=4096, N=4096, bench=False):
     dtype = torch.bfloat16
-    device = 'cuda:0'
+    device = "cuda:0"
 
     outputs = torch.randn(M, N, dtype=dtype, device=device)
     x = torch.randn(M, N, dtype=dtype, device=device)
@@ -28,22 +28,32 @@ def test_triton_inplace_add(M=4096, N=4096, bench=False):
     out = outputs.clone()
     triton_inplace_add(out, x)
     out_ref = outputs + x
-    output_check(out_ref, out, 'sum')
+    output_check(out_ref, out, "sum")
 
     if bench:
         n_repeat = 100
-        ref_time = benchmark_func(torch_add, x, out, accum=False,
-                                  n_repeat=n_repeat)
-        benchmark_func(triton_inplace_add, out, x, accum=False,
-                       n_repeat=n_repeat,
-                       ref_time=ref_time, ref_bytes=M * N * 4)
+        ref_time = benchmark_func(torch_add, x, out, accum=False, n_repeat=n_repeat)
+        benchmark_func(
+            triton_inplace_add,
+            out,
+            x,
+            accum=False,
+            n_repeat=n_repeat,
+            ref_time=ref_time,
+            ref_bytes=M * N * 4,
+        )
 
-        ref_time = benchmark_func(torch_add, x, out, accum=True,
-                                  n_repeat=n_repeat)
-        benchmark_func(triton_inplace_add, out, x, accum=True,
-                       n_repeat=n_repeat,
-                       ref_time=ref_time, ref_bytes=M * N * 6)
+        ref_time = benchmark_func(torch_add, x, out, accum=True, n_repeat=n_repeat)
+        benchmark_func(
+            triton_inplace_add,
+            out,
+            x,
+            accum=True,
+            n_repeat=n_repeat,
+            ref_time=ref_time,
+            ref_bytes=M * N * 6,
+        )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_triton_inplace_add(M=4096, N=4096)

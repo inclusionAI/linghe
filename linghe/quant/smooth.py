@@ -12,14 +12,21 @@ from linghe.utils.transpose import triton_transpose_and_pad
 
 
 @triton.jit
-def tokenwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
-                                  M, T,
-                                  N: tl.constexpr,
-                                  W: tl.constexpr,
-                                  EVEN: tl.constexpr,
-                                  REVERSE: tl.constexpr,
-                                  ROUND: tl.constexpr,
-                                  CALIBRATE: tl.constexpr):
+def tokenwise_smooth_quant_kernel(
+    x_ptr,
+    q_ptr,
+    ss_ptr,
+    qs_ptr,
+    max_ptr,
+    M,
+    T,
+    N: tl.constexpr,
+    W: tl.constexpr,
+    EVEN: tl.constexpr,
+    REVERSE: tl.constexpr,
+    ROUND: tl.constexpr,
+    CALIBRATE: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     smooth_scale = tl.load(ss_ptr + tl.arange(0, N))[None, :]
@@ -31,16 +38,22 @@ def tokenwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
     for i in range(T):
         indices = pid * W * T + i * W + tl.arange(0, W)
         if EVEN:
-            x = tl.load(x_ptr + pid * W * T * N + i * N * W + tl.arange(0, W)[:,
-                                                              None] * N + tl.arange(
-                0, N)[None, :]).to(
-                tl.float32)
+            x = tl.load(
+                x_ptr
+                + pid * W * T * N
+                + i * N * W
+                + tl.arange(0, W)[:, None] * N
+                + tl.arange(0, N)[None, :]
+            ).to(tl.float32)
         else:
-            x = tl.load(x_ptr + pid * W * T * N + i * N * W + tl.arange(0, W)[:,
-                                                              None] * N + tl.arange(
-                0, N)[None, :],
-                        mask=indices[:, None] < M).to(
-                tl.float32)
+            x = tl.load(
+                x_ptr
+                + pid * W * T * N
+                + i * N * W
+                + tl.arange(0, W)[:, None] * N
+                + tl.arange(0, N)[None, :],
+                mask=indices[:, None] < M,
+            ).to(tl.float32)
         if CALIBRATE:
             output_maxs = tl.maximum(tl.abs(x), output_maxs)
         x *= smooth_scale
@@ -49,43 +62,57 @@ def tokenwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
         if ROUND:
             scale = tl.exp2(tl.ceil(tl.log2(scale)))
         if EVEN:
-            tl.store(qs_ptr + pid * W * T + i * W + tl.arange(0, W), scale, )
+            tl.store(
+                qs_ptr + pid * W * T + i * W + tl.arange(0, W),
+                scale,
+            )
         else:
-            tl.store(qs_ptr + pid * W * T + i * W + tl.arange(0, W), scale,
-                     mask=indices < M)
+            tl.store(
+                qs_ptr + pid * W * T + i * W + tl.arange(0, W), scale, mask=indices < M
+            )
 
         x /= scale[:, None]
         xq = x.to(q_ptr.dtype.element_ty)
         if EVEN:
-            tl.store(q_ptr + pid * W * T * N + i * N * W + tl.arange(0, W)[:,
-                                                           None] * N + tl.arange(
-                0,
-                N)[
-                                                                       None, :],
-                     xq)
+            tl.store(
+                q_ptr
+                + pid * W * T * N
+                + i * N * W
+                + tl.arange(0, W)[:, None] * N
+                + tl.arange(0, N)[None, :],
+                xq,
+            )
         else:
-            tl.store(q_ptr + pid * W * T * N + i * N * W + tl.arange(0, W)[:,
-                                                           None] * N + tl.arange(
-                0,
-                N)[
-                                                                       None, :],
-                     xq,
-                     mask=indices[:, None] < M)
+            tl.store(
+                q_ptr
+                + pid * W * T * N
+                + i * N * W
+                + tl.arange(0, W)[:, None] * N
+                + tl.arange(0, N)[None, :],
+                xq,
+                mask=indices[:, None] < M,
+            )
     if CALIBRATE:
         output_maxs = tl.max(output_maxs, 0)
         tl.store(max_ptr + pid * N + tl.arange(0, N), output_maxs)
 
 
 @triton.jit
-def blockwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
-                                  M,
-                                  N,
-                                  H: tl.constexpr,
-                                  W: tl.constexpr,
-                                  EVEN: tl.constexpr,
-                                  REVERSE: tl.constexpr,
-                                  ROUND: tl.constexpr,
-                                  CALIBRATE: tl.constexpr):
+def blockwise_smooth_quant_kernel(
+    x_ptr,
+    q_ptr,
+    ss_ptr,
+    qs_ptr,
+    max_ptr,
+    M,
+    N,
+    H: tl.constexpr,
+    W: tl.constexpr,
+    EVEN: tl.constexpr,
+    REVERSE: tl.constexpr,
+    ROUND: tl.constexpr,
+    CALIBRATE: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     offs = pid * W * N + tl.arange(0, W)[:, None] * N + tl.arange(0, H)[None, :]
@@ -97,9 +124,9 @@ def blockwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
         if EVEN:
             x = tl.load(x_ptr + offs).to(tl.float32)
         else:
-            x = tl.load(x_ptr + offs,
-                        mask=pid * W + tl.arange(0, W)[:, None] < M).to(
-                tl.float32)
+            x = tl.load(x_ptr + offs, mask=pid * W + tl.arange(0, W)[:, None] < M).to(
+                tl.float32
+            )
         if CALIBRATE:
             output_maxs = tl.max(x.abs(), 0)
             tl.store(max_ptr + pid * N + i * H + tl.arange(0, H), output_maxs)
@@ -115,8 +142,9 @@ def blockwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
     if ROUND:
         scale = tl.exp2(tl.ceil(tl.log2(scale)))
 
-    tl.store(qs_ptr + pid * W + tl.arange(0, W), scale,
-             mask=pid * W + tl.arange(0, W) < M)
+    tl.store(
+        qs_ptr + pid * W + tl.arange(0, W), scale, mask=pid * W + tl.arange(0, W) < M
+    )
 
     s = (1.0 / scale)[:, None]
 
@@ -127,29 +155,31 @@ def blockwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, max_ptr,
         if EVEN:
             x = tl.load(x_ptr + offs)
         else:
-            x = tl.load(x_ptr + offs,
-                        mask=pid * W + tl.arange(0, W)[:, None] < M)
+            x = tl.load(x_ptr + offs, mask=pid * W + tl.arange(0, W)[:, None] < M)
 
         if REVERSE:
-            xq = (x.to(tl.float32) * smooth_scale * s).to(
-                q_ptr.dtype.element_ty)
+            xq = (x.to(tl.float32) * smooth_scale * s).to(q_ptr.dtype.element_ty)
         else:
-            xq = (x.to(tl.float32) / smooth_scale * s).to(
-                q_ptr.dtype.element_ty)
+            xq = (x.to(tl.float32) / smooth_scale * s).to(q_ptr.dtype.element_ty)
 
         if EVEN:
             tl.store(q_ptr + offs, xq)
         else:
             # tl.store(q_ptr+offs, xq, mask=(i*H+tl.arange(0, H)[None,:]<N)&(pid*W+tl.arange(0, W)[:,None]<M))
-            tl.store(q_ptr + offs, xq,
-                     mask=pid * W + tl.arange(0, W)[:, None] < M)
+            tl.store(q_ptr + offs, xq, mask=pid * W + tl.arange(0, W)[:, None] < M)
         offs += H
         soffs += H
 
 
-def triton_smooth_quant(x, smooth_scale, x_q=None, x_scale=None,
-                        reverse=False, round_scale=False,
-                        calibrate=False):
+def triton_smooth_quant(
+    x,
+    smooth_scale,
+    x_q=None,
+    x_scale=None,
+    reverse=False,
+    round_scale=False,
+    calibrate=False,
+):
     """"""
     M, N = x.shape
     device = x.device
@@ -183,7 +213,7 @@ def triton_smooth_quant(x, smooth_scale, x_q=None, x_scale=None,
             round_scale,
             calibrate,
             num_stages=3,
-            num_warps=4
+            num_warps=4,
         )
         if calibrate:
             x_maxs = x_maxs.amax(0).float()
@@ -212,7 +242,7 @@ def triton_smooth_quant(x, smooth_scale, x_q=None, x_scale=None,
             round_scale,
             calibrate,
             num_stages=3,
-            num_warps=4
+            num_warps=4,
         )
         if calibrate:
             x_maxs = x_maxs.amax(0).float()
@@ -221,19 +251,24 @@ def triton_smooth_quant(x, smooth_scale, x_q=None, x_scale=None,
 
 
 @triton.jit
-def subrow_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr,
-                               subrow_scales_ptr,
-                               tail_ri,
-                               tail_si,
-                               head_ri,
-                               head_ei,
-                               size,
-                               N,
-                               W: tl.constexpr,
-                               TAIL: tl.constexpr,
-                               HEAD: tl.constexpr,
-                               REVERSE: tl.constexpr,
-                               ROUND: tl.constexpr):
+def subrow_smooth_quant_kernel(
+    x_ptr,
+    q_ptr,
+    ss_ptr,
+    qs_ptr,
+    subrow_scales_ptr,
+    tail_ri,
+    tail_si,
+    head_ri,
+    head_ei,
+    size,
+    N,
+    W: tl.constexpr,
+    TAIL: tl.constexpr,
+    HEAD: tl.constexpr,
+    REVERSE: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     if TAIL:
         # scale is saved as max/448
         scale = tl.maximum(tl.load(subrow_scales_ptr), 1e-30)
@@ -246,19 +281,22 @@ def subrow_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr,
             mask = tail_si + i * W + tl.arange(0, W) < N
             if REVERSE:
                 smooth_scale = tl.load(
-                    ss_ptr + tail_si + i * W + tl.arange(0, W), mask=mask)
+                    ss_ptr + tail_si + i * W + tl.arange(0, W), mask=mask
+                )
             else:
                 smooth_scale = tl.load(
-                    ss_ptr + tail_si + i * W + tl.arange(0, W), other=1e30,
-                    mask=mask)
+                    ss_ptr + tail_si + i * W + tl.arange(0, W), other=1e30, mask=mask
+                )
                 smooth_scale = 1.0 / smooth_scale
-            x = tl.load(x_ptr + i * W + tl.arange(0, W), mask=mask).to(
-                tl.float32)
+            x = tl.load(x_ptr + i * W + tl.arange(0, W), mask=mask).to(tl.float32)
             x *= smooth_scale
             x /= scale
             xq = tl.minimum(tl.maximum(x, -448), 448)
-            tl.store(q_ptr + tail_ri * N + tail_si + i * W + tl.arange(0, W),
-                     xq.to(q_ptr.dtype.element_ty), mask=mask)
+            tl.store(
+                q_ptr + tail_ri * N + tail_si + i * W + tl.arange(0, W),
+                xq.to(q_ptr.dtype.element_ty),
+                mask=mask,
+            )
 
     if HEAD:
         # scale is saved as max/448
@@ -271,24 +309,36 @@ def subrow_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr,
         for i in range(T):
             mask = i * W + tl.arange(0, W) < head_ei
             if REVERSE:
-                smooth_scale = tl.load(ss_ptr + i * W + tl.arange(0, W),
-                                       mask=mask)
+                smooth_scale = tl.load(ss_ptr + i * W + tl.arange(0, W), mask=mask)
             else:
-                smooth_scale = tl.load(ss_ptr + i * W + tl.arange(0, W),
-                                       other=1e30, mask=mask)
+                smooth_scale = tl.load(
+                    ss_ptr + i * W + tl.arange(0, W), other=1e30, mask=mask
+                )
                 smooth_scale = 1.0 / smooth_scale
-            x = tl.load(x_ptr + size - head_ei + i * W + tl.arange(0, W),
-                        mask=mask).to(tl.float32)
+            x = tl.load(x_ptr + size - head_ei + i * W + tl.arange(0, W), mask=mask).to(
+                tl.float32
+            )
             x *= smooth_scale
             x /= scale
             xq = tl.minimum(tl.maximum(x, -448), 448)
-            tl.store(q_ptr + head_ri * N + i * W + tl.arange(0, W),
-                     xq.to(q_ptr.dtype.element_ty), mask=mask)
+            tl.store(
+                q_ptr + head_ri * N + i * W + tl.arange(0, W),
+                xq.to(q_ptr.dtype.element_ty),
+                mask=mask,
+            )
 
 
-def triton_subrow_smooth_quant(x, smooth_scale, x_q, x_scale,
-                               subrow_scales, offset, size,
-                               reverse=False, round_scale=False):
+def triton_subrow_smooth_quant(
+    x,
+    smooth_scale,
+    x_q,
+    x_scale,
+    subrow_scales,
+    offset,
+    size,
+    reverse=False,
+    round_scale=False,
+):
     """"""
     M, N = x_q.shape
     W = 128
@@ -329,16 +379,22 @@ def triton_subrow_smooth_quant(x, smooth_scale, x_q, x_scale,
         reverse,
         round_scale,
         num_stages=3,
-        num_warps=1
+        num_warps=1,
     )
 
 
 @triton.jit
-def depracated_tokenwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr,
-                                             qs_ptr, M, W,
-                                             N: tl.constexpr,
-                                             REVERSE: tl.constexpr,
-                                             ROUND: tl.constexpr):
+def depracated_tokenwise_smooth_quant_kernel(
+    x_ptr,
+    q_ptr,
+    ss_ptr,
+    qs_ptr,
+    M,
+    W,
+    N: tl.constexpr,
+    REVERSE: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     smooth_scale = tl.load(ss_ptr + tl.arange(0, N))
@@ -346,8 +402,9 @@ def depracated_tokenwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr,
         smooth_scale = 1.0 / smooth_scale
 
     for i in range(W):
-        x = tl.load(x_ptr + pid * W * N + i * N + tl.arange(0, N),
-                    mask=pid * W + i < M).to(tl.float32)
+        x = tl.load(
+            x_ptr + pid * W * N + i * N + tl.arange(0, N), mask=pid * W + i < M
+        ).to(tl.float32)
         x *= smooth_scale
         x_max = tl.maximum(tl.max(tl.abs(x)), 1e-30)
 
@@ -358,13 +415,14 @@ def depracated_tokenwise_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr,
 
         x /= scale
         xq = x.to(q_ptr.dtype.element_ty)
-        tl.store(q_ptr + pid * W * N + i * N + tl.arange(0, N), xq,
-                 mask=pid * W + i < M)
+        tl.store(
+            q_ptr + pid * W * N + i * N + tl.arange(0, N), xq, mask=pid * W + i < M
+        )
 
 
-def triton_depracated_tokenwise_smooth_quant(x, smooth_scale, x_q=None,
-                                             x_scale=None, reverse=False,
-                                             round_scale=False):
+def triton_depracated_tokenwise_smooth_quant(
+    x, smooth_scale, x_q=None, x_scale=None, reverse=False, round_scale=False
+):
     """"""
     # row-wise read, row-wise write
     M, N = x.shape
@@ -387,16 +445,26 @@ def triton_depracated_tokenwise_smooth_quant(x, smooth_scale, x_q=None,
         reverse,
         round_scale,
         num_stages=3,
-        num_warps=8
+        num_warps=8,
     )
     return x_q, x_scale
 
 
 @triton.jit
-def batch_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, xm_ptr, count_ptr,
-                              accum_ptr, T, N: tl.constexpr,
-                              REVERSE: tl.constexpr, ROUND: tl.constexpr,
-                              CALIBRATE: tl.constexpr):
+def batch_smooth_quant_kernel(
+    x_ptr,
+    q_ptr,
+    ss_ptr,
+    qs_ptr,
+    xm_ptr,
+    count_ptr,
+    accum_ptr,
+    T,
+    N: tl.constexpr,
+    REVERSE: tl.constexpr,
+    ROUND: tl.constexpr,
+    CALIBRATE: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
 
     i_expert = pid // T
@@ -445,10 +513,17 @@ x_scale: [bs]
 """
 
 
-def triton_batch_smooth_quant(x, smooth_scales, token_count_per_expert,
-                              x_q=None, x_scale=None, x_maxs=None,
-                              reverse=False, round_scale=False,
-                              calibrate=False):
+def triton_batch_smooth_quant(
+    x,
+    smooth_scales,
+    token_count_per_expert,
+    x_q=None,
+    x_scale=None,
+    x_maxs=None,
+    reverse=False,
+    round_scale=False,
+    calibrate=False,
+):
     """"""
     M, N = x.shape
     device = x.device
@@ -472,12 +547,13 @@ def triton_batch_smooth_quant(x, smooth_scales, token_count_per_expert,
         x_maxs,
         token_count_per_expert,
         accum_token_count,
-        T, N,
+        T,
+        N,
         reverse,
         round_scale,
         calibrate,
         num_stages=3,
-        num_warps=8
+        num_warps=8,
     )
     if calibrate:
         x_maxs = x_maxs.view(n_expert, T, N).amax(1)
@@ -485,15 +561,20 @@ def triton_batch_smooth_quant(x, smooth_scales, token_count_per_expert,
 
 
 @triton.jit
-def batch_pad_transpose_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr,
-                                            count_ptr,
-                                            accum_ptr,
-                                            N,
-                                            H: tl.constexpr,
-                                            W: tl.constexpr,
-                                            E: tl.constexpr,
-                                            REVERSE: tl.constexpr,
-                                            ROUND: tl.constexpr):
+def batch_pad_transpose_smooth_quant_kernel(
+    x_ptr,
+    q_ptr,
+    ss_ptr,
+    qs_ptr,
+    count_ptr,
+    accum_ptr,
+    N,
+    H: tl.constexpr,
+    W: tl.constexpr,
+    E: tl.constexpr,
+    REVERSE: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     eid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1)
 
@@ -515,11 +596,15 @@ def batch_pad_transpose_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr,
         if not REVERSE:
             smooth_scale = 1.0 / smooth_scale
 
-        x = tl.load(x_ptr + si * N + i * H * N + bid * W + tl.arange(0, H)[:,
-                                                           None] + tl.arange(0,
-                                                                             W)[
-                                                                   None, :],
-                    mask=indices[:, None] < count).to(tl.float32)
+        x = tl.load(
+            x_ptr
+            + si * N
+            + i * H * N
+            + bid * W
+            + tl.arange(0, H)[:, None]
+            + tl.arange(0, W)[None, :],
+            mask=indices[:, None] < count,
+        ).to(tl.float32)
         x *= smooth_scale[:, None]
         maxs = tl.maximum(maxs, tl.abs(x))
 
@@ -537,19 +622,28 @@ def batch_pad_transpose_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr,
         if not REVERSE:
             smooth_scale = 1.0 / smooth_scale
 
-        x = tl.load(x_ptr + si * N + i * H * N + bid * W + tl.arange(0, H)[:,
-                                                           None] + tl.arange(0,
-                                                                             W)[
-                                                                   None, :],
-                    mask=indices[:, None] < count).to(tl.float32)
+        x = tl.load(
+            x_ptr
+            + si * N
+            + i * H * N
+            + bid * W
+            + tl.arange(0, H)[:, None]
+            + tl.arange(0, W)[None, :],
+            mask=indices[:, None] < count,
+        ).to(tl.float32)
         x *= smooth_scale[:, None]
         x *= s
         xq = tl.trans(x.to(q_ptr.dtype.element_ty))
         tl.store(
-            q_ptr + bias * N + bid * W * round_count + i * H + tl.arange(0, W)[
-                                                               :,
-                                                               None] + tl.arange(
-                0, H)[None, :], xq, mask=indices[None, :] < round_count)
+            q_ptr
+            + bias * N
+            + bid * W * round_count
+            + i * H
+            + tl.arange(0, W)[:, None]
+            + tl.arange(0, H)[None, :],
+            xq,
+            mask=indices[None, :] < round_count,
+        )
 
 
 """
@@ -564,12 +658,17 @@ x_scale: [n_experts, dim]
 """
 
 
-def triton_batch_pad_transpose_smooth_quant(x,
-                                            smooth_scales,
-                                            token_count_per_expert,
-                                            splits,
-                                            x_q=None, x_scale=None, x_maxs=None,
-                                            reverse=False, round_scale=False):
+def triton_batch_pad_transpose_smooth_quant(
+    x,
+    smooth_scales,
+    token_count_per_expert,
+    splits,
+    x_q=None,
+    x_scale=None,
+    x_maxs=None,
+    reverse=False,
+    round_scale=False,
+):
     """"""
     M, N = x.shape
     device = x.device
@@ -577,8 +676,7 @@ def triton_batch_pad_transpose_smooth_quant(x,
     round_splits = [(x + 31) // 32 * 32 for x in splits]
     round_size = sum(round_splits)
     if x_q is None:
-        x_q = torch.empty((round_size, N), device=device,
-                          dtype=torch.float8_e4m3fn)
+        x_q = torch.empty((round_size, N), device=device, dtype=torch.float8_e4m3fn)
     if x_scale is None:
         x_scale = torch.empty((n_expert, N), device=device, dtype=torch.float32)
     accum_token_count = torch.cumsum(token_count_per_expert, 0)
@@ -599,17 +697,26 @@ def triton_batch_pad_transpose_smooth_quant(x,
         reverse,
         round_scale,
         num_stages=3,
-        num_warps=8
+        num_warps=8,
     )
     return x_q, x_scale
 
 
 @triton.jit
-def transpose_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, M, N, P,
-                                  H: tl.constexpr, W: tl.constexpr,
-                                  EVEN: tl.constexpr,
-                                  REVERSE: tl.constexpr,
-                                  ROUND: tl.constexpr):
+def transpose_smooth_quant_kernel(
+    x_ptr,
+    q_ptr,
+    ss_ptr,
+    qs_ptr,
+    M,
+    N,
+    P,
+    H: tl.constexpr,
+    W: tl.constexpr,
+    EVEN: tl.constexpr,
+    REVERSE: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     # col-wise read, row-wise write
     offs = pid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
@@ -621,12 +728,13 @@ def transpose_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, M, N, P,
             x = tl.load(x_ptr + offs)
             smooth_scale = tl.load(ss_ptr + soffs)[:, None]
         else:
-            x = tl.load(x_ptr + offs,
-                        mask=(i * H + tl.arange(0, H)[:, None] < M) & (
-                                pid * W + tl.arange(0, W)[None, :] < N))
+            x = tl.load(
+                x_ptr + offs,
+                mask=(i * H + tl.arange(0, H)[:, None] < M)
+                & (pid * W + tl.arange(0, W)[None, :] < N),
+            )
             other = 0.0 if REVERSE else 1e30
-            smooth_scale = tl.load(ss_ptr + soffs, mask=soffs < M, other=other)[
-                           :, None]
+            smooth_scale = tl.load(ss_ptr + soffs, mask=soffs < M, other=other)[:, None]
         if REVERSE:
             x = x * smooth_scale
         else:
@@ -642,25 +750,26 @@ def transpose_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, M, N, P,
     if EVEN:
         tl.store(qs_ptr + pid * W + tl.arange(0, W), scale)
     else:
-        tl.store(qs_ptr + pid * W + tl.arange(0, W), scale,
-                 mask=pid * W + tl.arange(0, W) < N)
+        tl.store(
+            qs_ptr + pid * W + tl.arange(0, W),
+            scale,
+            mask=pid * W + tl.arange(0, W) < N,
+        )
 
     s = (1.0 / scale)[None, :]
     offs = pid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
     soffs = tl.arange(0, H)
-    toffs = pid * W * P + tl.arange(0, W)[:, None] * P + tl.arange(0, H)[None,
-                                                         :]
+    toffs = pid * W * P + tl.arange(0, W)[:, None] * P + tl.arange(0, H)[None, :]
     for i in range(m):
         if EVEN:
             x = tl.load(x_ptr + offs).to(tl.float32)
             smooth_scale = tl.load(ss_ptr + soffs)[:, None]
         else:
-            x = tl.load(x_ptr + offs,
-                        mask=(i * H + tl.arange(0, H)[:, None] < M)).to(
-                tl.float32)
+            x = tl.load(x_ptr + offs, mask=(i * H + tl.arange(0, H)[:, None] < M)).to(
+                tl.float32
+            )
             other = 0.0 if REVERSE else 1e30
-            smooth_scale = tl.load(ss_ptr + soffs, mask=soffs < M, other=other)[
-                           :, None]
+            smooth_scale = tl.load(ss_ptr + soffs, mask=soffs < M, other=other)[:, None]
 
         if REVERSE:
             x = (x * smooth_scale * s).to(q_ptr.dtype.element_ty)
@@ -670,18 +779,17 @@ def transpose_smooth_quant_kernel(x_ptr, q_ptr, ss_ptr, qs_ptr, M, N, P,
             tl.store(q_ptr + toffs, tl.trans(x))
         else:
             # mask with P instead of M
-            tl.store(q_ptr + toffs, tl.trans(x),
-                     mask=(i * H + tl.arange(0, H)[None, :] < P))
+            tl.store(
+                q_ptr + toffs, tl.trans(x), mask=(i * H + tl.arange(0, H)[None, :] < P)
+            )
         offs += H * N
         toffs += H
         soffs += H
 
 
-def triton_transpose_smooth_quant(x,
-                                  smooth_scale,
-                                  reverse=False,
-                                  pad=False,
-                                  round_scale=False):
+def triton_transpose_smooth_quant(
+    x, smooth_scale, reverse=False, pad=False, round_scale=False
+):
     # col-wise read, row-wise write
     # M should be padded if M % 32 != 0
     """"""
@@ -710,44 +818,54 @@ def triton_transpose_smooth_quant(x,
         reverse,
         round_scale,
         num_stages=3,
-        num_warps=4 if N >= 8192 else 4
+        num_warps=4 if N >= 8192 else 4,
     )
     return x_q, x_scale
 
 
 @triton.jit
-def transpose_rescale_smooth_quant_kernel(x_ptr, q_ptr,
-                                          org_smooth_scale_ptr,
-                                          org_quant_scale_ptr,
-                                          transpose_smooth_scale_ptr,
-                                          transpose_quant_scale_ptr, M,
-                                          N, P, H: tl.constexpr,
-                                          W: tl.constexpr,
-                                          EVEN: tl.constexpr,
-                                          ROUND: tl.constexpr):
+def transpose_rescale_smooth_quant_kernel(
+    x_ptr,
+    q_ptr,
+    org_smooth_scale_ptr,
+    org_quant_scale_ptr,
+    transpose_smooth_scale_ptr,
+    transpose_quant_scale_ptr,
+    M,
+    N,
+    P,
+    H: tl.constexpr,
+    W: tl.constexpr,
+    EVEN: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     # col-wise read, row-wise write
     offs = pid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
     soffs = tl.arange(0, H)
     x_max = tl.zeros((W,), dtype=tl.float32)
-    org_smooth_scale = tl.load(
-        org_smooth_scale_ptr + pid * W + tl.arange(0, W))[None, :]
+    org_smooth_scale = tl.load(org_smooth_scale_ptr + pid * W + tl.arange(0, W))[
+        None, :
+    ]
 
     m = tl.cdiv(P, H)
     for i in range(m):
         if EVEN:
             x = tl.load(x_ptr + offs).to(tl.float32)
             org_quant_scale = tl.load(org_quant_scale_ptr + soffs)[:, None]
-            transpose_smooth_scale = tl.load(
-                transpose_smooth_scale_ptr + soffs)[:, None]
+            transpose_smooth_scale = tl.load(transpose_smooth_scale_ptr + soffs)[
+                :, None
+            ]
         else:
-            x = tl.load(x_ptr + offs,
-                        mask=(i * H + tl.arange(0, H)[:, None] < M)).to(
-                tl.float32)
-            org_quant_scale = tl.load(org_quant_scale_ptr + soffs,
-                                      mask=soffs < M, other=0.0)[:, None]
-            transpose_smooth_scale = tl.load(transpose_smooth_scale_ptr + soffs,
-                                             mask=soffs < M, other=0.0)[:, None]
+            x = tl.load(x_ptr + offs, mask=(i * H + tl.arange(0, H)[:, None] < M)).to(
+                tl.float32
+            )
+            org_quant_scale = tl.load(
+                org_quant_scale_ptr + soffs, mask=soffs < M, other=0.0
+            )[:, None]
+            transpose_smooth_scale = tl.load(
+                transpose_smooth_scale_ptr + soffs, mask=soffs < M, other=0.0
+            )[:, None]
 
         x = x / org_smooth_scale * (org_quant_scale * transpose_smooth_scale)
         x_max = tl.maximum(tl.max(tl.abs(x), axis=0), x_max)
@@ -764,33 +882,34 @@ def transpose_rescale_smooth_quant_kernel(x_ptr, q_ptr,
 
     offs = pid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
     soffs = tl.arange(0, H)
-    toffs = pid * W * P + tl.arange(0, W)[:, None] * P + tl.arange(0, H)[None,
-                                                         :]
+    toffs = pid * W * P + tl.arange(0, W)[:, None] * P + tl.arange(0, H)[None, :]
     for i in range(m):
 
         if EVEN:
             x = tl.load(x_ptr + offs).to(tl.float32)
             org_quant_scale = tl.load(org_quant_scale_ptr + soffs)[:, None]
-            transpose_smooth_scale = tl.load(
-                transpose_smooth_scale_ptr + soffs)[:, None]
+            transpose_smooth_scale = tl.load(transpose_smooth_scale_ptr + soffs)[
+                :, None
+            ]
         else:
-            x = tl.load(x_ptr + offs,
-                        mask=(i * H + tl.arange(0, H)[:, None] < M) & (
-                                pid * W + tl.arange(0, W)[None, :] < N)).to(
-                tl.float32)
-            org_quant_scale = tl.load(org_quant_scale_ptr + soffs,
-                                      mask=soffs < M, other=0.0)[:, None]
-            transpose_smooth_scale = tl.load(transpose_smooth_scale_ptr + soffs,
-                                             mask=soffs < M, other=0.0)[:, None]
+            x = tl.load(
+                x_ptr + offs,
+                mask=(i * H + tl.arange(0, H)[:, None] < M)
+                & (pid * W + tl.arange(0, W)[None, :] < N),
+            ).to(tl.float32)
+            org_quant_scale = tl.load(
+                org_quant_scale_ptr + soffs, mask=soffs < M, other=0.0
+            )[:, None]
+            transpose_smooth_scale = tl.load(
+                transpose_smooth_scale_ptr + soffs, mask=soffs < M, other=0.0
+            )[:, None]
 
-        x = x * s / org_smooth_scale * (
-                org_quant_scale * transpose_smooth_scale)
+        x = x * s / org_smooth_scale * (org_quant_scale * transpose_smooth_scale)
         x = tl.trans(x.to(q_ptr.dtype.element_ty))
         if EVEN:
             tl.store(q_ptr + toffs, x)
         else:
-            tl.store(q_ptr + toffs, x,
-                     mask=(i * H + tl.arange(0, H)[None, :] < P))
+            tl.store(q_ptr + toffs, x, mask=(i * H + tl.arange(0, H)[None, :] < P))
         offs += H * N
         toffs += H
         soffs += H
@@ -805,12 +924,15 @@ implement: x_q/org_smooth_scale*(org_quant_scale*smooth_scale) -> colwise quant 
 """
 
 
-def triton_transpose_rescale_smooth_quant(x_q, org_smooth_scale,
-                                          org_quant_scale,
-                                          transpose_smooth_scale,
-                                          reverse=True,
-                                          pad=False,
-                                          round_scale=False):
+def triton_transpose_rescale_smooth_quant(
+    x_q,
+    org_smooth_scale,
+    org_quant_scale,
+    transpose_smooth_scale,
+    reverse=True,
+    pad=False,
+    round_scale=False,
+):
     """"""
     assert reverse
     M, N = x_q.shape
@@ -831,12 +953,15 @@ def triton_transpose_rescale_smooth_quant(x_q, org_smooth_scale,
         org_quant_scale,
         transpose_smooth_scale,
         x_scale,
-        M, N, P,
-        H, W,
+        M,
+        N,
+        P,
+        H,
+        W,
         EVEN,
         round_scale,
         num_stages=4,
-        num_warps=8
+        num_warps=8,
     )
 
     return xt_q, x_scale
@@ -869,13 +994,25 @@ pad: # pad M to be multiplier of 32, including quant scales and transposed x
 # y = x @ w
 # dx = y @ wT
 # dwT = yT @ x
-def triton_smooth_quant_input(x, smooth_scale, x_q=None, x_scale=None,
-                              xt_q=None,
-                              transpose=True, pad=True, round_scale=False):
+def triton_smooth_quant_input(
+    x,
+    smooth_scale,
+    x_q=None,
+    x_scale=None,
+    xt_q=None,
+    transpose=True,
+    pad=True,
+    round_scale=False,
+):
     """"""
-    x_q, x_scale, x_maxs = triton_smooth_quant(x, smooth_scale, x_q=x_q,
-                                               x_scale=x_scale, reverse=False,
-                                               round_scale=round_scale)
+    x_q, x_scale, x_maxs = triton_smooth_quant(
+        x,
+        smooth_scale,
+        x_q=x_q,
+        x_scale=x_scale,
+        reverse=False,
+        round_scale=round_scale,
+    )
 
     if transpose:
         xt_q = triton_transpose_and_pad(x_q, out=xt_q, pad=pad)
@@ -889,36 +1026,36 @@ def triton_smooth_quant_input(x, smooth_scale, x_q=None, x_scale=None,
 # y = x @ w
 # dx = y @ wT
 # dwT = yT @ x
-def triton_smooth_quant_gradient(y,
-                                 smooth_scale,
-                                 transpose_smooth_scale,
-                                 reverse=True,
-                                 transpose=True,
-                                 pad=True,
-                                 round_scale=False):
+def triton_smooth_quant_gradient(
+    y,
+    smooth_scale,
+    transpose_smooth_scale,
+    reverse=True,
+    transpose=True,
+    pad=True,
+    round_scale=False,
+):
     """"""
-    assert reverse, ("args `smooth_scale` and/or `transpose_smooth_scale` "
-                     "must be in reciprocal format in triton_smooth_quant_grad")
-    y_q, y_scale, _ = triton_smooth_quant(y, smooth_scale, reverse=True,
-                                          round_scale=round_scale)
+    assert reverse, (
+        "args `smooth_scale` and/or `transpose_smooth_scale` "
+        "must be in reciprocal format in triton_smooth_quant_grad"
+    )
+    y_q, y_scale, _ = triton_smooth_quant(
+        y, smooth_scale, reverse=True, round_scale=round_scale
+    )
     if transpose:
-        yt_q, yt_scale = triton_transpose_smooth_quant(y,
-                                                       transpose_smooth_scale,
-                                                       reverse=True,
-                                                       pad=pad,
-                                                       round_scale=round_scale)
+        yt_q, yt_scale = triton_transpose_smooth_quant(
+            y, transpose_smooth_scale, reverse=True, pad=pad, round_scale=round_scale
+        )
     else:
         yt_q, yt_scale = None, None
 
     return y_q, yt_q, y_scale, yt_scale
 
 
-def triton_smooth_quant_weight(w,
-                               smooth_scale,
-                               w_q,
-                               quant_scale,
-                               subrow_scales, offset=0,
-                               round_scale=False):
+def triton_smooth_quant_weight(
+    w, smooth_scale, w_q, quant_scale, subrow_scales, offset=0, round_scale=False
+):
     """"""
     assert w.ndim == 1
     assert w_q.size(1) == smooth_scale.size(0)
@@ -927,17 +1064,25 @@ def triton_smooth_quant_weight(w,
     M, N = w_q.shape
 
     if size == M * N:
-        triton_smooth_quant(w.view(M, N), smooth_scale, x_q=w_q,
-                            x_scale=quant_scale,
-                            round_scale=round_scale)
+        triton_smooth_quant(
+            w.view(M, N),
+            smooth_scale,
+            x_q=w_q,
+            x_scale=quant_scale,
+            round_scale=round_scale,
+        )
     elif offset % N == 0 and size % N == 0:
         n_row = size // N
         row_id = offset // N
-        w_q_slice = w_q[row_id:row_id + n_row]
-        quant_scale_slice = quant_scale[row_id:row_id + n_row]
-        triton_smooth_quant(w.view(n_row, N), smooth_scale, x_q=w_q_slice,
-                            x_scale=quant_scale_slice,
-                            round_scale=round_scale)
+        w_q_slice = w_q[row_id : row_id + n_row]
+        quant_scale_slice = quant_scale[row_id : row_id + n_row]
+        triton_smooth_quant(
+            w.view(n_row, N),
+            smooth_scale,
+            x_q=w_q_slice,
+            x_scale=quant_scale_slice,
+            round_scale=round_scale,
+        )
     else:
         row_si = (offset - 1) // N + 1
         row_ei = (offset + size) // N
@@ -947,21 +1092,25 @@ def triton_smooth_quant_weight(w,
         mw_offset = 0 if col_si == 0 else N - col_si
         w_q_slice = w_q[row_si:row_ei]
         quant_scale_slice = quant_scale[row_si:row_ei]
-        w_slice = w[mw_offset:mw_offset + n_row * N].view(n_row, N)
-        triton_smooth_quant(w_slice,
-                            smooth_scale,
-                            x_q=w_q_slice,
-                            x_scale=quant_scale_slice,
-                            round_scale=round_scale)
+        w_slice = w[mw_offset : mw_offset + n_row * N].view(n_row, N)
+        triton_smooth_quant(
+            w_slice,
+            smooth_scale,
+            x_q=w_q_slice,
+            x_scale=quant_scale_slice,
+            round_scale=round_scale,
+        )
 
         # subrow scale is writed by the row with leading master weights
         if col_si > 0 or col_ei > 0:
-            triton_subrow_smooth_quant(w,
-                                       smooth_scale,
-                                       w_q,
-                                       quant_scale,
-                                       subrow_scales,
-                                       offset,
-                                       size,
-                                       reverse=False,
-                                       round_scale=round_scale)
+            triton_subrow_smooth_quant(
+                w,
+                smooth_scale,
+                w_q,
+                quant_scale,
+                subrow_scales,
+                offset,
+                size,
+                reverse=False,
+                round_scale=round_scale,
+            )

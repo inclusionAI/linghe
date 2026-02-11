@@ -7,7 +7,6 @@ import torch
 import triton
 import triton.language as tl
 
-
 # os.environ["TRITON_PRINT_AUTOTUNING"] = "1"
 
 
@@ -22,27 +21,28 @@ import triton.language as tl
 #     # for num_warps in [8]
 # ]
 
+
 # @triton.autotune(configs=fp8_gemm_configs, key=["M", "N", "K"])
 @triton.jit
 def scaled_mm_kernel(
-        a_ptr,
-        b_ptr,
-        c_ptr,
-        a_scale_ptr,
-        b_scale_ptr,
-        N,
-        K,
-        ACCUM: tl.constexpr,
-        EVEN: tl.constexpr,
-        BLOCK_SIZE_K: tl.constexpr,
-        BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
+    a_ptr,
+    b_ptr,
+    c_ptr,
+    a_scale_ptr,
+    b_scale_ptr,
+    N,
+    K,
+    ACCUM: tl.constexpr,
+    EVEN: tl.constexpr,
+    BLOCK_SIZE_K: tl.constexpr,
+    BLOCK_SIZE_M: tl.constexpr,
+    BLOCK_SIZE_N: tl.constexpr,
 ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = tl.cdiv(K, BLOCK_SIZE_K)
-    offs_m = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M))
-    offs_n = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
+    offs_m = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    offs_n = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     offs_k = tl.arange(0, BLOCK_SIZE_K)
     a_ptrs = a_ptr + offs_m[:, None] * K + offs_k[None, :]
     b_ptrs = b_ptr + offs_n[None, :] * K + offs_k[:, None]
@@ -80,13 +80,15 @@ def scaled_mm_kernel(
     tl.store(c_ptrs, accumulator)
 
 
-def triton_scaled_mm(a: torch.Tensor,
-                     b: torch.Tensor,
-                     a_scale: torch.Tensor,
-                     b_scale: torch.Tensor,
-                     out_dtype=torch.float32,
-                     c=None,
-                     accum=True):
+def triton_scaled_mm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_scale: torch.Tensor,
+    b_scale: torch.Tensor,
+    out_dtype=torch.float32,
+    c=None,
+    accum=True,
+):
     """
     similar to torch._scaled_mm, support accumulating gemm output to c
         and low precision output tensor
@@ -113,17 +115,21 @@ def triton_scaled_mm(a: torch.Tensor,
     BLOCK_SIZE_N = 256
     EVEN = K % BLOCK_SIZE_K == 0
     grid = (M // BLOCK_SIZE_M, N // BLOCK_SIZE_N)  # noqa
-    scaled_mm_kernel[grid](a, b, c,
-                           a_scale,
-                           b_scale,
-                           N, K,
-                           ACCUM,
-                           EVEN,
-                           BLOCK_SIZE_K,
-                           BLOCK_SIZE_M,
-                           BLOCK_SIZE_N,
-                           num_stages=3,
-                           num_warps=8
-                           )
+    scaled_mm_kernel[grid](
+        a,
+        b,
+        c,
+        a_scale,
+        b_scale,
+        N,
+        K,
+        ACCUM,
+        EVEN,
+        BLOCK_SIZE_K,
+        BLOCK_SIZE_M,
+        BLOCK_SIZE_N,
+        num_stages=3,
+        num_warps=8,
+    )
 
     return c

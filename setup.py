@@ -9,8 +9,9 @@ import pkg_resources
 from setuptools import find_packages, setup
 
 with pathlib.Path("requirements.txt").open() as f:
-    install_requires = [str(requirement) for requirement in
-                        pkg_resources.parse_requirements(f)]
+    install_requires = [
+        str(requirement) for requirement in pkg_resources.parse_requirements(f)
+    ]
 
 setup(
     name="linghe",

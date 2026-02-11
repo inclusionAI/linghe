@@ -8,8 +8,9 @@ import math
 import torch
 
 
-def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
-                 amp=1.0, digest=4):
+def output_check(
+    org_out, opt_out, name="", rtol=None, atol=None, itol=0, amp=1.0, digest=4
+):
     org_out = org_out.detach()
     opt_out = opt_out.detach()
     assert org_out.dtype == opt_out.dtype, f"ref:{org_out.dtype} != out:{opt_out.dtype}"
@@ -20,17 +21,23 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
     opt_dtype = opt_out.dtype
 
     if org_dtype in (
-    torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
+        torch.bfloat16,
+        torch.float16,
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+    ):
         org_out = org_out.float()
-    elif org_dtype in (
-    torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
+    elif org_dtype in (torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
         org_out = org_out.int()
 
     if opt_dtype in (
-    torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
+        torch.bfloat16,
+        torch.float16,
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+    ):
         opt_out = opt_out.float()
-    elif org_dtype in (
-    torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
+    elif org_dtype in (torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
         opt_out = opt_out.int()
 
     if rtol is None:
@@ -75,10 +82,12 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
         org_mean = org_out.abs().mean()
         opt_max = opt_out.abs().max()
         opt_mean = opt_out.abs().mean()
-        print(f'\n{name:<16}  rel:{rel_err_str}  abs:{abs_error:.6f}  ' \
-              f'org:{org_max:.3f}/{org_mean:.3f} ' \
-              f'opt:{opt_max:.3f}/{opt_mean:.3f} ')
-        if (rtol >= 0 and atol >= 0):
+        print(
+            f"\n{name:<16}  rel:{rel_err_str}  abs:{abs_error:.6f}  "
+            f"org:{org_max:.3f}/{org_mean:.3f} "
+            f"opt:{opt_max:.3f}/{opt_mean:.3f} "
+        )
+        if rtol >= 0 and atol >= 0:
             # torch.testing.assert_close(opt_out, org_out, rtol=rtol, atol=atol)
             mistake_mask = diff >= (rtol * org_out.abs() + atol)
             if mistake_mask.float().sum().item() > 0:
@@ -90,16 +99,18 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
                 org_val = org_val[::itv].tolist()
                 opt_val = opt_val[::itv].tolist()
                 if org_dtype == torch.float64:
-                    org_str = ', '.join([f'{x:.8g}' for x in org_val])
-                    opt_str = ', '.join([f'{x:.8g}' for x in opt_val])
+                    org_str = ", ".join([f"{x:.8g}" for x in org_val])
+                    opt_str = ", ".join([f"{x:.8g}" for x in opt_val])
                 elif org_dtype == torch.float32:
-                    org_str = ', '.join([f'{x:.5g}' for x in org_val])
-                    opt_str = ', '.join([f'{x:.5g}' for x in opt_val])
+                    org_str = ", ".join([f"{x:.5g}" for x in org_val])
+                    opt_str = ", ".join([f"{x:.5g}" for x in opt_val])
                 else:
-                    org_str = ', '.join([f'{x:.3g}' for x in org_val])
-                    opt_str = ', '.join([f'{x:.3g}' for x in opt_val])
-                info = f"Mismatched elements: {mismatch_count} / {tot_cnt} ({mismatch_count / tot_cnt * 100:.1f}%) " \
-                       f"with {rtol} rtol and {atol} atol \n        org: {org_str} \n        opt: {opt_str} \n"
+                    org_str = ", ".join([f"{x:.3g}" for x in org_val])
+                    opt_str = ", ".join([f"{x:.3g}" for x in opt_val])
+                info = (
+                    f"Mismatched elements: {mismatch_count} / {tot_cnt} ({mismatch_count / tot_cnt * 100:.1f}%) "
+                    f"with {rtol} rtol and {atol} atol \n        org: {org_str} \n        opt: {opt_str} \n"
+                )
                 assert mismatch_count == 0, info
         return rel_error
     else:
@@ -111,8 +122,10 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
         else:
             diff_err_str = f"{mismatch_count}"
         max_error = diff.max()
-        print(f'\n{name:<16}  diff:{diff_err_str} max:{max_error}')
-        assert mismatch_count == 0, f"Mismatched elements: {mismatch_count} with {itol} itol"
+        print(f"\n{name:<16}  diff:{diff_err_str} max:{max_error}")
+        assert (
+            mismatch_count == 0
+        ), f"Mismatched elements: {mismatch_count} with {itol} itol"
         return mismatch_count
 
 
@@ -123,14 +136,16 @@ def quant_check(org_out, xq, wq, opt_out, mode):
     w_underflow = (wq == 0.0).sum().item() / wq.numel()
     x_overflow = (torch.isnan(xq)).sum().item()
     w_overflow = (torch.isnan(wq)).sum().item()
-    print(f'\n{mode}  rel:{rel_error:.3f}  abs:{abs_error:.3f}  ' \
-          f'org:{org_out.abs().max():.3f}/{org_out.abs().mean():.3f} ' \
-          f'opt:{opt_out.abs().max():.3f}/{opt_out.abs().mean():.3f} ' \
-          f'x_underflow:{x_underflow:.5f} w_underflow:{w_underflow:.5f} ' \
-          f'x_overflow:{x_overflow} w_overflow:{w_overflow}')
+    print(
+        f"\n{mode}  rel:{rel_error:.3f}  abs:{abs_error:.3f}  "
+        f"org:{org_out.abs().max():.3f}/{org_out.abs().mean():.3f} "
+        f"opt:{opt_out.abs().max():.3f}/{opt_out.abs().mean():.3f} "
+        f"x_underflow:{x_underflow:.5f} w_underflow:{w_underflow:.5f} "
+        f"x_overflow:{x_overflow} w_overflow:{w_overflow}"
+    )
 
 
-def inf_or_nan(xs, name=''):
+def inf_or_nan(xs, name=""):
     if not isinstance(xs, (list, tuple)):
         xs = [xs]
     hit = False
@@ -142,4 +157,5 @@ def inf_or_nan(xs, name=''):
     if hit:
         for x in xs:
             print(
-                f'{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}')
+                f"{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}"
+            )

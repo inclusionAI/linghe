@@ -7,9 +7,11 @@ import math
 
 import torch
 
-from linghe.attn.la import (triton_lightning_attention_forward,
-                            triton_lightning_attention_backward,
-                            triton_fused_lightning_attention_backward)
+from linghe.attn.la import (
+    triton_lightning_attention_forward,
+    triton_lightning_attention_backward,
+    triton_fused_lightning_attention_backward,
+)
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 
@@ -46,24 +48,24 @@ def torch_la(q, k, v, s, decay_scales):
     decay_arr = torch.exp(-decay_scales[:, None, None] * (arr[:, None] + 1))
     att = att + torch.matmul(query * decay_arr, s)
 
-    att = torch.reshape(att.transpose(1, 2),
-                        [bs, q_len, q_heads, head_dim]).contiguous()
+    att = torch.reshape(
+        att.transpose(1, 2), [bs, q_len, q_heads, head_dim]
+    ).contiguous()
 
-    decay_key = key * torch.exp(
-        -decay_scales[:, None, None] * (q_len - 1 - arr))
+    decay_key = key * torch.exp(-decay_scales[:, None, None] * (q_len - 1 - arr))
     state = decay_key @ value + s * torch.exp(-decay_scales[:, None, None])
 
     return att.to(dtype), state.to(torch.float32)
 
 
-def torch_varlen_torch_la(q, k, v, s, cu_seqlens, padded_cu_seqlens,
-                          decay_scales):
+def torch_varlen_torch_la(q, k, v, s, cu_seqlens, padded_cu_seqlens, decay_scales):
     pass
 
 
-def make_varlen_input(qo_heads=16, kv_heads=16, dim=128, qls=[1024, 1024],
-                      kls=[1024, 1024]):
-    device = torch.device('cuda:0')
+def make_varlen_input(
+    qo_heads=16, kv_heads=16, dim=128, qls=[1024, 1024], kls=[1024, 1024]
+):
+    device = torch.device("cuda:0")
     dtype = torch.bfloat16
     qs = []
     ks = []
@@ -84,21 +86,19 @@ def make_varlen_input(qo_heads=16, kv_heads=16, dim=128, qls=[1024, 1024],
     return q, k, v
 
 
-def test_la(bs=1, length=4096, qo_heads=16, kv_heads=16, dim=128, digest=False,
-            bench=False):
-    device = torch.device('cuda:0')
+def test_la(
+    bs=1, length=4096, qo_heads=16, kv_heads=16, dim=128, digest=False, bench=False
+):
+    device = torch.device("cuda:0")
     dtype = torch.bfloat16
 
-    q = torch.randn(bs, length, qo_heads, dim, dtype=dtype,
-                    device=device) ** 3 * 0.1
+    q = torch.randn(bs, length, qo_heads, dim, dtype=dtype, device=device) ** 3 * 0.1
     q = q.requires_grad_()
 
-    k = torch.randn(bs, length, kv_heads, dim, dtype=dtype,
-                    device=device) ** 3 * 0.1
+    k = torch.randn(bs, length, kv_heads, dim, dtype=dtype, device=device) ** 3 * 0.1
     k = k.requires_grad_()
 
-    v = torch.randn(bs, length, kv_heads, dim, dtype=dtype,
-                    device=device) ** 3 * 0.1
+    v = torch.randn(bs, length, kv_heads, dim, dtype=dtype, device=device) ** 3 * 0.1
     v = v.requires_grad_()
 
     g = torch.randn(bs, length, qo_heads, dim, dtype=dtype, device=device)
@@ -106,8 +106,8 @@ def test_la(bs=1, length=4096, qo_heads=16, kv_heads=16, dim=128, digest=False,
     s = torch.zeros(bs, kv_heads, dim, dim, dtype=torch.float32, device=device)
 
     decay_scales = 2 ** (
-                -0.5 * torch.arange(1, qo_heads + 1, dtype=torch.float32,
-                                    device=device))
+        -0.5 * torch.arange(1, qo_heads + 1, dtype=torch.float32, device=device)
+    )
     # decay_scales = 0.0 * torch.ones(qo_heads, dtype=torch.float32, device=device)
     output_ref, state_ref = torch_la(q, k, v, s, decay_scales)
     output_ref.backward(g)
@@ -120,32 +120,53 @@ def test_la(bs=1, length=4096, qo_heads=16, kv_heads=16, dim=128, digest=False,
 
     output, state = triton_lightning_attention_forward(q, k, v, decay_scales)
 
-    output_check(output_ref, output, name='output', rtol=0.1, atol=0.2)
-    output_check(state_ref, state, name='state', rtol=0.1, atol=0.2)
+    output_check(output_ref, output, name="output", rtol=0.1, atol=0.2)
+    output_check(state_ref, state, name="state", rtol=0.1, atol=0.2)
 
     dq, dk, dv = triton_lightning_attention_backward(g, q, k, v, decay_scales)
 
-    output_check(dq_ref, dq, name='dq', rtol=-0.1, atol=1.0)
-    output_check(dk_ref, dk, name='dk', rtol=-0.1, atol=1.0)
-    output_check(dv_ref, dv, name='dv', rtol=-0.1, atol=1.0)
+    output_check(dq_ref, dq, name="dq", rtol=-0.1, atol=1.0)
+    output_check(dk_ref, dk, name="dk", rtol=-0.1, atol=1.0)
+    output_check(dv_ref, dv, name="dv", rtol=-0.1, atol=1.0)
 
     max_decay_scale = decay_scales.max().item()
     if max_decay_scale < 0.1:
-        dq, dk, dv = triton_fused_lightning_attention_backward(g, q, k, v,
-                                                               state,
-                                                               decay_scales)
-        output_check(dq_ref, dq, name='dq', rtol=-0.1, atol=0.1)
-        output_check(dk_ref, dk, name='dk', rtol=-0.1, atol=0.1)
-        output_check(dv_ref, dv, name='dv', rtol=-0.1, atol=0.1)
+        dq, dk, dv = triton_fused_lightning_attention_backward(
+            g, q, k, v, state, decay_scales
+        )
+        output_check(dq_ref, dq, name="dq", rtol=-0.1, atol=0.1)
+        output_check(dk_ref, dk, name="dk", rtol=-0.1, atol=0.1)
+        output_check(dv_ref, dv, name="dv", rtol=-0.1, atol=0.1)
 
     if bench:
         ref_bytes = bs * length * qo_heads * dim * 8 + bs * qo_heads * dim * dim * 8
-        benchmark_func(triton_lightning_attention_forward, q, k, v,
-                       decay_scales, ref_bytes=ref_bytes)
-        benchmark_func(triton_lightning_attention_backward, g, q, k, v,
-                       decay_scales, ref_bytes=ref_bytes)
-        benchmark_func(triton_fused_lightning_attention_backward, g, q, k, v,
-                       state, decay_scales, ref_bytes=ref_bytes)
+        benchmark_func(
+            triton_lightning_attention_forward,
+            q,
+            k,
+            v,
+            decay_scales,
+            ref_bytes=ref_bytes,
+        )
+        benchmark_func(
+            triton_lightning_attention_backward,
+            g,
+            q,
+            k,
+            v,
+            decay_scales,
+            ref_bytes=ref_bytes,
+        )
+        benchmark_func(
+            triton_fused_lightning_attention_backward,
+            g,
+            q,
+            k,
+            v,
+            state,
+            decay_scales,
+            ref_bytes=ref_bytes,
+        )
 
 
 # def test_varlen_la(qls=[1024,1024], qo_heads=16, kv_heads=16, dim=128, digest=False, bench=False):
@@ -195,6 +216,7 @@ def test_la(bs=1, length=4096, qo_heads=16, kv_heads=16, dim=128, digest=False,
 #         benchmark_func(triton_lightning_attention_forward, q, k, v, decay_scales, cu_seqlens, padded_cu_seqlens, max_q_length, ref_bytes=ref_bytes)
 
 
-if __name__ == '__main__':
-    test_la(bs=1, length=8192, qo_heads=64, kv_heads=64, dim=128, digest=False,
-            bench=False)
+if __name__ == "__main__":
+    test_la(
+        bs=1, length=8192, qo_heads=64, kv_heads=64, dim=128, digest=False, bench=False
+    )

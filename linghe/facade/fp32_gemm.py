@@ -5,9 +5,11 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import torch
 
-from linghe.gemm.fp32_gemm import (triton_fp32_gemm,
-                                   triton_fp32_gemm_for_backward,
-                                   triton_fp32_gemm_for_update)
+from linghe.gemm.fp32_gemm import (
+    triton_fp32_gemm,
+    triton_fp32_gemm_for_backward,
+    triton_fp32_gemm_for_update,
+)
 
 
 class Fp32GEMM(torch.autograd.Function):
@@ -32,8 +34,7 @@ class Fp32GEMM(torch.autograd.Function):
     def backward(ctx, grad_output):
         grad_shape = grad_output.shape
         if len(grad_shape) == 3:
-            grad_output = grad_output.view(grad_shape[0] * grad_shape[1],
-                                           grad_shape[2])
+            grad_output = grad_output.view(grad_shape[0] * grad_shape[1], grad_shape[2])
 
         input, weight = ctx.saved_tensors
 

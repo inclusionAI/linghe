@@ -49,9 +49,9 @@ def _get_flat_tid():
 @triton.jit
 def _get_flat_bid():
     return (
-            tl.program_id(2) * tl.num_programs(1) * tl.num_programs(0)
-            + tl.program_id(1) * tl.num_programs(0)
-            + tl.program_id(0)
+        tl.program_id(2) * tl.num_programs(1) * tl.num_programs(0)
+        + tl.program_id(1) * tl.num_programs(0)
+        + tl.program_id(0)
     )
 
 
@@ -101,12 +101,12 @@ def _wait_signal(addrs, sem: tl.constexpr):
 
 @triton.jit
 def symm_mem_sync(
-        signal_pad_ptrs,
-        block_id,
-        rank: tl.constexpr,
-        world_size: tl.constexpr,
-        hasPreviousMemAccess: tl.constexpr = False,
-        hasSubsequentMemAccess: tl.constexpr = False,
+    signal_pad_ptrs,
+    block_id,
+    rank: tl.constexpr,
+    world_size: tl.constexpr,
+    hasPreviousMemAccess: tl.constexpr = False,
+    hasSubsequentMemAccess: tl.constexpr = False,
 ):
     """
     Synchronizes blocks with matching block_id across participating devices.
@@ -156,10 +156,8 @@ def symm_mem_sync(
         tl.debug_barrier()
 
     if flat_tid < world_size:
-        _send_signal(send_addrs,
-                     "release" if hasPreviousMemAccess else "relaxed")
-        _wait_signal(wait_addrs,
-                     "acquire" if hasSubsequentMemAccess else "relaxed")
+        _send_signal(send_addrs, "release" if hasPreviousMemAccess else "relaxed")
+        _wait_signal(wait_addrs, "acquire" if hasSubsequentMemAccess else "relaxed")
 
     if hasSubsequentMemAccess:
         tl.debug_barrier()

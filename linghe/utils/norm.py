@@ -11,42 +11,47 @@ import triton.language as tl
 
 
 @triton.jit
-def rms_norm_forward_kernel(x_ptr,
-                            weight_ptr,
-                            out_ptr,
-                            rms_ptr,
-                            eps,
-                            M,
-                            T,
-                            n,
-                            N: tl.constexpr,
-                            W: tl.constexpr,
-                            REUSE: tl.constexpr):
+def rms_norm_forward_kernel(
+    x_ptr,
+    weight_ptr,
+    out_ptr,
+    rms_ptr,
+    eps,
+    M,
+    T,
+    n,
+    N: tl.constexpr,
+    W: tl.constexpr,
+    REUSE: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
-    weight = tl.load(weight_ptr + tl.arange(0, N),
-                     mask=tl.arange(0, N) < n).to(tl.float32)[None, :]
+    weight = tl.load(weight_ptr + tl.arange(0, N), mask=tl.arange(0, N) < n).to(
+        tl.float32
+    )[None, :]
 
-    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[
-                                                            None, :]
+    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[None, :]
     for i in range(T):
         mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (
-                    tl.arange(0, N) < n)
-        x = tl.load(x_ptr + offs,
-                    mask=mask).to(
-            tl.float32)
+            tl.arange(0, N) < n
+        )
+        x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
         if REUSE:
-            rms = tl.load(rms_ptr + pid * W * T + i * W + tl.arange(0, W),
-                          mask=pid * W * T + i * W + tl.arange(0, W) < M,
-                          other=1.0)
+            rms = tl.load(
+                rms_ptr + pid * W * T + i * W + tl.arange(0, W),
+                mask=pid * W * T + i * W + tl.arange(0, W) < M,
+                other=1.0,
+            )
         else:
             rms = tl.rsqrt(tl.sum(x * x, axis=1) / n + eps)
-            tl.store(rms_ptr + pid * W * T + i * W + tl.arange(0, W), rms,
-                     mask=pid * W * T + i * W + tl.arange(0, W) < M)
+            tl.store(
+                rms_ptr + pid * W * T + i * W + tl.arange(0, W),
+                rms,
+                mask=pid * W * T + i * W + tl.arange(0, W) < M,
+            )
 
         x = (x * rms[:, None]) * weight
 
-        tl.store(out_ptr + offs, x,
-                 mask=mask)
+        tl.store(out_ptr + offs, x, mask=mask)
         offs += n * W
 
 
@@ -57,7 +62,7 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None, rms=None):
         x: input tensor
         weight: weight of rms norm
         eps: epsilon of rms norm
-        rms: use x*rms to calculate output if rms is not None, 
+        rms: use x*rms to calculate output if rms is not None,
             it will accelerate recompute of rms norm
     Returns:
         out: output tensor
@@ -83,70 +88,57 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None, rms=None):
 
     grid = (triton.cdiv(M, T * W),)
     rms_norm_forward_kernel[grid](
-        x,
-        weight,
-        out,
-        rms,
-        eps,
-        M,
-        T,
-        n,
-        N,
-        W,
-        REUSE,
-        num_stages=3,
-        num_warps=4
+        x, weight, out, rms, eps, M, T, n, N, W, REUSE, num_stages=3, num_warps=4
     )
     return out, rms
 
 
 @triton.jit
 def rms_norm_backward_kernel(
-        grad_output_ptr,
-        x_ptr,
-        w_ptr,
-        rms_ptr,
-        dx_ptr,
-        dw_ptr,
-        eps,
-        M,
-        T,
-        n,
-        N: tl.constexpr,
-        W: tl.constexpr,
-        REUSE: tl.constexpr
+    grad_output_ptr,
+    x_ptr,
+    w_ptr,
+    rms_ptr,
+    dx_ptr,
+    dw_ptr,
+    eps,
+    M,
+    T,
+    n,
+    N: tl.constexpr,
+    W: tl.constexpr,
+    REUSE: tl.constexpr,
 ):
     pid = tl.program_id(0)
 
-    w = tl.load(w_ptr + tl.arange(0, N), mask=tl.arange(0, N) < n).to(
-        tl.float32)
+    w = tl.load(w_ptr + tl.arange(0, N), mask=tl.arange(0, N) < n).to(tl.float32)
 
-    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[
-                                                            None, :]
+    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[None, :]
     w_grads = tl.zeros((N,), dtype=tl.float32)
     for i in range(T):
         mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (
-                    tl.arange(0, N) < n)
+            tl.arange(0, N) < n
+        )
 
         x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
         g = tl.load(grad_output_ptr + offs, mask=mask).to(tl.float32)
         if REUSE:
-            r = tl.load(rms_ptr + pid * W * T + i * W + tl.arange(0, W),
-                        mask=pid * W * T + i * W + tl.arange(0, W) < M)[:, None]
+            r = tl.load(
+                rms_ptr + pid * W * T + i * W + tl.arange(0, W),
+                mask=pid * W * T + i * W + tl.arange(0, W) < M,
+            )[:, None]
         else:
             r = tl.rsqrt(tl.sum(x * x, 1) / n + eps)[:, None]
         w_grad = x * g * r
         w_grads += tl.sum(w_grad, 0)
 
-        dx = r * g * w - r * r * r * x * tl.sum(x * g * w, 1,
-                                                keep_dims=True) / n
+        dx = r * g * w - r * r * r * x * tl.sum(x * g * w, 1, keep_dims=True) / n
 
         tl.store(dx_ptr + offs, dx, mask=mask)
 
         offs += n * W
 
-    tl.store(dw_ptr + pid * n + tl.arange(0, N), w_grads,
-             mask=tl.arange(0, N) < n)
+    tl.store(dw_ptr + pid * n + tl.arange(0, N), w_grads, mask=tl.arange(0, N) < n)
 
 
 def triton_rms_norm_backward(grad_output, x, w, eps=1e-6, rms=None):
@@ -182,7 +174,7 @@ def triton_rms_norm_backward(grad_output, x, w, eps=1e-6, rms=None):
         W,
         REUSE,
         num_stages=3,
-        num_warps=4
+        num_warps=4,
     )
     return dx, tmp_dw.sum(dim=0)
 
@@ -190,31 +182,31 @@ def triton_rms_norm_backward(grad_output, x, w, eps=1e-6, rms=None):
 # output non-transposed and transposed together
 # performance is bad with batchsize < 16384
 @triton.jit
-def rms_norm_and_block_quant_forward_kernel(x_ptr,
-                                            weight_ptr,
-                                            out_ptr,
-                                            scale_ptr,
-                                            transpose_output_ptr,
-                                            transpose_scale_ptr,
-                                            rms_ptr,
-                                            eps,
-                                            M,
-                                            n,
-                                            N: tl.constexpr,
-                                            T: tl.constexpr,
-                                            W: tl.constexpr,
-                                            H: tl.constexpr,
-                                            ROUND: tl.constexpr):
+def rms_norm_and_block_quant_forward_kernel(
+    x_ptr,
+    weight_ptr,
+    out_ptr,
+    scale_ptr,
+    transpose_output_ptr,
+    transpose_scale_ptr,
+    rms_ptr,
+    eps,
+    M,
+    n,
+    N: tl.constexpr,
+    T: tl.constexpr,
+    W: tl.constexpr,
+    H: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
 
     NB: tl.constexpr = N // 128
     nb = n // 128
 
     mask = tl.arange(0, N) < n
-    weight = tl.load(weight_ptr + tl.arange(0, N), mask=mask).to(tl.float32)[
-             None, :]
-    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[
-                                                            None, :]
+    weight = tl.load(weight_ptr + tl.arange(0, N), mask=mask).to(tl.float32)[None, :]
+    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[None, :]
     for i in range(T):
         indices = pid * W * T + i * W + tl.arange(0, W)
         masks = (indices[:, None] < M) & (tl.arange(0, N) < n)
@@ -228,16 +220,16 @@ def rms_norm_and_block_quant_forward_kernel(x_ptr,
             scale = tl.exp2(tl.ceil(tl.log2(scale)))
         x = (x / scale[:, :, None]).to(out_ptr.dtype.element_ty)
         x = tl.reshape(x, [W, N])
-        tl.store(scale_ptr + tl.arange(0, NB)[:, None] * M + indices[None, :],
-                 tl.trans(scale),
-                 mask=(indices[None, :] < M) & (tl.arange(0, NB)[:, None] < nb))
+        tl.store(
+            scale_ptr + tl.arange(0, NB)[:, None] * M + indices[None, :],
+            tl.trans(scale),
+            mask=(indices[None, :] < M) & (tl.arange(0, NB)[:, None] < nb),
+        )
         tl.store(out_ptr + offs, x, mask=masks)
         offs += n * W
 
-    offs = pid * W * T * n + tl.arange(0, 128)[:, None] * n + tl.arange(0, H)[
-                                                              None, :]
-    toffs = pid * 128 + tl.arange(0, H)[:, None] * M + tl.arange(0, 128)[
-                                                       None, :]
+    offs = pid * W * T * n + tl.arange(0, 128)[:, None] * n + tl.arange(0, H)[None, :]
+    toffs = pid * 128 + tl.arange(0, H)[:, None] * M + tl.arange(0, 128)[None, :]
     indices = pid * W * T + tl.arange(0, 128)
     tl.debug_barrier()
     rms = tl.load(rms_ptr + indices, mask=indices < M)[:, None]
@@ -251,35 +243,34 @@ def rms_norm_and_block_quant_forward_kernel(x_ptr,
         tl.store(transpose_scale_ptr + pid * n + i * H + tl.arange(0, H), scale)
 
         x = (x / scale).to(transpose_output_ptr.dtype.element_ty)
-        tl.store(transpose_output_ptr + toffs, tl.trans(x),
-                 mask=indices[None, :] < M)
+        tl.store(transpose_output_ptr + toffs, tl.trans(x), mask=indices[None, :] < M)
         offs += H
         toffs += M * H
 
 
 # output non-transposed tensor only
 @triton.jit
-def rms_norm_and_block_quant_forward_n_kernel(x_ptr,
-                                              weight_ptr,
-                                              out_ptr,
-                                              scale_ptr,
-                                              rms_ptr,
-                                              eps,
-                                              M,
-                                              n,
-                                              N: tl.constexpr,
-                                              T: tl.constexpr,
-                                              W: tl.constexpr,
-                                              ROUND: tl.constexpr):
+def rms_norm_and_block_quant_forward_n_kernel(
+    x_ptr,
+    weight_ptr,
+    out_ptr,
+    scale_ptr,
+    rms_ptr,
+    eps,
+    M,
+    n,
+    N: tl.constexpr,
+    T: tl.constexpr,
+    W: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
 
     NB: tl.constexpr = N // 128
 
     mask = tl.arange(0, N) < n
-    weight = tl.load(weight_ptr + tl.arange(0, N), mask=mask).to(tl.float32)[
-             None, :]
-    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[
-                                                            None, :]
+    weight = tl.load(weight_ptr + tl.arange(0, N), mask=mask).to(tl.float32)[None, :]
+    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[None, :]
     for i in range(T):
         indices = pid * W * T + i * W + tl.arange(0, W)
         masks = (indices[:, None] < M) & (tl.arange(0, N) < n)
@@ -297,34 +288,43 @@ def rms_norm_and_block_quant_forward_n_kernel(x_ptr,
         x = x / scale[:, :, None]
         x = tl.reshape(x, [W, N])
 
-        tl.store(scale_ptr + tl.arange(0, NB)[:, None] * M + indices[None, :],
-                 tl.trans(scale),
-                 mask=(indices[None, :] < M) & (
-                             tl.arange(0, NB)[:, None] < n // 128))
+        tl.store(
+            scale_ptr + tl.arange(0, NB)[:, None] * M + indices[None, :],
+            tl.trans(scale),
+            mask=(indices[None, :] < M) & (tl.arange(0, NB)[:, None] < n // 128),
+        )
         tl.store(out_ptr + offs, x, mask=masks)
         offs += n * W
 
 
 # output transposed tensor only
 @triton.jit
-def rms_norm_and_block_quant_forward_t_kernel(x_ptr,
-                                              weight_ptr,
-                                              transpose_output_ptr,
-                                              transpose_scale_ptr,
-                                              rms_ptr,
-                                              M,
-                                              N,
-                                              W: tl.constexpr,
-                                              ROUND: tl.constexpr):
+def rms_norm_and_block_quant_forward_t_kernel(
+    x_ptr,
+    weight_ptr,
+    transpose_output_ptr,
+    transpose_scale_ptr,
+    rms_ptr,
+    M,
+    N,
+    W: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
 
-    offs = rid * 128 * N + cid * W + tl.arange(0, 128)[:, None] * N + tl.arange(
-        0, W)[
-                                                                      None, :]
-    toffs = rid * 128 + cid * M * W + tl.arange(0, W)[:, None] * M + tl.arange(
-        0, 128)[
-                                                                     None, :]
+    offs = (
+        rid * 128 * N
+        + cid * W
+        + tl.arange(0, 128)[:, None] * N
+        + tl.arange(0, W)[None, :]
+    )
+    toffs = (
+        rid * 128
+        + cid * M * W
+        + tl.arange(0, W)[:, None] * M
+        + tl.arange(0, 128)[None, :]
+    )
 
     weight = tl.load(weight_ptr + cid * W + tl.arange(0, W)).to(tl.float32)
     indices = rid * 128 + tl.arange(0, 128)
@@ -340,15 +340,16 @@ def rms_norm_and_block_quant_forward_t_kernel(x_ptr,
     tl.store(transpose_output_ptr + toffs, x, mask=indices[None, :] < M)
 
 
-def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
-                                            weight: torch.Tensor,
-                                            eps: float = 1e-6,
-                                            out: Optional[torch.Tensor] = None,
-                                            scale: Optional[
-                                                torch.Tensor] = None,
-                                            rms: Optional[torch.Tensor] = None,
-                                            round_scale: bool = False,
-                                            output_mode: int = 2):
+def triton_rms_norm_and_block_quant_forward(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    eps: float = 1e-6,
+    out: Optional[torch.Tensor] = None,
+    scale: Optional[torch.Tensor] = None,
+    rms: Optional[torch.Tensor] = None,
+    round_scale: bool = False,
+    output_mode: int = 2,
+):
     """
     Fused RMSNorm forward and block quantization.
     Args:
@@ -385,10 +386,10 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
         scale = torch.empty((n // 128, M), device=device, dtype=torch.float32)
 
     # transpose_output should be initialized, or else can not make splitted tensors
-    transpose_output = torch.empty((n, M), device=device,
-                                   dtype=torch.float8_e4m3fn)
-    transpose_scale = torch.empty(((M + 127) // 128, n), device=device,
-                                  dtype=torch.float32)
+    transpose_output = torch.empty((n, M), device=device, dtype=torch.float8_e4m3fn)
+    transpose_scale = torch.empty(
+        ((M + 127) // 128, n), device=device, dtype=torch.float32
+    )
     if output_mode == 0:  # only output non-transpose tensor
         assert rms is None
         rms = torch.empty((M,), dtype=torch.float32, device=device)
@@ -409,7 +410,7 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
             W,
             round_scale,
             num_stages=3,
-            num_warps=4
+            num_warps=4,
         )
 
     elif output_mode == 1:  # only output transposed tensor
@@ -417,17 +418,19 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
         W = 32
         assert n % W == 0
         grid = (triton.cdiv(M, 128), n // W)
-        rms_norm_and_block_quant_forward_t_kernel[grid](x,
-                                                        weight,
-                                                        transpose_output,
-                                                        transpose_scale,
-                                                        rms,
-                                                        M,
-                                                        n,
-                                                        W,
-                                                        round_scale,
-                                                        num_stages=3,
-                                                        num_warps=4)
+        rms_norm_and_block_quant_forward_t_kernel[grid](
+            x,
+            weight,
+            transpose_output,
+            transpose_scale,
+            rms,
+            M,
+            n,
+            W,
+            round_scale,
+            num_stages=3,
+            num_warps=4,
+        )
 
     elif output_mode == 2:  # output non-transposed and transposed tensor together
         # we force set output_mode=2 when recompute qkv, but it has rms
@@ -456,7 +459,7 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
                 H,
                 round_scale,
                 num_stages=2,
-                num_warps=4
+                num_warps=4,
             )
         else:
             W = 8192 // N
@@ -476,40 +479,47 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
                 W,
                 round_scale,
                 num_stages=3,
-                num_warps=4
+                num_warps=4,
             )
 
             W = 32
-            assert n % W == 0, f' {n=} {W=}'
+            assert n % W == 0, f" {n=} {W=}"
             grid = (triton.cdiv(M, 128), n // W)
-            rms_norm_and_block_quant_forward_t_kernel[grid](x,
-                                                            weight,
-                                                            transpose_output,
-                                                            transpose_scale,
-                                                            rms,
-                                                            M,
-                                                            n,
-                                                            W,
-                                                            round_scale,
-                                                            num_stages=3,
-                                                            num_warps=4)
+            rms_norm_and_block_quant_forward_t_kernel[grid](
+                x,
+                weight,
+                transpose_output,
+                transpose_scale,
+                rms,
+                M,
+                n,
+                W,
+                round_scale,
+                num_stages=3,
+                num_warps=4,
+            )
 
     return out, scale, rms, transpose_output, transpose_scale
 
 
 @triton.jit
-def rms_norm_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
-                                             smooth_scale_ptr,
-                                             out_ptr, scale_ptr, max_ptr,
-                                             rms_ptr,
-                                             eps,
-                                             M,
-                                             T,
-                                             N: tl.constexpr,
-                                             W: tl.constexpr,
-                                             CALIBRATE: tl.constexpr,
-                                             OUTPUT: tl.constexpr,
-                                             ROUND: tl.constexpr):
+def rms_norm_and_smooth_quant_forward_kernel(
+    x_ptr,
+    weight_ptr,
+    smooth_scale_ptr,
+    out_ptr,
+    scale_ptr,
+    max_ptr,
+    rms_ptr,
+    eps,
+    M,
+    T,
+    N: tl.constexpr,
+    W: tl.constexpr,
+    CALIBRATE: tl.constexpr,
+    OUTPUT: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     weight = tl.load(weight_ptr + tl.arange(0, N)).to(tl.float32)[None, :]
@@ -518,8 +528,7 @@ def rms_norm_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
     if CALIBRATE:
         # triton 3.3.1 has bug with N = 2048 and calibrate=True
         maxs = tl.zeros((N,), dtype=tl.float32)
-    offs = pid * W * T * N + tl.arange(0, W)[:, None] * N + tl.arange(0, N)[
-                                                            None, :]
+    offs = pid * W * T * N + tl.arange(0, W)[:, None] * N + tl.arange(0, N)[None, :]
     for i in range(T):
         indices = pid * W * T + i * W + tl.arange(0, W)
         x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
@@ -545,12 +554,18 @@ def rms_norm_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
 
 
 # rms is used for moe routing, it is stored as 1/rms
-def triton_rms_norm_and_smooth_quant_forward(x, weight, smooth_scale=None,
-                                             eps=1e-6,
-                                             out=None, scale=None, rms=None,
-                                             calibrate=False,
-                                             output_rms=False,
-                                             round_scale=False):
+def triton_rms_norm_and_smooth_quant_forward(
+    x,
+    weight,
+    smooth_scale=None,
+    eps=1e-6,
+    out=None,
+    scale=None,
+    rms=None,
+    calibrate=False,
+    output_rms=False,
+    round_scale=False,
+):
     """"""
     assert x.is_contiguous() and weight.is_contiguous()
     M, N = x.shape
@@ -590,31 +605,32 @@ def triton_rms_norm_and_smooth_quant_forward(x, weight, smooth_scale=None,
         output_rms,
         round_scale,
         num_stages=3,
-        num_warps=2 if N == 2048 else 4
+        num_warps=2 if N == 2048 else 4,
     )
     if calibrate:
         maxs = maxs.amax(0)
 
     return out, scale, maxs, rms
 
+
 @triton.jit
 def rms_norm_fp32_gemm_block_quant_forward_n_kernel(
-        x_ptr,
-        norm_weight_ptr,
-        route_weight_ptr,
-        y_ptr,
-        rms_ptr,
-        logit_ptr,
-        xq_ptr,
-        xs_ptr,
-        eps,
-        M,
-        N: tl.constexpr,
-        K: tl.constexpr,
-        BLOCK_SIZE_K: tl.constexpr,
-        BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
-        ROUND: tl.constexpr
+    x_ptr,
+    norm_weight_ptr,
+    route_weight_ptr,
+    y_ptr,
+    rms_ptr,
+    logit_ptr,
+    xq_ptr,
+    xs_ptr,
+    eps,
+    M,
+    N: tl.constexpr,
+    K: tl.constexpr,
+    BLOCK_SIZE_K: tl.constexpr,
+    BLOCK_SIZE_M: tl.constexpr,
+    BLOCK_SIZE_N: tl.constexpr,
+    ROUND: tl.constexpr,
 ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
@@ -639,7 +655,8 @@ def rms_norm_fp32_gemm_block_quant_forward_n_kernel(
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     for i in range(k):
         norm_weight = tl.load(norm_weight_ptr + i * BLOCK_SIZE_K + offs_k).to(
-            tl.float32)
+            tl.float32
+        )
         x = tl.load(x_ptr + x_offs).to(tl.float32)
         w = tl.load(w_ptrs).to(tl.float32)
 
@@ -655,8 +672,8 @@ def rms_norm_fp32_gemm_block_quant_forward_n_kernel(
         x = x / scale[:, None]
 
         tl.store(
-            xs_ptr + M * i + pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M),
-            scale)
+            xs_ptr + M * i + pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M), scale
+        )
         tl.store(xq_ptr + x_offs, x)
 
         x_offs += BLOCK_SIZE_K
@@ -668,15 +685,15 @@ def rms_norm_fp32_gemm_block_quant_forward_n_kernel(
     tl.store(c_ptrs, c)
 
 
-def triton_rms_norm_fp32_gemm_block_quant_forward(x: torch.Tensor,
-                                                  norm_weight: torch.Tensor,
-                                                  route_weight: torch.Tensor,
-                                                  rms: Optional[
-                                                      torch.Tensor] = None,
-                                                  eps: float = 1e-6,
-                                                  output_mode: int = 0,
-                                                  round_scale=False
-                                                  ):
+def triton_rms_norm_fp32_gemm_block_quant_forward(
+    x: torch.Tensor,
+    norm_weight: torch.Tensor,
+    route_weight: torch.Tensor,
+    rms: Optional[torch.Tensor] = None,
+    eps: float = 1e-6,
+    output_mode: int = 0,
+    round_scale=False,
+):
     """
     y = rms_norm(x)
     logits = y@w_route
@@ -694,12 +711,16 @@ def triton_rms_norm_fp32_gemm_block_quant_forward(x: torch.Tensor,
         - y: rms normed tensor
         - rms: 1/rms
         - logits: router logit
-        - x_q: 
-        - x_s: 
+        - x_q:
+        - x_s:
         - xt_q:
         - xt_s:
     """
-    assert x.is_contiguous() and norm_weight.is_contiguous() and route_weight.is_contiguous()
+    assert (
+        x.is_contiguous()
+        and norm_weight.is_contiguous()
+        and route_weight.is_contiguous()
+    )
     assert output_mode in (0, 1)
     M, K = x.size()
     N, K = route_weight.size()
@@ -723,36 +744,41 @@ def triton_rms_norm_fp32_gemm_block_quant_forward(x: torch.Tensor,
         num_warps = 4
         num_stages = 2
         grid = (M // BLOCK_SIZE_M, N // BLOCK_SIZE_N)
-        rms_norm_fp32_gemm_block_quant_forward_n_kernel[grid](x,
-                                                              norm_weight,
-                                                              route_weight,
-                                                              y,
-                                                              rms,
-                                                              logits,
-                                                              x_q,
-                                                              x_s,
-                                                              eps,
-                                                              M, N, K,
-                                                              BLOCK_SIZE_K,
-                                                              BLOCK_SIZE_M,
-                                                              BLOCK_SIZE_N,
-                                                              round_scale,
-                                                              num_warps=num_warps,
-                                                              num_stages=num_stages
-                                                              )
+        rms_norm_fp32_gemm_block_quant_forward_n_kernel[grid](
+            x,
+            norm_weight,
+            route_weight,
+            y,
+            rms,
+            logits,
+            x_q,
+            x_s,
+            eps,
+            M,
+            N,
+            K,
+            BLOCK_SIZE_K,
+            BLOCK_SIZE_M,
+            BLOCK_SIZE_N,
+            round_scale,
+            num_warps=num_warps,
+            num_stages=num_stages,
+        )
     else:
         W = 32
         grid = (triton.cdiv(M, 128), K // W)
-        rms_norm_and_block_quant_forward_t_kernel[grid](x,
-                                                        norm_weight,
-                                                        xt_q,
-                                                        xt_s,
-                                                        rms,
-                                                        M,
-                                                        K,
-                                                        W,
-                                                        round_scale,
-                                                        num_stages=3,
-                                                        num_warps=4)
+        rms_norm_and_block_quant_forward_t_kernel[grid](
+            x,
+            norm_weight,
+            xt_q,
+            xt_s,
+            rms,
+            M,
+            K,
+            W,
+            round_scale,
+            num_stages=3,
+            num_warps=4,
+        )
 
     return y, rms, logits, x_q, x_s, xt_q, xt_s

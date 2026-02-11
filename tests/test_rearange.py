@@ -24,7 +24,7 @@ def torch_sort_chunks_by_index(x, scales, counts, indices):
 
 def test_sort_chunks_by_index(M=4096, N=4096, bench=False):
     dtype = torch.bfloat16
-    device = 'cuda:0'
+    device = "cuda:0"
     n_repeat = 100
 
     x = torch.randn(M, N, dtype=dtype, device=device)
@@ -41,31 +41,38 @@ def test_sort_chunks_by_index(M=4096, N=4096, bench=False):
     scale_chunks = torch.split(x_scales, split_size_list)
 
     data_ref, scale_ref = torch_sort_chunks_by_index(
-        x_q.view(torch.float8_e4m3fn),
-        x_scales, split_size_list,
-        sorted_indices_list)
+        x_q.view(torch.float8_e4m3fn), x_scales, split_size_list, sorted_indices_list
+    )
 
-    data, scale = triton_sort_chunks_by_index(x_q, counts, indices,
-                                              scales=x_scales)
+    data, scale = triton_sort_chunks_by_index(x_q, counts, indices, scales=x_scales)
 
-    output_check(data_ref.view(torch.float8_e4m3fn), data,
-                 name='data')
-    output_check(scale_ref, scale, name='scale')
+    output_check(data_ref.view(torch.float8_e4m3fn), data, name="data")
+    output_check(scale_ref, scale, name="scale")
 
     if bench:
-        benchmark_func(torch.split, x_q.view(torch.uint8), split_size_list,
-                       n_repeat=n_repeat)
+        benchmark_func(
+            torch.split, x_q.view(torch.uint8), split_size_list, n_repeat=n_repeat
+        )
         benchmark_func(torch.cat, chunks, dim=0, n_repeat=n_repeat)
-        benchmark_func(torch.split, x_scales, split_size_list,
-                       n_repeat=n_repeat)
+        benchmark_func(torch.split, x_scales, split_size_list, n_repeat=n_repeat)
         benchmark_func(torch.cat, scale_chunks, dim=0, n_repeat=n_repeat)
-        benchmark_func(torch_sort_chunks_by_index,
-                       x_q.view(torch.float8_e4m3fn),
-                       x_scales, split_size_list, sorted_indices_list,
-                       n_repeat=n_repeat)
-        benchmark_func(triton_sort_chunks_by_index, x_q, counts, indices,
-                       scales=x_scales, n_repeat=n_repeat)
+        benchmark_func(
+            torch_sort_chunks_by_index,
+            x_q.view(torch.float8_e4m3fn),
+            x_scales,
+            split_size_list,
+            sorted_indices_list,
+            n_repeat=n_repeat,
+        )
+        benchmark_func(
+            triton_sort_chunks_by_index,
+            x_q,
+            counts,
+            indices,
+            scales=x_scales,
+            n_repeat=n_repeat,
+        )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_sort_chunks_by_index(M=4096, N=4096)

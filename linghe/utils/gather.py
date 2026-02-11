@@ -11,16 +11,16 @@ import triton.language as tl
 
 
 @triton.jit
-def block_count_kernel(map_ptr, count_ptr, M, B, T: tl.constexpr,
-                       b: tl.constexpr, E: tl.constexpr):
+def block_count_kernel(
+    map_ptr, count_ptr, M, B, T: tl.constexpr, b: tl.constexpr, E: tl.constexpr
+):
     pid = tl.program_id(axis=0)
 
     counts = tl.zeros((E,), dtype=tl.int32)
     offs = pid * B * E + tl.arange(0, b)[:, None] * E + tl.arange(0, E)[None, :]
     t = tl.cdiv(B, b)
     for i in range(t):
-        mask = pid * B + i * b + tl.arange(0, b)[:, None] < tl.minimum(M,
-                                                                       pid * B + B)
+        mask = pid * B + i * b + tl.arange(0, b)[:, None] < tl.minimum(M, pid * B + B)
         values = tl.load(map_ptr + offs, mask=mask).to(tl.int32)
         counts += tl.sum(values, 0)
         offs += b * E
@@ -29,8 +29,17 @@ def block_count_kernel(map_ptr, count_ptr, M, B, T: tl.constexpr,
 
 
 @triton.jit
-def make_row_id_map_kernel(map_ptr, count_ptr, output_ptr, M, B, P,
-                           T: tl.constexpr, b: tl.constexpr, E: tl.constexpr):
+def make_row_id_map_kernel(
+    map_ptr,
+    count_ptr,
+    output_ptr,
+    M,
+    B,
+    P,
+    T: tl.constexpr,
+    b: tl.constexpr,
+    E: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
 
     indices = tl.arange(0, T)[:, None] * E + tl.arange(0, E)[None, :]
@@ -45,8 +54,7 @@ def make_row_id_map_kernel(map_ptr, count_ptr, output_ptr, M, B, P,
     offs = pid * B * E + tl.arange(0, b)[:, None] * E + tl.arange(0, E)[None, :]
     t = tl.cdiv(B, b)
     for i in range(t):
-        mask = pid * B + i * b + tl.arange(0, b)[:, None] < tl.minimum(M,
-                                                                       pid * B + B)
+        mask = pid * B + i * b + tl.arange(0, b)[:, None] < tl.minimum(M, pid * B + B)
         values = tl.load(map_ptr + offs, mask=mask).to(tl.int32)
         acc = count_offset + tl.cumsum(values, 0)
         count_offset = tl.max(acc, 0)
@@ -55,10 +63,7 @@ def make_row_id_map_kernel(map_ptr, count_ptr, output_ptr, M, B, P,
         offs += b * E
 
 
-def triton_make_row_id_map(
-        routing_map: torch.Tensor,
-        multiple_of: int = 1
-):
+def triton_make_row_id_map(routing_map: torch.Tensor, multiple_of: int = 1):
     """
     make row id map, values in the tensor are the row indices
     Args:
@@ -71,10 +76,12 @@ def triton_make_row_id_map(
     assert routing_map.is_contiguous()
     n_tokens, n_experts = routing_map.shape
     T = 128
-    block_counts = torch.empty((T, n_experts), dtype=torch.int32,
-                               device=routing_map.device)
-    output = torch.empty((n_tokens, n_experts), dtype=torch.int32,
-                         device=routing_map.device)
+    block_counts = torch.empty(
+        (T, n_experts), dtype=torch.int32, device=routing_map.device
+    )
+    output = torch.empty(
+        (n_tokens, n_experts), dtype=torch.int32, device=routing_map.device
+    )
 
     B = triton.cdiv(n_tokens, T)
     b = 16
@@ -88,7 +95,7 @@ def triton_make_row_id_map(
         b,
         n_experts,
         num_stages=3,
-        num_warps=8
+        num_warps=8,
     )
 
     make_row_id_map_kernel[grid](
@@ -102,17 +109,25 @@ def triton_make_row_id_map(
         b,
         n_experts,
         num_stages=3,
-        num_warps=8
+        num_warps=8,
     )
 
     return output
 
 
 @triton.jit
-def make_row_id_map_and_index_kernel(map_ptr, count_ptr, row_map_ptr,
-                                     row_indices_ptr, M, B, P,
-                                     T: tl.constexpr, b: tl.constexpr,
-                                     E: tl.constexpr):
+def make_row_id_map_and_index_kernel(
+    map_ptr,
+    count_ptr,
+    row_map_ptr,
+    row_indices_ptr,
+    M,
+    B,
+    P,
+    T: tl.constexpr,
+    b: tl.constexpr,
+    E: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
 
     indices = tl.arange(0, T)[:, None] * E + tl.arange(0, E)[None, :]
@@ -127,27 +142,26 @@ def make_row_id_map_and_index_kernel(map_ptr, count_ptr, row_map_ptr,
     offs = pid * B * E + tl.arange(0, b)[:, None] * E + tl.arange(0, E)[None, :]
     t = tl.cdiv(B, b)
     for i in range(t):
-        mask = pid * B + i * b + tl.arange(0, b)[:, None] < tl.minimum(M,
-                                                                       pid * B + B)
+        mask = pid * B + i * b + tl.arange(0, b)[:, None] < tl.minimum(M, pid * B + B)
         values = tl.load(map_ptr + offs, mask=mask).to(tl.int32)
         acc = count_offset + tl.cumsum(values, 0)
         count_offset = tl.max(acc, 0)
         output_acc = tl.where(values == 0, -1, acc)
         tl.store(row_map_ptr + offs, output_acc, mask=mask)
 
-        tl.store(row_indices_ptr + acc,
-                 pid * B + i * b + tl.arange(0, b)[:, None] + (0 * tl.arange(0,
-                                                                             E))[
-                                                              None, :],
-                 mask=mask & values != 0)
+        tl.store(
+            row_indices_ptr + acc,
+            pid * B + i * b + tl.arange(0, b)[:, None] + (0 * tl.arange(0, E))[None, :],
+            mask=mask & values != 0,
+        )
 
         offs += b * E
 
 
 def triton_make_row_id_map_and_index(
-        routing_map: torch.Tensor,
-        num_out_tokens: int,
-        multiple_of: int = 1,
+    routing_map: torch.Tensor,
+    num_out_tokens: int,
+    multiple_of: int = 1,
 ):
     """
     similar with triton_make_row_id_map, but output an indices tensor as well
@@ -162,12 +176,15 @@ def triton_make_row_id_map_and_index(
     assert routing_map.is_contiguous()
     n_tokens, n_experts = routing_map.shape
     T = 128
-    block_counts = torch.empty((T, n_experts), dtype=torch.int32,
-                               device=routing_map.device)
-    row_id_map = torch.empty((n_tokens, n_experts), dtype=torch.int32,
-                             device=routing_map.device)
-    row_id_indices = torch.zeros((num_out_tokens,), dtype=torch.int32,
-                                 device=routing_map.device)
+    block_counts = torch.empty(
+        (T, n_experts), dtype=torch.int32, device=routing_map.device
+    )
+    row_id_map = torch.empty(
+        (n_tokens, n_experts), dtype=torch.int32, device=routing_map.device
+    )
+    row_id_indices = torch.zeros(
+        (num_out_tokens,), dtype=torch.int32, device=routing_map.device
+    )
 
     B = triton.cdiv(n_tokens, T)
     b = 16
@@ -181,7 +198,7 @@ def triton_make_row_id_map_and_index(
         b,
         n_experts,
         num_stages=3,
-        num_warps=8
+        num_warps=8,
     )
 
     make_row_id_map_and_index_kernel[grid](
@@ -196,14 +213,23 @@ def triton_make_row_id_map_and_index(
         b,
         n_experts,
         num_stages=3,
-        num_warps=8
+        num_warps=8,
     )
     return row_id_map, row_id_indices
 
 
 @triton.jit
-def index_select_kernel(x_ptr, out_ptr, scale_ptr, scale_out_ptr, index_ptr, M,
-                        T, N: tl.constexpr, SCALE: tl.constexpr):
+def index_select_kernel(
+    x_ptr,
+    out_ptr,
+    scale_ptr,
+    scale_out_ptr,
+    index_ptr,
+    M,
+    T,
+    N: tl.constexpr,
+    SCALE: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     for i in range(T):
         dst_idx = pid * T + i
@@ -241,32 +267,26 @@ def triton_index_select(x, indices, scale=None, out=None, scale_out=None):
     SCALE = scale is not None
     grid = (sm,)
     index_select_kernel[grid](
-        x,
-        out,
-        scale,
-        scale_out,
-        indices,
-        E,
-        T,
-        N,
-        SCALE,
-        num_stages=3,
-        num_warps=4
+        x, out, scale, scale_out, indices, E, T, N, SCALE, num_stages=3, num_warps=4
     )
     return out, scale_out
 
 
 @triton.jit
-def permute_with_mask_map_kernel(data_ptr, scale_ptr, probs_ptr,
-                                 mask_map_ptr,
-                                 output_data_ptr,
-                                 output_scale_ptr,
-                                 output_probs_ptr,
-                                 num_experts: tl.constexpr,
-                                 N: tl.constexpr,
-                                 hs: tl.constexpr,
-                                 SCALE: tl.constexpr,
-                                 PROB: tl.constexpr):
+def permute_with_mask_map_kernel(
+    data_ptr,
+    scale_ptr,
+    probs_ptr,
+    mask_map_ptr,
+    output_data_ptr,
+    output_scale_ptr,
+    output_probs_ptr,
+    num_experts: tl.constexpr,
+    N: tl.constexpr,
+    hs: tl.constexpr,
+    SCALE: tl.constexpr,
+    PROB: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     x = tl.load(data_ptr + pid * N + tl.arange(0, N))
     if SCALE == 1:
@@ -274,10 +294,9 @@ def permute_with_mask_map_kernel(data_ptr, scale_ptr, probs_ptr,
     elif SCALE == 2:
         scale = tl.load(scale_ptr + pid * hs + tl.arange(0, hs))
 
-    indices = tl.load(
-        mask_map_ptr + pid * num_experts + tl.arange(0, num_experts))
+    indices = tl.load(mask_map_ptr + pid * num_experts + tl.arange(0, num_experts))
     count = tl.sum(tl.where(indices >= 0, 1, 0))
-    mask_indices = tl.where(indices < 0, 2 ** 20, indices)
+    mask_indices = tl.where(indices < 0, 2**20, indices)
     idx = tl.argmin(mask_indices, 0)
     index = tl.min(mask_indices)
     for i in range(count):
@@ -293,19 +312,23 @@ def permute_with_mask_map_kernel(data_ptr, scale_ptr, probs_ptr,
             prob = tl.load(probs_ptr + pid * num_experts + idx)
             tl.store(output_probs_ptr + index, prob)
 
-        mask_indices = tl.where(indices <= index, 2 ** 20, indices)
+        mask_indices = tl.where(indices <= index, 2**20, indices)
         idx = tl.argmin(mask_indices, 0)
         index = tl.min(mask_indices)
 
 
 @triton.jit
-def fill_padded_token_with_zero_kernel(data_ptr, scale_ptr, probs_ptr,
-                                       max_indices_ptr,
-                                       token_per_expert_ptr,
-                                       N: tl.constexpr,
-                                       hs: tl.constexpr,
-                                       SCALE: tl.constexpr,
-                                       PROB: tl.constexpr):
+def fill_padded_token_with_zero_kernel(
+    data_ptr,
+    scale_ptr,
+    probs_ptr,
+    max_indices_ptr,
+    token_per_expert_ptr,
+    N: tl.constexpr,
+    hs: tl.constexpr,
+    SCALE: tl.constexpr,
+    PROB: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     x = tl.zeros((N,), dtype=tl.float32)
     si = tl.load(max_indices_ptr + pid)
@@ -325,13 +348,13 @@ def fill_padded_token_with_zero_kernel(data_ptr, scale_ptr, probs_ptr,
 
 
 def triton_permute_with_mask_map(
-        inp: torch.Tensor,
-        scale: torch.Tensor,
-        probs: torch.Tensor,
-        row_id_map: torch.Tensor,
-        num_out_tokens: int,
-        contiguous: bool = True,
-        tokens_per_expert: Optional[torch.Tensor] = None
+    inp: torch.Tensor,
+    scale: torch.Tensor,
+    probs: torch.Tensor,
+    row_id_map: torch.Tensor,
+    num_out_tokens: int,
+    contiguous: bool = True,
+    tokens_per_expert: Optional[torch.Tensor] = None,
 ):
     """
     gather quantized tensor with row id map
@@ -370,24 +393,20 @@ def triton_permute_with_mask_map(
     ZERO = not contiguous and tokens_per_expert is None
 
     if ZERO:
-        output = torch.zeros((num_out_tokens, hidden_size), dtype=inp.dtype,
-                             device="cuda")
+        output = torch.zeros(
+            (num_out_tokens, hidden_size), dtype=inp.dtype, device="cuda"
+        )
     else:
-        output = torch.empty((num_out_tokens, hidden_size), dtype=inp.dtype,
-                             device="cuda")
+        output = torch.empty(
+            (num_out_tokens, hidden_size), dtype=inp.dtype, device="cuda"
+        )
 
     if SCALE > 0:
         shape = (num_out_tokens, hs) if SCALE == 2 else (num_out_tokens,)
         if ZERO:
-            permuted_scale = torch.zeros(
-                shape,
-                dtype=scale.dtype, device="cuda"
-            )
+            permuted_scale = torch.zeros(shape, dtype=scale.dtype, device="cuda")
         else:
-            permuted_scale = torch.empty(
-                shape,
-                dtype=scale.dtype, device="cuda"
-            )
+            permuted_scale = torch.empty(shape, dtype=scale.dtype, device="cuda")
     else:
         permuted_scale = None
 
@@ -422,34 +441,44 @@ def triton_permute_with_mask_map(
         SCALE,
         PROB,
         num_stages=3,
-        num_warps=8
+        num_warps=8,
     )
 
     if not contiguous and tokens_per_expert is not None:
         max_indices = row_id_map.amax(0)
-        fill_padded_token_with_zero_kernel[(num_experts,)](output,
-                                                           permuted_scale,
-                                                           permuted_probs,
-                                                           max_indices,
-                                                           tokens_per_expert,
-                                                           hidden_size,
-                                                           hs,
-                                                           SCALE,
-                                                           PROB)
+        fill_padded_token_with_zero_kernel[(num_experts,)](
+            output,
+            permuted_scale,
+            permuted_probs,
+            max_indices,
+            tokens_per_expert,
+            hidden_size,
+            hs,
+            SCALE,
+            PROB,
+        )
 
     return output, permuted_scale, permuted_probs
 
 
 @triton.jit
-def batch_smooth_transpose_smooth_permute_kernel(x_ptr, scale_ptr, oss_ptr,
-                                                 ss_ptr, index_ptr, count_ptr,
-                                                 accum_ptr, q_ptr, qs_ptr,
-                                                 N: tl.constexpr,
-                                                 E: tl.constexpr,
-                                                 H: tl.constexpr,
-                                                 W: tl.constexpr,
-                                                 SMOOTHED: tl.constexpr,
-                                                 ROUND: tl.constexpr):
+def batch_smooth_transpose_smooth_permute_kernel(
+    x_ptr,
+    scale_ptr,
+    oss_ptr,
+    ss_ptr,
+    index_ptr,
+    count_ptr,
+    accum_ptr,
+    q_ptr,
+    qs_ptr,
+    N: tl.constexpr,
+    E: tl.constexpr,
+    H: tl.constexpr,
+    W: tl.constexpr,
+    SMOOTHED: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     eid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
 
@@ -459,8 +488,7 @@ def batch_smooth_transpose_smooth_permute_kernel(x_ptr, scale_ptr, oss_ptr,
 
     pad = tl.cdiv(count, 32) * 32
     loop = tl.cdiv(pad, H)
-    bias = tl.sum(
-        tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 32), 0)) * 32 * N
+    bias = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 32), 0)) * 32 * N
 
     # col-wise read, row-wise write
     if SMOOTHED:
@@ -468,13 +496,14 @@ def batch_smooth_transpose_smooth_permute_kernel(x_ptr, scale_ptr, oss_ptr,
     x_max = tl.zeros((H, W), dtype=tl.float32)
     for i in range(loop):
         idx = i * H + tl.arange(0, H)
-        indices = tl.load(index_ptr + si + i * H + tl.arange(0, H),
-                          mask=idx < count)
+        indices = tl.load(index_ptr + si + i * H + tl.arange(0, H), mask=idx < count)
         x = tl.load(
             x_ptr + cid * W + indices[:, None] * N + tl.arange(0, W)[None, :],
-            mask=idx[:, None] < count).to(tl.float32)
-        smooth_scale = tl.load(ss_ptr + si + i * H + tl.arange(0, H),
-                               mask=idx < count)[:, None]
+            mask=idx[:, None] < count,
+        ).to(tl.float32)
+        smooth_scale = tl.load(ss_ptr + si + i * H + tl.arange(0, H), mask=idx < count)[
+            :, None
+        ]
         if SMOOTHED:
             s = tl.load(scale_ptr + indices, mask=idx < count)[:, None]
             x = x * org_smooth_scale * (s * smooth_scale)
@@ -489,17 +518,17 @@ def batch_smooth_transpose_smooth_permute_kernel(x_ptr, scale_ptr, oss_ptr,
     tl.store(qs_ptr + eid * N + cid * W + tl.arange(0, W), scale)
 
     scale = 1.0 / scale
-    toffs = bias + cid * pad * W + tl.arange(0, W)[:, None] * pad + tl.arange(0,
-                                                                              H)
+    toffs = bias + cid * pad * W + tl.arange(0, W)[:, None] * pad + tl.arange(0, H)
     for i in range(loop):
         idx = i * H + tl.arange(0, H)
-        indices = tl.load(index_ptr + si + i * H + tl.arange(0, H),
-                          mask=idx < count)
+        indices = tl.load(index_ptr + si + i * H + tl.arange(0, H), mask=idx < count)
         x = tl.load(
             x_ptr + cid * W + indices[:, None] * N + tl.arange(0, W)[None, :],
-            mask=idx[:, None] < count).to(tl.float32)
-        smooth_scale = tl.load(ss_ptr + si + i * H + tl.arange(0, H),
-                               mask=idx < count)[:, None]
+            mask=idx[:, None] < count,
+        ).to(tl.float32)
+        smooth_scale = tl.load(ss_ptr + si + i * H + tl.arange(0, H), mask=idx < count)[
+            :, None
+        ]
         if SMOOTHED:
             s = tl.load(scale_ptr + indices, mask=idx < count)[:, None]
             x = x * (org_smooth_scale * scale) * (s * smooth_scale)
@@ -510,16 +539,18 @@ def batch_smooth_transpose_smooth_permute_kernel(x_ptr, scale_ptr, oss_ptr,
         toffs += H
 
 
-def triton_batch_transpose_smooth_permute_with_indices(x,
-                                                       scale,
-                                                       org_smooth_scale,
-                                                       smooth_scales,
-                                                       indices,
-                                                       token_count_per_expert,
-                                                       splits,
-                                                       x_q=None,
-                                                       x_scale=None,
-                                                       round_scale=False):
+def triton_batch_transpose_smooth_permute_with_indices(
+    x,
+    scale,
+    org_smooth_scale,
+    smooth_scales,
+    indices,
+    token_count_per_expert,
+    splits,
+    x_q=None,
+    x_scale=None,
+    round_scale=False,
+):
     """
     used for smooth quantization backward in megatron 0.12,
     x is gathered, requantized, padded to multiple of 32 and tranposed
@@ -552,8 +583,7 @@ def triton_batch_transpose_smooth_permute_with_indices(x,
     smoothed = scale is not None
     if x_q is None:
         # TODO(nanxiao): opt performance
-        x_q = torch.empty((out_tokens * N,), device=device,
-                          dtype=torch.float8_e4m3fn)
+        x_q = torch.empty((out_tokens * N,), device=device, dtype=torch.float8_e4m3fn)
     if x_scale is None:
         x_scale = torch.empty((n_expert, N), device=device, dtype=torch.float32)
     # import pydevd
@@ -577,25 +607,27 @@ def triton_batch_transpose_smooth_permute_with_indices(x,
         smoothed,
         round_scale,
         num_stages=3,
-        num_warps=8
+        num_warps=8,
     )
     return x_q, x_scale
 
 
 @triton.jit
-def smooth_weighted_permute_with_indices_kernel(grads_ptr,
-                                                tokens_ptr,
-                                                q_ptr,
-                                                ss_ptr,
-                                                qs_ptr,
-                                                count_ptr,
-                                                accum_ptr,
-                                                index_ptr,
-                                                sum_ptr,
-                                                M,
-                                                N: tl.constexpr,
-                                                REVERSE: tl.constexpr,
-                                                ROUND: tl.constexpr):
+def smooth_weighted_permute_with_indices_kernel(
+    grads_ptr,
+    tokens_ptr,
+    q_ptr,
+    ss_ptr,
+    qs_ptr,
+    count_ptr,
+    accum_ptr,
+    index_ptr,
+    sum_ptr,
+    M,
+    N: tl.constexpr,
+    REVERSE: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     smooth_scale = tl.load(ss_ptr + pid * N + tl.arange(0, N))
@@ -607,8 +639,7 @@ def smooth_weighted_permute_with_indices_kernel(grads_ptr,
     for i in range(count):
         index = tl.load(index_ptr + si + i)
         x = tl.load(grads_ptr + index * N + tl.arange(0, N)).to(tl.float32)
-        t = tl.load(tokens_ptr + si * N + i * N + tl.arange(0, N)).to(
-            tl.float32)
+        t = tl.load(tokens_ptr + si * N + i * N + tl.arange(0, N)).to(tl.float32)
         sums = tl.sum(x * t)
         tl.store(sum_ptr + si + i, sums)
 
@@ -626,16 +657,18 @@ def smooth_weighted_permute_with_indices_kernel(grads_ptr,
         tl.store(q_ptr + si * N + i * N + tl.arange(0, N), xq)
 
 
-def triton_smooth_weighted_permute_with_indices(grads,
-                                                tokens,
-                                                smooth_scales,
-                                                token_count_per_expert,
-                                                indices,
-                                                x_q=None,
-                                                x_scale=None,
-                                                x_sum=None,
-                                                reverse=False,
-                                                round_scale=False):
+def triton_smooth_weighted_permute_with_indices(
+    grads,
+    tokens,
+    smooth_scales,
+    token_count_per_expert,
+    indices,
+    x_q=None,
+    x_scale=None,
+    x_sum=None,
+    reverse=False,
+    round_scale=False,
+):
     """
     select and smooth and quant, used in megatron 0.11 all2all moe
     Args:
@@ -655,7 +688,7 @@ def triton_smooth_weighted_permute_with_indices(grads,
     assert grads.is_contiguous()
     M, N = grads.shape
     n_expert, n = smooth_scales.shape
-    assert N == n, f'{N=} {n=}'
+    assert N == n, f"{N=} {n=}"
     assert triton.next_power_of_2(N) == N
     E = indices.shape[0]
     device = grads.device
@@ -682,25 +715,27 @@ def triton_smooth_weighted_permute_with_indices(grads,
         reverse,
         round_scale,
         num_stages=3,
-        num_warps=8
+        num_warps=8,
     )
     return x_q, x_scale, x_sum
 
 
 @triton.jit
-def smooth_permute_with_indices_kernel(grads_data_ptr,
-                                       grads_scale_ptr,
-                                       q_ptr,
-                                       ss_ptr,
-                                       qs_ptr,
-                                       count_ptr,
-                                       accum_ptr,
-                                       index_ptr,
-                                       N: tl.constexpr,
-                                       hs: tl.constexpr,
-                                       REVERSE: tl.constexpr,
-                                       ROUND: tl.constexpr,
-                                       GROUP: tl.constexpr):
+def smooth_permute_with_indices_kernel(
+    grads_data_ptr,
+    grads_scale_ptr,
+    q_ptr,
+    ss_ptr,
+    qs_ptr,
+    count_ptr,
+    accum_ptr,
+    index_ptr,
+    N: tl.constexpr,
+    hs: tl.constexpr,
+    REVERSE: tl.constexpr,
+    ROUND: tl.constexpr,
+    GROUP: tl.constexpr,
+):
     eid = tl.program_id(axis=0)
     wid = tl.program_id(axis=1)
     T = tl.num_programs(axis=1)
@@ -738,15 +773,17 @@ def smooth_permute_with_indices_kernel(grads_data_ptr,
         tl.store(q_ptr + i * N + tl.arange(0, N), xq)
 
 
-def triton_smooth_permute_with_indices(grad_data,
-                                       grad_scale,
-                                       smooth_scales,
-                                       token_count_per_expert,
-                                       indices,
-                                       x_q=None,
-                                       x_scale=None,
-                                       reverse=False,
-                                       round_scale=False):
+def triton_smooth_permute_with_indices(
+    grad_data,
+    grad_scale,
+    smooth_scales,
+    token_count_per_expert,
+    indices,
+    x_q=None,
+    x_scale=None,
+    reverse=False,
+    round_scale=False,
+):
     """
     select and smooth and quant
     Args:
@@ -797,24 +834,26 @@ def triton_smooth_permute_with_indices(grad_data,
         round_scale,
         group,
         num_stages=3,
-        num_warps=16
+        num_warps=16,
     )
     return x_q, x_scale
 
 
 @triton.jit
-def smooth_permute_with_mask_map_kernel(grads_data_ptr,
-                                        quant_data_ptr,
-                                        mask_map_ptr,
-                                        grads_scale_ptr,
-                                        smooth_scale_ptr,
-                                        quant_scale_ptr,
-                                        M,
-                                        T,
-                                        N: tl.constexpr,
-                                        hs: tl.constexpr,
-                                        REVERSE: tl.constexpr,
-                                        ROUND: tl.constexpr):
+def smooth_permute_with_mask_map_kernel(
+    grads_data_ptr,
+    quant_data_ptr,
+    mask_map_ptr,
+    grads_scale_ptr,
+    smooth_scale_ptr,
+    quant_scale_ptr,
+    M,
+    T,
+    N: tl.constexpr,
+    hs: tl.constexpr,
+    REVERSE: tl.constexpr,
+    ROUND: tl.constexpr,
+):
     eid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1)
     n_experts = tl.num_programs(axis=0)
@@ -828,11 +867,11 @@ def smooth_permute_with_mask_map_kernel(grads_data_ptr,
         mask = index >= 0
         if index >= 0:
             x = tl.load(grads_data_ptr + i * N + tl.arange(0, N), mask=mask).to(
-                tl.float32)
+                tl.float32
+            )
 
             if hs > 1:
-                gs = tl.load(grads_scale_ptr + i * hs + tl.arange(0, hs),
-                             mask=mask)
+                gs = tl.load(grads_scale_ptr + i * hs + tl.arange(0, hs), mask=mask)
                 x = tl.reshape(tl.reshape(x, (hs, N // hs)) * gs[:, None], (N,))
             elif hs == 1:
                 gs = tl.load(grads_scale_ptr + i, mask=mask)
@@ -849,21 +888,20 @@ def smooth_permute_with_mask_map_kernel(grads_data_ptr,
 
             x /= scale
             xq = x.to(quant_data_ptr.dtype.element_ty)
-            tl.store(quant_data_ptr + index * N + tl.arange(0, N), xq,
-                     mask=mask)
+            tl.store(quant_data_ptr + index * N + tl.arange(0, N), xq, mask=mask)
 
 
 def triton_smooth_permute_with_mask_map(
-        inp: torch.Tensor,
-        row_id_map: torch.Tensor,
-        scale: torch.Tensor,
-        num_tokens: int,
-        num_experts: int,
-        num_out_tokens: int,
-        hidden_size: int,
-        smooth_scales: torch.Tensor,
-        reverse=True,
-        round_scale=False
+    inp: torch.Tensor,
+    row_id_map: torch.Tensor,
+    scale: torch.Tensor,
+    num_tokens: int,
+    num_experts: int,
+    num_out_tokens: int,
+    hidden_size: int,
+    smooth_scales: torch.Tensor,
+    reverse=True,
+    round_scale=False,
 ):
     """
     gather ( and optional dequant) and smooth quant
@@ -886,9 +924,11 @@ def triton_smooth_permute_with_mask_map(
     assert inp.is_contiguous()
     assert row_id_map.shape[1] == num_experts
     assert triton.next_power_of_2(hidden_size) == hidden_size
-    output = torch.empty((num_out_tokens, hidden_size),
-                         dtype=torch.float8_e4m3fn,
-                         device=row_id_map.device)
+    output = torch.empty(
+        (num_out_tokens, hidden_size),
+        dtype=torch.float8_e4m3fn,
+        device=row_id_map.device,
+    )
     if scale is None:
         hs = 0
     else:
@@ -912,26 +952,27 @@ def triton_smooth_permute_with_mask_map(
         hidden_size,
         hs,
         reverse,
-        round_scale
+        round_scale,
     )
     return output, permuted_scale
 
 
 @triton.jit
-def batch_block_pad_permute_with_indices_kernel(x_ptr,
-                                                prob_ptr,
-                                                indices_ptr,
-                                                count_ptr,
-                                                xq_ptr,
-                                                xs_ptr,
-                                                xtq_ptr,
-                                                xts_ptr,
-                                                output_prob_ptr,
-                                                N,
-                                                E: tl.constexpr,
-                                                ROUND: tl.constexpr,
-                                                PROB: tl.constexpr
-                                                ):
+def batch_block_pad_permute_with_indices_kernel(
+    x_ptr,
+    prob_ptr,
+    indices_ptr,
+    count_ptr,
+    xq_ptr,
+    xs_ptr,
+    xtq_ptr,
+    xts_ptr,
+    output_prob_ptr,
+    N,
+    E: tl.constexpr,
+    ROUND: tl.constexpr,
+    PROB: tl.constexpr,
+):
     eid = tl.program_id(axis=0)
     rid = tl.program_id(axis=1)
     cid = tl.program_id(axis=2)
@@ -953,9 +994,10 @@ def batch_block_pad_permute_with_indices_kernel(x_ptr,
 
     indices = tl.load(indices_ptr + psi + rids, mask=rids < count)
 
-    x = tl.load(x_ptr + cid * 128 + indices[:,
-                                    None] * N + tl.arange(
-        0, 128)[None, :], mask=rids[:, None] < count).to(tl.float32)
+    x = tl.load(
+        x_ptr + cid * 128 + indices[:, None] * N + tl.arange(0, 128)[None, :],
+        mask=rids[:, None] < count,
+    ).to(tl.float32)
 
     scale = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
     if ROUND:
@@ -965,39 +1007,48 @@ def batch_block_pad_permute_with_indices_kernel(x_ptr,
     tl.store(
         xs_ptr + psi * nb + cid * padding_count + rid * 128 + tl.arange(0, 128),
         scale,
-        mask=rids < padding_count)
-    tl.store(xq_ptr + psi * N + rid * 128 * N + cid * 128 + tl.arange(0, 128)[:,
-                                                            None] * N + tl.arange(
-        0, 128)[None, :],
-             xq,
-             mask=rids[:, None] < padding_count)
+        mask=rids < padding_count,
+    )
+    tl.store(
+        xq_ptr
+        + psi * N
+        + rid * 128 * N
+        + cid * 128
+        + tl.arange(0, 128)[:, None] * N
+        + tl.arange(0, 128)[None, :],
+        xq,
+        mask=rids[:, None] < padding_count,
+    )
 
     scale = tl.maximum(tl.max(tl.abs(x), 0) / 448.0, 1e-30)
     if ROUND:
         scale = tl.exp2(tl.ceil(tl.log2(scale)))
     xq = x / scale[None, :]
 
-    tl.store(xts_ptr + m_block * N + rid * N + cid * 128 + tl.arange(0, 128),
-             scale)
+    tl.store(xts_ptr + m_block * N + rid * N + cid * 128 + tl.arange(0, 128), scale)
     tl.store(
-        xtq_ptr + psi * N + rid * 128 + cid * 128 * padding_count + tl.arange(0,
-                                                                              128)[
-                                                                    :,
-                                                                    None] * padding_count + tl.arange(
-            0, 128)[None, :], tl.trans(xq), mask=rids[None, :] < padding_count)
+        xtq_ptr
+        + psi * N
+        + rid * 128
+        + cid * 128 * padding_count
+        + tl.arange(0, 128)[:, None] * padding_count
+        + tl.arange(0, 128)[None, :],
+        tl.trans(xq),
+        mask=rids[None, :] < padding_count,
+    )
 
     if PROB:
         prob = tl.load(prob_ptr + eid + indices * E, mask=rids < count)
-        tl.store(output_prob_ptr + psi + rid * 128 + tl.arange(0, 128), prob,
-                 mask=rids < padding_count)
+        tl.store(
+            output_prob_ptr + psi + rid * 128 + tl.arange(0, 128),
+            prob,
+            mask=rids < padding_count,
+        )
 
 
-def triton_batch_block_pad_permute_with_indices(xs,
-                                                token_count_per_expert,
-                                                indices,
-                                                splits,
-                                                probs=None,
-                                                round_scale=False):
+def triton_batch_block_pad_permute_with_indices(
+    xs, token_count_per_expert, indices, splits, probs=None, round_scale=False
+):
     """
     select and quant, used in megatron 0.12 flex moe
     Args:
@@ -1009,11 +1060,11 @@ def triton_batch_block_pad_permute_with_indices(xs,
         round_scale: whether round scale to power of 2
 
     Returns:
-        x_q: 
-        x_scale: 
-        xt_q: 
-        xt_scale: 
-        prob_output: 
+        x_q:
+        x_scale:
+        xt_q:
+        xt_scale:
+        prob_output:
 
     """
     assert xs.is_contiguous()
@@ -1056,8 +1107,7 @@ def triton_batch_block_pad_permute_with_indices(xs,
         round_scale,
         PROB,
         num_stages=2,
-        num_warps=4
+        num_warps=4,
     )
 
     return x_q, x_scale, xt_q, xt_scale, prob_output
-

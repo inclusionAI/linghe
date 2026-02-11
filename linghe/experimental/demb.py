@@ -17,16 +17,18 @@ distributed embedding with vocab parallel
 
 
 @triton.jit
-def tp_embedding_lookup_forward_kernel(input_ids_ptr,
-                                       weights_ptr,
-                                       outputs_ptr,
-                                       buffer_ptrs,
-                                       signal_ptrs,
-                                       V,
-                                       d,
-                                       D: tl.constexpr,
-                                       SIZE: tl.constexpr,
-                                       RANK: tl.constexpr):
+def tp_embedding_lookup_forward_kernel(
+    input_ids_ptr,
+    weights_ptr,
+    outputs_ptr,
+    buffer_ptrs,
+    signal_ptrs,
+    V,
+    d,
+    D: tl.constexpr,
+    SIZE: tl.constexpr,
+    RANK: tl.constexpr,
+):
     pid = tl.program_id(0)
     buffer_ptrs = buffer_ptrs.to(tl.pointer_type(tl.uint64))
 
@@ -35,8 +37,7 @@ def tp_embedding_lookup_forward_kernel(input_ids_ptr,
 
     if (input_id >= RANK * V) & (input_id < (RANK + 1) * V):
 
-        buffer_ptr = tl.load(buffer_ptrs + RANK).to(
-            tl.pointer_type(tl.bfloat16))
+        buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.bfloat16))
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
         w = tl.load(weights_ptr + input_id % V * D + tl.arange(0, D), mask=mask)
         tl.store(outputs_ptr + pid * D + tl.arange(0, D), w, mask=mask)
@@ -60,7 +61,8 @@ def tp_embedding_lookup_forward_kernel(input_ids_ptr,
             hasSubsequentMemAccess=True,
         )
         buffer_ptr = tl.load(buffer_ptrs + input_id // V).to(
-            tl.pointer_type(tl.bfloat16))
+            tl.pointer_type(tl.bfloat16)
+        )
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
         w = tl.load(buffer_ptr + pid * D + tl.arange(0, D), mask=mask)
         tl.store(outputs_ptr + pid * D + tl.arange(0, D), w, mask=mask)
@@ -84,8 +86,7 @@ def triton_tp_embedding_lookup_forward(input_ids, weights, hdl, group):
 
     if len(shape) == 2:
         M = shape[0] * shape[1]
-        outputs = torch.empty((shape[0], shape[1], d), device=device,
-                              dtype=dtype)
+        outputs = torch.empty((shape[0], shape[1], d), device=device, dtype=dtype)
     else:
         M = shape[0]
         outputs = torch.empty((M, d), device=device, dtype=dtype)
@@ -110,24 +111,25 @@ def triton_tp_embedding_lookup_forward(input_ids, weights, hdl, group):
 
 
 @triton.jit
-def tp_embedding_lookup_backward_kernel(grad_output_ptr,
-                                        sorted_ids_ptr,
-                                        sorted_indices_ptr,
-                                        accum_counts_ptr,
-                                        g_ptr,
-                                        buffer_ptrs,
-                                        signal_ptrs,
-                                        stride_0,
-                                        stride_1,
-                                        dim,
-                                        V,
-                                        B,
-                                        L,
-                                        DIM: tl.constexpr,
-                                        T: tl.constexpr,
-                                        SIZE: tl.constexpr,
-                                        RANK: tl.constexpr
-                                        ):
+def tp_embedding_lookup_backward_kernel(
+    grad_output_ptr,
+    sorted_ids_ptr,
+    sorted_indices_ptr,
+    accum_counts_ptr,
+    g_ptr,
+    buffer_ptrs,
+    signal_ptrs,
+    stride_0,
+    stride_1,
+    dim,
+    V,
+    B,
+    L,
+    DIM: tl.constexpr,
+    T: tl.constexpr,
+    SIZE: tl.constexpr,
+    RANK: tl.constexpr,
+):
     pid = tl.program_id(axis=0).to(tl.int64)
     buffer_ptrs = buffer_ptrs.to(tl.pointer_type(tl.uint64))
 
@@ -153,9 +155,9 @@ def tp_embedding_lookup_backward_kernel(grad_output_ptr,
             bid = pos // L
             lid = pos % L
             g = tl.load(
-                grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
-                                                                              DIM),
-                mask=mask).to(tl.float32)
+                grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0, DIM),
+                mask=mask,
+            ).to(tl.float32)
             outputs += g
         symm_mem_sync(
             signal_ptrs,
@@ -168,14 +170,11 @@ def tp_embedding_lookup_backward_kernel(grad_output_ptr,
 
         for j in range(SIZE):
             if j != RANK:
-                buffer_ptr = tl.load(buffer_ptrs + j).to(
-                    tl.pointer_type(tl.bfloat16))
+                buffer_ptr = tl.load(buffer_ptrs + j).to(tl.pointer_type(tl.bfloat16))
                 buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-                g = tl.load(buffer_ptr + pid * DIM + tl.arange(0, DIM),
-                            mask=mask)
+                g = tl.load(buffer_ptr + pid * DIM + tl.arange(0, DIM), mask=mask)
                 outputs += g
-        tl.store(grad_ptr + input_id % V * DIM + tl.arange(0, DIM), outputs,
-                 mask=mask)
+        tl.store(grad_ptr + input_id % V * DIM + tl.arange(0, DIM), outputs, mask=mask)
 
     else:
 
@@ -184,13 +183,12 @@ def tp_embedding_lookup_backward_kernel(grad_output_ptr,
             bid = pos // L
             lid = pos % L
             g = tl.load(
-                grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
-                                                                              DIM),
-                mask=mask).to(tl.float32)
+                grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0, DIM),
+                mask=mask,
+            ).to(tl.float32)
             outputs += g
 
-        buffer_ptr = tl.load(buffer_ptrs + RANK).to(
-            tl.pointer_type(tl.bfloat16))
+        buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.bfloat16))
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
         tl.store(buffer_ptr + pid * DIM + tl.arange(0, DIM), outputs, mask=mask)
         symm_mem_sync(
@@ -203,8 +201,9 @@ def tp_embedding_lookup_backward_kernel(grad_output_ptr,
         )
 
 
-def triton_tp_embedding_lookup_backward(grad_output, x, g_ptr, vocab_size, hdl,
-                                        group, dtype=torch.bfloat16):
+def triton_tp_embedding_lookup_backward(
+    grad_output, x, g_ptr, vocab_size, hdl, group, dtype=torch.bfloat16
+):
     """
     inplace update embedding weight gradient
     Args:
@@ -251,22 +250,24 @@ def triton_tp_embedding_lookup_backward(grad_output, x, g_ptr, vocab_size, hdl,
         group_size,
         group_rank,
         num_stages=num_stages,
-        num_warps=num_warps
+        num_warps=num_warps,
     )
 
 
 @triton.jit
-def sp_embedding_lookup_forward_kernel(input_ids_ptr,
-                                       weights_ptr,
-                                       outputs_ptr,
-                                       buffer_ptrs,
-                                       signal_ptrs,
-                                       M,
-                                       V,
-                                       d,
-                                       D: tl.constexpr,
-                                       SIZE: tl.constexpr,
-                                       RANK: tl.constexpr):
+def sp_embedding_lookup_forward_kernel(
+    input_ids_ptr,
+    weights_ptr,
+    outputs_ptr,
+    buffer_ptrs,
+    signal_ptrs,
+    M,
+    V,
+    d,
+    D: tl.constexpr,
+    SIZE: tl.constexpr,
+    RANK: tl.constexpr,
+):
     pid = tl.program_id(0)
     buffer_ptrs = buffer_ptrs.to(tl.pointer_type(tl.uint64))
     mask = tl.arange(0, D) < d
@@ -275,8 +276,7 @@ def sp_embedding_lookup_forward_kernel(input_ids_ptr,
         input_id = tl.load(input_ids_ptr + chunk * M + pid)
         if chunk == RANK:
             if (input_id >= RANK * V) & (input_id < (RANK + 1) * V):
-                w = tl.load(weights_ptr + input_id % V * D + tl.arange(0, D),
-                            mask=mask)
+                w = tl.load(weights_ptr + input_id % V * D + tl.arange(0, D), mask=mask)
                 tl.store(outputs_ptr + pid * D + tl.arange(0, D), w, mask=mask)
             else:
                 symm_mem_sync(
@@ -288,17 +288,17 @@ def sp_embedding_lookup_forward_kernel(input_ids_ptr,
                     hasSubsequentMemAccess=True,
                 )
                 buffer_ptr = tl.load(buffer_ptrs + input_id // V).to(
-                    tl.pointer_type(tl.bfloat16))
+                    tl.pointer_type(tl.bfloat16)
+                )
                 buffer_ptr = tl.multiple_of(buffer_ptr, 16)
                 w = tl.load(buffer_ptr + pid * D + tl.arange(0, D), mask=mask)
-                tl.store(outputs_ptr + pid % M * D + tl.arange(0, D), w,
-                         mask=mask)
+                tl.store(outputs_ptr + pid % M * D + tl.arange(0, D), w, mask=mask)
         else:
             if (input_id >= RANK * V) & (input_id < (RANK + 1) * V):
-                w = tl.load(weights_ptr + input_id % V * D + tl.arange(0, D),
-                            mask=mask)
+                w = tl.load(weights_ptr + input_id % V * D + tl.arange(0, D), mask=mask)
                 buffer_ptr = tl.load(buffer_ptrs + RANK).to(
-                    tl.pointer_type(tl.bfloat16))
+                    tl.pointer_type(tl.bfloat16)
+                )
                 buffer_ptr = tl.multiple_of(buffer_ptr, 16)
                 tl.store(buffer_ptr + pid * D + tl.arange(0, D), w, mask=mask)
                 symm_mem_sync(
@@ -329,15 +329,16 @@ def triton_sp_embedding_lookup_forward(input_ids, weights, hdl, group):
 
     if len(shape) == 2:
         M = shape[0] * shape[1]
-        outputs = torch.empty((shape[0], shape[1], d), device=device,
-                              dtype=dtype)
-        gathered_input_ids = torch.empty((group_size, shape[0], shape[1]),
-                                         dtype=torch.long, device=device)
+        outputs = torch.empty((shape[0], shape[1], d), device=device, dtype=dtype)
+        gathered_input_ids = torch.empty(
+            (group_size, shape[0], shape[1]), dtype=torch.long, device=device
+        )
     else:
         M = shape[0]
         outputs = torch.empty((M, d), device=device, dtype=dtype)
-        gathered_input_ids = torch.empty((group_size, M), dtype=torch.long,
-                                         device=device)
+        gathered_input_ids = torch.empty(
+            (group_size, M), dtype=torch.long, device=device
+        )
     dist.all_gather_into_tensor(gathered_input_ids, input_ids, group=group)
 
     num_warps = 4
@@ -362,32 +363,32 @@ def triton_sp_embedding_lookup_forward(input_ids, weights, hdl, group):
 
 
 @triton.jit
-def sp_embedding_lookup_backward_kernel(grad_output_ptr,
-                                        sorted_ids_ptr,
-                                        sorted_indices_ptr,
-                                        accum_counts_ptr,
-                                        g_ptr,
-                                        buffer_ptrs,
-                                        signal_ptrs,
-                                        stride_0,
-                                        stride_1,
-                                        dim,
-                                        M,
-                                        V,
-                                        B,
-                                        L,
-                                        DIM: tl.constexpr,
-                                        T: tl.constexpr,
-                                        SIZE: tl.constexpr,
-                                        RANK: tl.constexpr
-                                        ):
+def sp_embedding_lookup_backward_kernel(
+    grad_output_ptr,
+    sorted_ids_ptr,
+    sorted_indices_ptr,
+    accum_counts_ptr,
+    g_ptr,
+    buffer_ptrs,
+    signal_ptrs,
+    stride_0,
+    stride_1,
+    dim,
+    M,
+    V,
+    B,
+    L,
+    DIM: tl.constexpr,
+    T: tl.constexpr,
+    SIZE: tl.constexpr,
+    RANK: tl.constexpr,
+):
     pid = tl.program_id(axis=0).to(tl.int64)
     buffer_ptrs = buffer_ptrs.to(tl.pointer_type(tl.uint64))
     mask = tl.arange(0, DIM) < dim
 
     for chunk in range(SIZE):
-        c01 = tl.load(
-            accum_counts_ptr + chunk * (L + 1) + pid + tl.arange(0, 2))
+        c01 = tl.load(accum_counts_ptr + chunk * (L + 1) + pid + tl.arange(0, 2))
         c0, c1 = tl.split(c01)
         if c0 != c1:
 
@@ -408,13 +409,20 @@ def sp_embedding_lookup_backward_kernel(grad_output_ptr,
                         bid = pos // L
                         lid = pos % L
                         g = tl.load(
-                            grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(
-                                0, DIM), mask=mask).to(tl.float32)
+                            grad_output_ptr
+                            + bid * stride_0
+                            + lid * stride_1
+                            + tl.arange(0, DIM),
+                            mask=mask,
+                        ).to(tl.float32)
                         outputs += g
 
                     tl.atomic_add(
                         grad_ptr + input_id % V * DIM + tl.arange(0, DIM),
-                        outputs, mask=mask, sem='relaxed')
+                        outputs,
+                        mask=mask,
+                        sem="relaxed",
+                    )
 
                 else:
 
@@ -423,16 +431,22 @@ def sp_embedding_lookup_backward_kernel(grad_output_ptr,
                         bid = pos // L
                         lid = pos % L
                         g = tl.load(
-                            grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(
-                                0, DIM), mask=mask).to(tl.float32)
+                            grad_output_ptr
+                            + bid * stride_0
+                            + lid * stride_1
+                            + tl.arange(0, DIM),
+                            mask=mask,
+                        ).to(tl.float32)
                         outputs += g
 
                     # save to dst addr
                     buffer_ptr = tl.load(buffer_ptrs + input_id // V).to(
-                        tl.pointer_type(tl.float32))
+                        tl.pointer_type(tl.float32)
+                    )
                     buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-                    tl.store(buffer_ptr + pid * DIM + tl.arange(0, DIM),
-                             outputs, mask=mask)
+                    tl.store(
+                        buffer_ptr + pid * DIM + tl.arange(0, DIM), outputs, mask=mask
+                    )
                     symm_mem_sync(
                         signal_ptrs,
                         None,
@@ -453,19 +467,28 @@ def sp_embedding_lookup_backward_kernel(grad_output_ptr,
                     )
 
                     buffer_ptr = tl.load(buffer_ptrs + RANK).to(
-                        tl.pointer_type(tl.float32))
+                        tl.pointer_type(tl.float32)
+                    )
                     buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-                    g = tl.load(buffer_ptr + pid * DIM + tl.arange(0, DIM),
-                                mask=mask)
+                    g = tl.load(buffer_ptr + pid * DIM + tl.arange(0, DIM), mask=mask)
                     tl.atomic_add(
-                        grad_ptr + input_id % V * DIM + tl.arange(0, DIM), g,
-                        mask=mask, sem='relaxed')
+                        grad_ptr + input_id % V * DIM + tl.arange(0, DIM),
+                        g,
+                        mask=mask,
+                        sem="relaxed",
+                    )
 
 
-def triton_sp_embedding_lookup_backward(grad_output, input_ids, g_ptr,
-                                        vocab_size, hdl, group,
-                                        dtype=torch.bfloat16,
-                                        gathered_input_ids=None):
+def triton_sp_embedding_lookup_backward(
+    grad_output,
+    input_ids,
+    g_ptr,
+    vocab_size,
+    hdl,
+    group,
+    dtype=torch.bfloat16,
+    gathered_input_ids=None,
+):
     """
     inplace update embedding weight gradient
     Args:
@@ -489,23 +512,24 @@ def triton_sp_embedding_lookup_backward(grad_output, input_ids, g_ptr,
         B, L = shape
         M = B * L
         if gathered_input_ids is None:
-            gathered_input_ids = torch.empty((group_size, B, L),
-                                             dtype=torch.long, device=device)
-            dist.all_gather_into_tensor(gathered_input_ids, input_ids,
-                                        group=group)
+            gathered_input_ids = torch.empty(
+                (group_size, B, L), dtype=torch.long, device=device
+            )
+            dist.all_gather_into_tensor(gathered_input_ids, input_ids, group=group)
     else:
         M = shape[0]
         if gathered_input_ids is None:
-            gathered_input_ids = torch.empty((group_size, M), dtype=torch.long,
-                                             device=device)
-            dist.all_gather_into_tensor(gathered_input_ids, input_ids,
-                                        group=group)
+            gathered_input_ids = torch.empty(
+                (group_size, M), dtype=torch.long, device=device
+            )
+            dist.all_gather_into_tensor(gathered_input_ids, input_ids, group=group)
 
     stride_0 = grad_output.stride(0)
     stride_1 = grad_output.stride(1)
 
     sorted_ids, sorted_indices = torch.sort(
-        gathered_input_ids.view(group_size, M), stable=False, dim=-1)
+        gathered_input_ids.view(group_size, M), stable=False, dim=-1
+    )
     accum_counts = triton_scan_and_count(sorted_ids)
 
     DIM = triton.next_power_of_2(dim)
@@ -532,5 +556,5 @@ def triton_sp_embedding_lookup_backward(grad_output, input_ids, g_ptr,
         group_size,
         group_rank,
         num_stages=num_stages,
-        num_warps=num_warps
+        num_warps=num_warps,
     )

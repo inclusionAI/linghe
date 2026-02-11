@@ -10,13 +10,13 @@ import triton.language as tl
 
 @triton.jit
 def group_quant_kernel(
-        x_ptr,
-        y_ptr,
-        s_ptr,
-        N,
-        BLOCK_SIZE: tl.constexpr,
-        K: tl.constexpr,
-        ROUND: tl.constexpr,
+    x_ptr,
+    y_ptr,
+    s_ptr,
+    N,
+    BLOCK_SIZE: tl.constexpr,
+    K: tl.constexpr,
+    ROUND: tl.constexpr,
 ):
     pid = tl.program_id(axis=0)
     offs = pid * N + tl.arange(0, K * BLOCK_SIZE)
@@ -37,8 +37,7 @@ def group_quant_kernel(
         soffs += K
 
 
-def triton_group_quant(x, dtype=torch.float8_e4m3fn, group_size=128,
-                       round_scale=False):
+def triton_group_quant(x, dtype=torch.float8_e4m3fn, group_size=128, round_scale=False):
     """
     groupwise quantize x, group is in under rowwise format
     Args:

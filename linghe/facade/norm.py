@@ -78,8 +78,7 @@ class BlockRMSNorm(torch.autograd.Function):
             fp8_dtype=quantizer.dtype,
             rowwise_data=x_q.view(shape) if x_q is not None else None,
             rowwise_scale_inv=x_scale,
-            columnwise_data=xt_q.view(
-                transpose_shape) if xt_q is not None else None,
+            columnwise_data=xt_q.view(transpose_shape) if xt_q is not None else None,
             columnwise_scale_inv=xt_scale,
             quantizer=quantizer,
             requires_grad=input.requires_grad,
@@ -99,15 +98,13 @@ class BlockRMSNorm(torch.autograd.Function):
         grad_output = grad_output.view(shape[0] * shape[1], shape[2])
         input, weight = ctx.saved_tensors
         input = input.view(shape[0] * shape[1], shape[2])
-        dx, dw = triton_rms_norm_backward(grad_output, input, weight,
-                                          eps=ctx.eps)
+        dx, dw = triton_rms_norm_backward(grad_output, input, weight, eps=ctx.eps)
         dx = dx.view(*shape)
 
         return dx, dw, None, None, None, None, None
 
 
-def block_rms_norm(input, weight, rms, quantizer, cls, eps=1e-6,
-                   is_recomputing=None):
+def block_rms_norm(input, weight, rms, quantizer, cls, eps=1e-6, is_recomputing=None):
     output, output_rms = BlockRMSNorm.apply(
         input, weight, rms, eps, quantizer, cls, is_recomputing
     )
