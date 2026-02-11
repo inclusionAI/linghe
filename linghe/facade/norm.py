@@ -196,17 +196,16 @@ class SmoothRMSNorm(torch.autograd.Function):
                                                                       calibrate=is_first_microbatch, 
                                                                       output_rms=False,
                                                                       round_scale=quantizer.force_pow_2_scales)
-        output = cls(
-                    shape=(shape[0],shape[1],shape[2]),
-                    dtype=input.dtype,
-                    fp8_dtype=quantizer.dtype,
-                    rowwise_data=x_q,
-                    rowwise_scale_inv=x_scale,
-                    columnwise_data=None,
-                    columnwise_scale_inv=quantizer.smooth_scale,
-                    quantizer=quantizer,
-                    requires_grad=input.requires_grad,
-                )
+        output = cls(shape=(shape[0],shape[1],shape[2]),
+                     dtype=input.dtype,
+                     fp8_dtype=quantizer.dtype,
+                     rowwise_data=x_q,
+                     rowwise_scale_inv=x_scale,
+                     columnwise_data=None,
+                     columnwise_scale_inv=quantizer.smooth_scale,
+                     quantizer=quantizer,
+                     requires_grad=input.requires_grad,
+                     )
         return output, x_maxs
 
     @staticmethod

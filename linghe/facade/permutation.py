@@ -704,12 +704,12 @@ def smooth_permute(
      permuted_probs,
      row_id_map,
      row_id_indices) = _SmoothPermute.apply(tokens,
-                                                 probs,
-                                                 routing_map,
-                                                 tokens_per_expert,
-                                                 splits,
-                                                 quantizers,
-                                                 cls)
+                                            probs,
+                                            routing_map,
+                                            tokens_per_expert,
+                                            splits,
+                                            quantizers,
+                                            cls)
     return permuted_input, permuted_probs, row_id_map, row_id_indices
 
 
@@ -766,17 +766,16 @@ class _SmoothUnpermute(torch.autograd.Function):
                                                                ctx.splits, 
                                                                round_scale=round_scale)
     
-        input_grad = ctx.cls(
-            shape=permuted_grad_data.shape,
-            dtype=grad_output.dtype,
-            fp8_dtype=quantizers[0].dtype,
-            rowwise_data=permuted_grad_data,
-            rowwise_scale_inv=permuted_grad_scales,
-            columnwise_data=permuted_grad_data_t,
-            columnwise_scale_inv=permuted_grad_scales_t,
-            quantizer=quantizers,
-            requires_grad=False
-        )
+        input_grad = ctx.cls(shape=permuted_grad_data.shape,
+                             dtype=grad_output.dtype,
+                             fp8_dtype=quantizers[0].dtype,
+                             rowwise_data=permuted_grad_data,
+                             rowwise_scale_inv=permuted_grad_scales,
+                             columnwise_data=permuted_grad_data_t,
+                             columnwise_scale_inv=permuted_grad_scales_t,
+                             quantizer=quantizers,
+                             requires_grad=False
+                             )
         return input_grad, None, None, None, None, None, None, None
 
 

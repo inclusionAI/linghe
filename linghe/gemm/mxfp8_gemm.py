@@ -692,13 +692,13 @@ def mxfp8_grouped_gemm_backward_kernel(
 
 
 def triton_mxfp8_grouped_gemm_backward(a: List[torch.Tensor],
-                              b: List[torch.Tensor],
-                              a_s: List[torch.Tensor],
-                              b_s: List[torch.Tensor],
-                              m_splits: List[int],
-                              out: Optional[torch.tensor] = None,
-                              out_dtype: torch.dtype = torch.bfloat16,
-                              ):
+                                       b: List[torch.Tensor],
+                                       a_s: List[torch.Tensor],
+                                       b_s: List[torch.Tensor],
+                                       m_splits: List[int],
+                                       out: Optional[torch.tensor] = None,
+                                       out_dtype: torch.dtype = torch.bfloat16,
+                                       ):
     """
     triton implementation to simulate mxfp8 grouped gemm
     layout is defined as the same in TE:
@@ -976,13 +976,12 @@ def triton_native_mxfp8_gemm(a: torch.Tensor,
 
 
 def triton_native_mxfp8_grouped_gemm(a: List[torch.Tensor],
-                     b: List[torch.Tensor],
-                     a_s: List[torch.Tensor],
-                     b_s: List[torch.Tensor],
-                     out: List[torch.Tensor],
-                     m_splits: List[int],
-                     layout: str = 'TN'):
-        
+                                     b: List[torch.Tensor],
+                                     a_s: List[torch.Tensor],
+                                     b_s: List[torch.Tensor],
+                                     out: List[torch.Tensor],
+                                     m_splits: List[int],
+                                     layout: str = 'TN'):
     device = a[0].device
     dtype = a[0].dtype
     if layout != 'NT':

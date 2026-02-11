@@ -221,12 +221,13 @@ def transpose_smooth_quant_kernel(x_ptr,
             x = tl.load(x_ptr + offs)
             smooth_scale = tl.load(ss_ptr + soffs)[:, None]
         else:
-            x = tl.load(x_ptr + offs,
-                        mask=(i * H + tl.arange(0, H)[:, None] < M) & (
-                                pid * W + tl.arange(0, W)[None, :] < N))
+            mask = (i * H + tl.arange(0, H)[:, None] < M) & \
+                    (pid * W + tl.arange(0, W)[None, :] < N)
+            x = tl.load(x_ptr + offs, mask=mask)
             other = 0.0 if REVERSE else 1e30
-            smooth_scale = tl.load(ss_ptr + soffs, mask=soffs < M, other=other)[
-                           :, None]
+            smooth_scale = tl.load(ss_ptr + soffs,
+                                   mask=soffs < M,
+                                   other=other)[:, None]
         if REVERSE:
             x = x * smooth_scale
         else:
@@ -259,8 +260,9 @@ def transpose_smooth_quant_kernel(x_ptr,
                         mask=(i * H + tl.arange(0, H)[:, None] < M)).to(
                 tl.float32)
             other = 0.0 if REVERSE else 1e30
-            smooth_scale = tl.load(ss_ptr + soffs, mask=soffs < M, other=other)[
-                           :, None]
+            smooth_scale = tl.load(ss_ptr + soffs,
+                                   mask=soffs < M,
+                                   other=other)[:, None]
 
         if REVERSE:
             x = (x * smooth_scale * s).to(q_ptr.dtype.element_ty)
