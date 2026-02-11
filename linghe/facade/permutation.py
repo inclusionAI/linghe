@@ -750,21 +750,21 @@ class _SmoothUnpermute(torch.autograd.Function):
 
         # import pydevd
         # pydevd.settrace(suspend=False, trace_only_current_thread=True)
-        permuted_grad_data, permuted_grad_scales, _ = triton_batch_smooth_permute_with_indices(
-                                grad_output,
-                                grad_smooth_scales,
-                                token_count_per_expert,
-                                row_id_indices,
-                                probs=None,
-                                reverse=True,
-                                round_scale=round_scale)
-        permuted_grad_data_t, permuted_grad_scales_t = triton_batch_transpose_smooth_permute_with_indices(
-                                                grad_output, 
-                                                transpose_grad_smooth_scales, 
-                                                row_id_indices, 
-                                                token_count_per_expert, 
-                                                ctx.splits, 
-                                                round_scale=round_scale)
+        permuted_grad_data, permuted_grad_scales, _ = \
+            triton_batch_smooth_permute_with_indices(grad_output,
+                                                     grad_smooth_scales,
+                                                     token_count_per_expert,
+                                                     row_id_indices,
+                                                     probs=None,
+                                                     reverse=True,
+                                                     round_scale=round_scale)
+        permuted_grad_data_t, permuted_grad_scales_t = \
+            triton_batch_transpose_smooth_permute_with_indices(grad_output, 
+                                                               transpose_grad_smooth_scales, 
+                                                               row_id_indices, 
+                                                               token_count_per_expert, 
+                                                               ctx.splits, 
+                                                               round_scale=round_scale)
     
         input_grad = ctx.cls(
             shape=permuted_grad_data.shape,

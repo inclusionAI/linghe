@@ -113,8 +113,7 @@ def triton_mxfp8_gemm(a: torch.Tensor,
         out = torch.empty(M, N, dtype=out_dtype, device=a.device)
     BLOCK_SIZE_M = 128
     BLOCK_SIZE_N = 128
-    grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
-                         triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
+    grid = (M // BLOCK_SIZE_M, N // BLOCK_SIZE_N)
     mxfp8_gemm_kernel[grid](a, b, out,
                             a_s, b_s,
                             M, N, K,
@@ -197,8 +196,7 @@ def triton_mxfp8_gemm_forward(a: torch.Tensor,
         out = torch.empty(M, N, dtype=out_dtype, device=a.device)
     BLOCK_SIZE_M = 128
     BLOCK_SIZE_N = 128
-    grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
-                         triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
+    grid = (M // BLOCK_SIZE_M, N // BLOCK_SIZE_N)
     mxfp8_gemm_forward_kernel[grid](a, b, out,
                             a_s, b_s,
                             M, N, K,
@@ -276,8 +274,7 @@ def triton_mxfp8_gemm_backward(a: torch.Tensor,
         out = torch.empty(M, N, dtype=out_dtype, device=a.device)
     BLOCK_SIZE_M = 128
     BLOCK_SIZE_N = 128
-    grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
-                         triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
+    grid = (M // BLOCK_SIZE_M, N // BLOCK_SIZE_N)
     mxfp8_gemm_backward_kernel[grid](a, b, out,
                             a_s, b_s,
                             M, N, K,
@@ -362,8 +359,7 @@ def triton_mxfp8_gemm_update(a: torch.Tensor,
         out = torch.empty(M, N, dtype=out_dtype, device=a.device)
     BLOCK_SIZE_M = 128
     BLOCK_SIZE_N = 128
-    grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
-                         triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
+    grid = (M // BLOCK_SIZE_M, N // BLOCK_SIZE_N)  # noqa
     mxfp8_gemm_update_kernel[grid](a, b, out,
                             a_s, b_s,
                             M, N, K,
@@ -967,8 +963,7 @@ def triton_native_mxfp8_gemm(a: torch.Tensor,
         assert out.is_contiguous()
     else:
         out = torch.empty(M, N, dtype=out_dtype, device=a.device)
-    grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
-                         triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
+    grid = (M // BLOCK_SIZE_M, N // BLOCK_SIZE_N)
     native_mxfp8_gemm_kernel[grid](a, b, out,
                             a_s, b_s,
                             M, N, K,

@@ -354,17 +354,16 @@ class SmoothSiluFunction(torch.autograd.Function):
             reverse=True, 
             round_scale=round_scale)
 
-        output = ctx.cls(
-                    shape=ctx.shape,
-                    dtype=grad_output.dtype,
-                    fp8_dtype=grad_quantizer.dtype,
-                    rowwise_data=x_q,
-                    rowwise_scale_inv=x_scale,
-                    columnwise_data=xt_q,
-                    columnwise_scale_inv=xt_scale,
-                    quantizer=grad_quantizer,
-                    requires_grad=False,
-                )
+        output = ctx.cls(shape=ctx.shape,
+                        dtype=grad_output.dtype,
+                        fp8_dtype=grad_quantizer.dtype,
+                        rowwise_data=x_q,
+                        rowwise_scale_inv=x_scale,
+                        columnwise_data=xt_q,
+                        columnwise_scale_inv=xt_scale,
+                        quantizer=grad_quantizer,
+                        requires_grad=False,
+                    )
         
         return output, None, None, None
 
