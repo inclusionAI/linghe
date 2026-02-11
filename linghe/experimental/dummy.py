@@ -23,8 +23,7 @@ def dummy_kernel(x_ptr,
                  y3_ptr,
                  y4_ptr,
                  M,
-                 D: tl.constexpr
-                 ):
+                 D: tl.constexpr):
     pid = tl.program_id(axis=0)
     x = tl.load(x_ptr + pid * D + tl.arange(0, D))
     tl.store(y_ptr + pid * D + tl.arange(0, D), x)
@@ -43,15 +42,13 @@ def triton_dummy(x: torch.Tensor, y: torch.Tensor):
         M,
         D,
         num_stages=3,
-        num_warps=2
-        )
+        num_warps=2)
     return x
 
 
 @triton.heuristics({
     'K': lambda args: args['D'] > 1024,
-    }
-    )
+    })
 @triton.jit(do_not_specialize=[])
 def dummy_heuristics_kernel(x_ptr,
                             y_ptr,
@@ -61,8 +58,7 @@ def dummy_heuristics_kernel(x_ptr,
                             y4_ptr,
                             M,
                             D: tl.constexpr,
-                            K: tl.constexpr
-                            ):
+                            K: tl.constexpr):
     pid = tl.program_id(axis=0)
     x = tl.load(x_ptr + pid * D + tl.arange(0, D))
     tl.store(y_ptr + pid * D + tl.arange(0, D), x)
@@ -81,8 +77,7 @@ def triton_heuristics_dummy(x: torch.Tensor, y: torch.Tensor):
         M,
         D,
         num_stages=3,
-        num_warps=2
-        )
+        num_warps=2)
     return x
 
 
@@ -93,8 +88,7 @@ def triton_heuristics_dummy(x: torch.Tensor, y: torch.Tensor):
         for num_warps in [1, 2]
         for num_stages in [2, 3]
         ],
-    key=["D"],
-    )
+    key=["D"], )
 @triton.jit(do_not_specialize=[])
 def dummy_autotune_kernel(x_ptr,
                           y_ptr,
@@ -104,8 +98,7 @@ def dummy_autotune_kernel(x_ptr,
                           y4_ptr,
                           M,
                           D: tl.constexpr,
-                          K: tl.constexpr
-                          ):
+                          K: tl.constexpr):
     pid = tl.program_id(axis=0)
     x = tl.load(x_ptr + pid * D + tl.arange(0, D))
     tl.store(y_ptr + pid * D + tl.arange(0, D), x)
@@ -122,8 +115,7 @@ def triton_autotune_dummy(x: torch.Tensor, y: torch.Tensor):
         y,
         y,
         M,
-        D,
-        )
+        D, )
     return x
 
 
@@ -142,8 +134,7 @@ def test_dummy(M=4096, D=4096, bench=False):
         benchmark_func(triton_dummy, x, y,
                        ref_bytes=M * D * 4,
                        n_profile=0,
-                       trace_dir='/tmp/org.json'
-                       )
+                       trace_dir='/tmp/org.json')
 
     for i in range(256):
         triton_heuristics_dummy(x, y)
@@ -152,8 +143,7 @@ def test_dummy(M=4096, D=4096, bench=False):
         benchmark_func(triton_heuristics_dummy, x, y,
                        ref_bytes=M * D * 4,
                        n_profile=0,
-                       trace_dir='/tmp/org.json'
-                       )
+                       trace_dir='/tmp/org.json')
 
     for i in range(256):
         triton_autotune_dummy(x, y)
@@ -162,8 +152,7 @@ def test_dummy(M=4096, D=4096, bench=False):
         benchmark_func(triton_autotune_dummy, x, y,
                        ref_bytes=M * D * 4,
                        n_profile=0,
-                       trace_dir='/tmp/org.json'
-                       )
+                       trace_dir='/tmp/org.json')
 
 
 if __name__ == '__main__':

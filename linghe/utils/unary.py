@@ -13,8 +13,7 @@ def calculate_smooth_scale_kernel(x_ptr, y_ptr, min_value, smooth_coef,
                                   N,
                                   B: tl.constexpr,
                                   EVEN: tl.constexpr,
-                                  ROUND: tl.constexpr
-                                  ):
+                                  ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
     offs = pid * B + tl.arange(0, B)
     if EVEN:
@@ -31,8 +30,7 @@ def calculate_smooth_scale_kernel(x_ptr, y_ptr, min_value, smooth_coef,
 
 
 def triton_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5,
-                                  inplace=False, round_scale=False
-                                  ):
+                                  inplace=False, round_scale=False):
     assert x.is_contiguous()
     N = x.shape[0]
     B = 4096
@@ -56,8 +54,7 @@ def triton_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5,
         EVEN,
         round_scale,
         num_stages=num_stages,
-        num_warps=num_warps
-        )
+        num_warps=num_warps)
     return output
 
 
@@ -66,22 +63,19 @@ def clip_kernel(x_ptr,
                 clip_value,
                 N,
                 B: tl.constexpr,
-                EVEN: tl.constexpr
-                ):
+                EVEN: tl.constexpr):
     pid = tl.program_id(axis=0).to(tl.int64)
     offs = pid * B + tl.arange(0, B)
     if EVEN:
         x = tl.load(x_ptr + offs)
         xc = tl.minimum(tl.maximum(x, -clip_value), clip_value)
         tl.store(x_ptr + offs, xc,
-                 mask=(tl.abs(x) > clip_value)
-                 )
+                 mask=(tl.abs(x) > clip_value))
     else:
         x = tl.load(x_ptr + offs, mask=offs < N)
         xc = tl.minimum(tl.maximum(x, -clip_value), clip_value)
         tl.store(x_ptr + offs, xc,
-                 mask=(offs < N) & (tl.abs(x) > clip_value)
-                 )
+                 mask=(offs < N) & (tl.abs(x) > clip_value))
 
 
 def triton_clip(x, clip_value=100.0):
@@ -105,16 +99,14 @@ def triton_clip(x, clip_value=100.0):
         B,
         EVEN,
         num_stages=2,
-        num_warps=4
-        )
+        num_warps=4)
     return x
 
 
 @triton.jit
 def batch_clip_kernel(input_ptrs, size_ptr, clip_value,
                       DT: tl.constexpr,
-                      B: tl.constexpr
-                      ):
+                      B: tl.constexpr):
     tid = tl.program_id(axis=0).to(tl.int64)
     bid = tl.program_id(axis=1).to(tl.int64)
     T = tl.num_programs(axis=1)
@@ -132,8 +124,7 @@ def batch_clip_kernel(input_ptrs, size_ptr, clip_value,
         x = tl.load(input_ptr + offs, mask=offs < size)
         xc = tl.minimum(tl.maximum(x, -clip_value), clip_value)
         tl.store(input_ptr + offs, xc,
-                 mask=(offs < size) & (tl.abs(x) > clip_value)
-                 )
+                 mask=(offs < size) & (tl.abs(x) > clip_value))
         offs += B
 
 
@@ -155,11 +146,9 @@ def triton_batch_clip(xs, clip_value=100.0):
 
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs],
-                         dtype=torch.int64
-                         ).cuda(device, non_blocking=True)
+                         dtype=torch.int64).cuda(device, non_blocking=True)
     ptrs = torch.tensor([x.data_ptr() for x in xs],
-                        dtype=torch.int64
-                        ).cuda(device, non_blocking=True)
+                        dtype=torch.int64).cuda(device, non_blocking=True)
     if dtype == torch.float32:
         DT = 0
     elif dtype == torch.bfloat16:
@@ -177,6 +166,5 @@ def triton_batch_clip(xs, clip_value=100.0):
         DT,
         B,
         num_stages=2,
-        num_warps=2
-        )
+        num_warps=2)
     return xs

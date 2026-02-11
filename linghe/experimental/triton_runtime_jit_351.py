@@ -114,8 +114,7 @@ class DependenciesFinder(ast.NodeVisitor):
             v2, _ = func.used_global_vals[k]
             if v1 != v2:
                 raise RuntimeError(
-                    f"Global variable {var_name} has value {v1} when compiling {self.name}, but inner kernel {func.__name__} has conflicting value {v2} from when it was first compiled.  This is not allowed."
-                    )
+                    f"Global variable {var_name} has value {v1} when compiling {self.name}, but inner kernel {func.__name__} has conflicting value {v2} from when it was first compiled.  This is not allowed.")
         self.used_global_vals.update(func.used_global_vals)
         # update hash
         func_key = func.cache_key
@@ -307,8 +306,7 @@ class KernelParam:
 
     def __init__(self, num: int, param: inspect.Parameter,
                  do_not_specialize: bool,
-                 do_not_specialize_on_alignment: bool
-                 ):
+                 do_not_specialize_on_alignment: bool):
         self.num = num
         self._param = param
         self.do_not_specialize = do_not_specialize
@@ -577,8 +575,7 @@ class JITCallable:
             dependencies_finder = DependenciesFinder(name=self._fn_name,
                                                      globals=self.__globals__,
                                                      nonlocals=nonlocals,
-                                                     src=self.src
-                                                     )
+                                                     src=self.src)
             dependencies_finder.visit(self.parse())
             self.hash = dependencies_finder.ret + str(self.starting_line_number)
             self.used_global_vals = dict(sorted(dependencies_finder.used_global_vals.items()))
@@ -587,8 +584,7 @@ class JITCallable:
             self.hash += str([(name, val)
                               for (name, _), (val, _) in
                               self.used_global_vals.items()
-                              if isinstance(val, constexpr)]
-                             )
+                              if isinstance(val, constexpr)])
             self.hash = hashlib.sha256(self.hash.encode("utf-8")).hexdigest()
         return self.hash
 
@@ -620,8 +616,7 @@ class JITCallable:
     def _set_src(self):
         raise AttributeError("Cannot set attribute 'src' directly. "
                              "Use '_unsafe_update_src()' and manually clear `.hash` of all callers"
-                             "instead."
-                             )
+                             "instead.")
 
     def _get_src(self):
         return self._src
@@ -660,8 +655,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
                    constants,
                    options,
                    configs,
-                   is_warmup,
-                   ) -> bool | None:
+                   is_warmup, ) -> bool | None:
         if not hook:
             return None
 
@@ -697,8 +691,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
                     fn=JitFunctionInfo(module, name, self),
                     compile={"key": key, **kwargs},
                     is_manual_warmup=is_warmup,
-                    already_compiled=False,
-                    )
+                    already_compiled=False, )
 
     def add_pre_run_hook(self, hook):
         '''
@@ -774,8 +767,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
                                                                     kwargs,
                                                                     bound_args,
                                                                     specialization,
-                                                                    options
-                                                                    )
+                                                                    options)
 
             kernel = self._do_compile(key, signature, device, constexprs,
                                       options, attrs, warmup)
@@ -787,8 +779,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
         for (name, _), (val, globals_dict) in self.used_global_vals.items():
             if (newVal := globals_dict.get(name, not_present)) != val:
                 raise RuntimeError(
-                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}"
-                    )
+                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}")
 
         if not warmup:
             # canonicalize grid
@@ -807,8 +798,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
             kernel.run(grid_0, grid_1, grid_2, stream, kernel.function,
                        kernel.packed_metadata, launch_metadata,
                        knobs.runtime.launch_enter_hook,
-                       knobs.runtime.launch_exit_hook, *bound_args.values()
-                       )
+                       knobs.runtime.launch_exit_hook, *bound_args.values())
         return kernel
 
     def run_with_cache(self, *args, grid, warmup, **kwargs):
@@ -831,8 +821,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
             exit_hook = None
             kernel.run(grid_0, grid_1, grid_2, self.stream, kernel.function,
                        kernel.packed_metadata, launch_metadata,
-                       enter_hook, exit_hook, *args
-                       )
+                       enter_hook, exit_hook, *args)
             return kernel
 
         kwargs["debug"] = kwargs.get("debug", self.debug) or knobs.runtime.debug
@@ -860,8 +849,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
                                                                     kwargs,
                                                                     bound_args,
                                                                     specialization,
-                                                                    options
-                                                                    )
+                                                                    options)
 
             kernel = self._do_compile(key, signature, device, constexprs,
                                       options, attrs, warmup)
@@ -873,8 +861,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
                 and len(kernel_cache) == 1
                 and not callable(grid)
                 and len(self.pre_run_hooks) == 0
-                and len(bound_args) == len(args)
-        ):
+                and len(bound_args) == len(args)):
             self.kernel = kernel
             self.stream = stream
 
@@ -883,8 +870,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
         for (name, _), (val, globals_dict) in self.used_global_vals.items():
             if (newVal := globals_dict.get(name, not_present)) != val:
                 raise RuntimeError(
-                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}"
-                    )
+                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}")
 
         if not warmup:
             # canonicalize grid
@@ -903,8 +889,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
             kernel.run(grid_0, grid_1, grid_2, stream, kernel.function,
                        kernel.packed_metadata, launch_metadata,
                        knobs.runtime.launch_enter_hook,
-                       knobs.runtime.launch_exit_hook, *bound_args.values()
-                       )
+                       knobs.runtime.launch_exit_hook, *bound_args.values())
             self.invoke_count += 1
         return kernel
 
@@ -913,8 +898,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
 
     def __init__(self, fn, version=None, do_not_specialize=None,
                  do_not_specialize_on_alignment=None, debug=None,
-                 noinline=None, repr=None, launch_metadata=None
-                 ):
+                 noinline=None, repr=None, launch_metadata=None):
         do_not_specialize = do_not_specialize if do_not_specialize else []
         do_not_specialize_on_alignment = do_not_specialize_on_alignment if do_not_specialize_on_alignment else []
 
@@ -963,8 +947,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
         deserialized_obj = json.loads(specialization_data)
         if deserialized_obj['name'] != self._fn_name:
             raise RuntimeError(
-                f"Specialization data is for {deserialized_obj['name']} but trying to preload for {self._fn_name}"
-                )
+                f"Specialization data is for {deserialized_obj['name']} but trying to preload for {self._fn_name}")
         constant_keys = map(tuple, deserialized_obj['constant_keys'])
         constant_vals = deserialized_obj['constant_vals']
         constexprs = {
@@ -988,8 +971,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
                                 constexprs,
                                 options,
                                 attrs,
-                                warmup=True,
-                                )
+                                warmup=True, )
 
     def _do_compile(self, key, signature, device, constexprs, options, attrs,
                     warmup):
@@ -1015,8 +997,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
                 kernel_cache[key] = kernel
                 self._call_hook(knobs.runtime.jit_post_compile_hook, key,
                                 signature, device, constexprs, options,
-                                [attrs], warmup
-                                )
+                                [attrs], warmup)
 
             kernel = async_mode.submit(cache_key, async_compile,
                                        finalize_compile)
@@ -1025,8 +1006,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
             kernel_cache[key] = kernel
             self._call_hook(knobs.runtime.jit_post_compile_hook, key, signature,
                             device, constexprs, options, [attrs],
-                            warmup
-                            )
+                            warmup)
         return kernel
 
     def __call__(self, *args, **kwargs):
@@ -1055,8 +1035,7 @@ def jit(
         do_not_specialize: Optional[Iterable[int | str]] = None,
         do_not_specialize_on_alignment: Optional[Iterable[int | str]] = None,
         debug: Optional[bool] = None,
-        noinline: Optional[bool] = None,
-        ) -> Callable[[T], JITFunction[T]]:
+        noinline: Optional[bool] = None, ) -> Callable[[T], JITFunction[T]]:
     ...
 
 
@@ -1069,8 +1048,7 @@ def jit(
         do_not_specialize: Optional[Iterable[int | str]] = None,
         do_not_specialize_on_alignment: Optional[Iterable[int | str]] = None,
         debug: Optional[bool] = None,
-        noinline: Optional[bool] = None,
-        ) -> Union[JITFunction[T], Callable[[T], JITFunction[T]]]:
+        noinline: Optional[bool] = None, ) -> Union[JITFunction[T], Callable[[T], JITFunction[T]]]:
     """
     Decorator for JIT-compiling a function using the Triton compiler.
 
@@ -1098,8 +1076,7 @@ def jit(
                                        do_not_specialize_on_alignment=do_not_specialize_on_alignment,
                                        debug=debug,
                                        noinline=noinline, repr=repr,
-                                       launch_metadata=launch_metadata
-                                       )
+                                       launch_metadata=launch_metadata)
         else:
             return JITFunction(fn,
                                version=version,
@@ -1108,8 +1085,7 @@ def jit(
                                debug=debug,
                                noinline=noinline,
                                repr=repr,
-                               launch_metadata=launch_metadata,
-                               )
+                               launch_metadata=launch_metadata, )
 
     if fn is not None:
         return decorator(fn)

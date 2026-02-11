@@ -12,8 +12,7 @@ import triton.language as tl
 
 @triton.jit
 def row_quant_kernel(x_ptr, q_ptr, s_ptr, M, N, BLOCK_SIZE: tl.constexpr,
-                     ROUND: tl.constexpr
-                     ):
+                     ROUND: tl.constexpr):
     pid = tl.program_id(0)
     n_block = tl.cdiv(N, BLOCK_SIZE)
     indices = tl.arange(0, BLOCK_SIZE)
@@ -23,8 +22,7 @@ def row_quant_kernel(x_ptr, q_ptr, s_ptr, M, N, BLOCK_SIZE: tl.constexpr,
     for j in range(n_block):
         offs = pid * N + j * BLOCK_SIZE + indices
         x = tl.load(x_ptr + offs, mask=j * BLOCK_SIZE + indices < N,
-                    other=0
-                    ).to(tl.float32)
+                    other=0).to(tl.float32)
         max_val = tl.maximum(tl.max(tl.abs(x)), max_val)
     scale = tl.maximum(max_val / 448.0, 1e-30)
     if ROUND:
@@ -61,16 +59,14 @@ def triton_row_quant(x, round_scale=False):
         BLOCK_SIZE,
         round_scale,
         num_stages=5,
-        num_warps=4
-        )
+        num_warps=4)
     return x_q, x_scale
 
 
 @triton.jit
 def deprecated_tokenwise_row_quant_kernel(x_ptr, out_ptr, scale_ptr, M,
                                           T: tl.constexpr, N: tl.constexpr,
-                                          ROUND: tl.constexpr
-                                          ):
+                                          ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
     offs = pid * T * N + tl.arange(0, N)
     for i in range(T):
@@ -91,8 +87,7 @@ def deprecated_tokenwise_row_quant_kernel(x_ptr, out_ptr, scale_ptr, M,
 def triton_deprecated_tokenwise_row_quant(x: torch.Tensor,
                                           out: Optional[torch.Tensor] = None,
                                           scale: Optional[torch.Tensor] = None,
-                                          round_scale: bool = False
-                                          ):
+                                          round_scale: bool = False):
     M, N = x.shape
     device = x.device
     if out is None:
@@ -109,15 +104,13 @@ def triton_deprecated_tokenwise_row_quant(x: torch.Tensor,
         M, T, N,
         round_scale,
         num_stages=3,
-        num_warps=16
-        )
+        num_warps=16)
     return out, scale
 
 
 @triton.jit
 def tokenwise_row_quant_kernel(x_ptr, out_ptr, scale_ptr, N: tl.constexpr,
-                               ROUND: tl.constexpr
-                               ):
+                               ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
     x = tl.load(x_ptr + pid * N + tl.arange(0, N)).to(tl.float32)
     x_max = tl.max(tl.abs(x))
@@ -156,8 +149,7 @@ def triton_tokenwise_row_quant(x, out=None, scale=None, round_scale=False):
         N,
         round_scale,
         num_stages=3,
-        num_warps=16
-        )
+        num_warps=16)
     return out, scale
 
 
@@ -166,8 +158,7 @@ def triton_tokenwise_row_quant(x, out=None, scale=None, round_scale=False):
 # dwT = yT @ x
 @triton.jit
 def transpose_row_quant_kernel(x_ptr, q_ptr, s_ptr, M, N, H: tl.constexpr,
-                               W: tl.constexpr, ROUND: tl.constexpr
-                               ):
+                               W: tl.constexpr, ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
     # col-wise read, row-wise write
     # read block: [BLOCK_SIZE, B]
@@ -187,9 +178,12 @@ def transpose_row_quant_kernel(x_ptr, q_ptr, s_ptr, M, N, H: tl.constexpr,
 
     tl.store(s_ptr + pid * W + tl.arange(0, W), scale)
 
-    offs = pid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
-    toffs = pid * W * M + tl.arange(0, W)[:, None] * M + tl.arange(0, H)[None,
-                                                         :]
+    offs = (pid * W
+            + tl.arange(0, H)[:, None] * N
+            + tl.arange(0, W)[None, :])
+    toffs = (pid * W * M
+             + tl.arange(0, W)[:, None] * M
+             + tl.arange(0, H)[None, :])
     for i in range(m):
         x = tl.trans(tl.load(x_ptr + offs, mask=i * H + indices[:, None] < M))
         x = (x * s).to(q_ptr.dtype.element_ty)
@@ -222,8 +216,7 @@ def triton_transpose_row_quant(x, round_scale=False):
         H, W,
         round_scale,
         num_stages=6,
-        num_warps=4
-        )
+        num_warps=4)
     return x_q, x_scale
 
 
@@ -252,8 +245,7 @@ def channel_quant_forward(x, w):
                               scale_a=x_scale,
                               scale_b=w_scale.view(1, -1),
                               out_dtype=torch.bfloat16,
-                              use_fast_accum=True
-                              )
+                              use_fast_accum=True)
     return output, x_q, w_q, x_scale, w_scale
 
 
@@ -264,8 +256,7 @@ def channel_quant_backward(y, w):
                               scale_a=y_scale,
                               scale_b=w_scale.view(1, -1),
                               out_dtype=torch.bfloat16,
-                              use_fast_accum=True
-                              )
+                              use_fast_accum=True)
     return output, y_q, w_q, y_scale, w_scale
 
 
@@ -276,6 +267,5 @@ def channel_quant_update(y, x):
                               scale_a=y_scale,
                               scale_b=x_scale.view(1, -1),
                               out_dtype=torch.bfloat16,
-                              use_fast_accum=True
-                              )
+                              use_fast_accum=True)
     return output, y_q, x_q, y_scale, x_scale

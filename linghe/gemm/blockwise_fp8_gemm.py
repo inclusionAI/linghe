@@ -23,8 +23,7 @@ def fp8_blockwise_gemm_kernel(
         K: tl.constexpr,
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
-        ):
+        BLOCK_SIZE_N: tl.constexpr, ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = tl.cdiv(K, BLOCK_SIZE_K)
@@ -41,11 +40,9 @@ def fp8_blockwise_gemm_kernel(
         a_s = tl.load(a_s_ptr + pid_m * nb + i)
         b_s = tl.load(b_s_ptr + pid_n * nb + i)
         a = tl.load(a_ptrs, mask=offs_k[None, :] < K - i * BLOCK_SIZE_K,
-                    other=0.0
-                    )
+                    other=0.0)
         b = tl.load(b_ptrs, mask=offs_k[None, :] < K - i * BLOCK_SIZE_K,
-                    other=0.0
-                    )
+                    other=0.0)
         accumulator += tl.dot(a, tl.trans(b)) * (a_s * b_s)
         # accumulator = tl.dot(a, tl.trans(b), accumulator)
         # accumulator += (accumulators-accumulator) * scale
@@ -65,8 +62,7 @@ def triton_blockwise_fp8_gemm(a: torch.Tensor,
                               a_s: torch.Tensor,
                               b_s: torch.Tensor,
                               out_dtype=torch.bfloat16,
-                              block_size=128
-                              ):
+                              block_size=128):
     assert a.is_contiguous() and b.is_contiguous()
     assert a_s.is_contiguous() and b_s.is_contiguous()
     K = a.size(-1)
@@ -82,6 +78,5 @@ def triton_blockwise_fp8_gemm(a: torch.Tensor,
                                     BLOCK_SIZE_M=block_size,
                                     BLOCK_SIZE_N=block_size,
                                     num_warps=8,
-                                    num_stages=4
-                                    )
+                                    num_stages=4)
     return c

@@ -64,8 +64,7 @@ if __name__ == "__main__":
     print(f'{world_size=} {local_rank=}')
     dist.init_process_group(backend='nccl', init_method="env://",
                             world_size=world_size, rank=local_rank,
-                            timeout=timedelta(seconds=10)
-                            )
+                            timeout=timedelta(seconds=10))
     group = dist.distributed_c10d._get_default_group()
     # torch.distributed.distributed_c10d._set_pg_timeout(timedelta(seconds=10), dist.group.WORLD)
     test_norm_gather(M=8192, N=8192, group=group, bench=True)

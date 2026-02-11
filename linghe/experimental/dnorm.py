@@ -26,14 +26,12 @@ def sp_rms_norm_forward_kernel(
         W: tl.constexpr,
         REUSE: tl.constexpr,
         GROUP_SIZE: tl.constexpr,
-        GROUP_RANK: tl.constexpr,
-        ):
+        GROUP_RANK: tl.constexpr, ):
     pid = tl.program_id(axis=0)
     buffer_ptrs = buffer_ptrs.to(tl.pointer_type(tl.uint64))
 
     weight = tl.load(weight_ptr + tl.arange(0, N), mask=tl.arange(0, N) < n).to(
-        tl.float32
-        )[None, :]
+        tl.float32)[None, :]
 
     offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[
                                                             None, :]
@@ -41,20 +39,17 @@ def sp_rms_norm_forward_kernel(
         buffer_ptr = tl.load(buffer_ptrs + GROUP_RANK).to(tl.pointer_type(tl.bfloat16))
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
 
-        mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (tl.arange(0, N) < n
-                                                                       )
+        mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (tl.arange(0, N) < n)
         x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
         if REUSE:
             rms = tl.load(rms_ptr + pid * W * T + i * W + tl.arange(0, W),
                           mask=pid * W * T + i * W + tl.arange(0, W) < M,
-                          other=1.0,
-                          )
+                          other=1.0, )
         else:
             rms = tl.rsqrt(tl.sum(x * x, axis=1) / n + eps)
             tl.store(rms_ptr + pid * W * T + i * W + tl.arange(0, W),
                      rms,
-                     mask=pid * W * T + i * W + tl.arange(0, W) < M,
-                     )
+                     mask=pid * W * T + i * W + tl.arange(0, W) < M, )
 
         x = (x * rms[:, None]) * weight
 
@@ -65,15 +60,17 @@ def sp_rms_norm_forward_kernel(
                       GROUP_RANK,
                       GROUP_SIZE,
                       hasPreviousMemAccess=True,
-                      hasSubsequentMemAccess=True,
-                      )
+                      hasSubsequentMemAccess=True, )
         # tl.store(out_ptr + offs, x, mask=mask)
         offs += n * W
 
     for i in tl.static_range(GROUP_SIZE):
         for j in range(T):
-            offs = i * M * n + pid * W * T * n + j * W * n + tl.arange(0, W)[:,
-                                                             None] * n + tl.arange(0, N)[None, :]
+            offs = (i * M * n
+                    + pid * W * T * n
+                    + j * W * n
+                    + tl.arange(0, W)[:, None] * n
+                    + tl.arange(0, N)[None, :])
             buffer_ptr = tl.load(buffer_ptrs + i).to(tl.pointer_type(tl.bfloat16))
             buffer_ptr = tl.multiple_of(buffer_ptr, 16)
             tmp = tl.load(buffer_ptr + offs)
@@ -130,7 +127,6 @@ def triton_sp_rms_norm_forward(x, weight, hdl, eps=1e-6, rms=None):
         hdl.world_size,
         hdl.rank,
         num_stages=3,
-        num_warps=4
-        )
+        num_warps=4)
     # print(out)
     return out, rms

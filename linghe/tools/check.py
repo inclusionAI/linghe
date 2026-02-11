@@ -9,8 +9,7 @@ import torch
 
 
 def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
-                 amp=1.0, digest=4
-                 ):
+                 amp=1.0, digest=4):
     org_out = org_out.detach()
     opt_out = opt_out.detach()
     assert org_out.dtype == opt_out.dtype, f"ref:{org_out.dtype} != out:{opt_out.dtype}"
@@ -76,8 +75,7 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
         opt_mean = opt_out.abs().mean()
         print(f'\n{name:<16}  rel:{rel_err_str}  abs:{abs_error:.6f}  ' \
               f'org:{org_max:.3f}/{org_mean:.3f} ' \
-              f'opt:{opt_max:.3f}/{opt_mean:.3f} '
-              )
+              f'opt:{opt_max:.3f}/{opt_mean:.3f} ')
         if (rtol >= 0 and atol >= 0):
             # torch.testing.assert_close(opt_out, org_out, rtol=rtol, atol=atol)
             mistake_mask = diff >= (rtol * org_out.abs() + atol)
@@ -127,8 +125,7 @@ def quant_check(org_out, xq, wq, opt_out, mode):
           f'org:{org_out.abs().max():.3f}/{org_out.abs().mean():.3f} ' \
           f'opt:{opt_out.abs().max():.3f}/{opt_out.abs().mean():.3f} ' \
           f'x_underflow:{x_underflow:.5f} w_underflow:{w_underflow:.5f} ' \
-          f'x_overflow:{x_overflow} w_overflow:{w_overflow}'
-          )
+          f'x_overflow:{x_overflow} w_overflow:{w_overflow}')
 
 
 def inf_or_nan(xs, name=''):
@@ -142,5 +139,4 @@ def inf_or_nan(xs, name=''):
             break
     if hit:
         for x in xs:
-            print(f'{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}'
-                  )
+            print(f'{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}')

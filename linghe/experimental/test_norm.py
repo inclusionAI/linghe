@@ -21,8 +21,7 @@ def torch_rms_forward(x, weight):
         normalized_shape=N,
         eps=1e-6,
         dtype=torch.float32,
-        device=x.device
-        )
+        device=x.device)
     with torch.no_grad():
         rmsnorm.weight.copy_(weight)
     rms = torch.rsqrt(torch.sum(x ** 2, 1) / N + 1e-6)
@@ -52,8 +51,7 @@ def test_norm(M=4096, N=4096, bench=False):
     if bench:
         benchmark_func(triton_rms_norm_forward, x, weight,
                        ref_bytes=M * N * 4,
-                       n_profile=2
-                       )
+                       n_profile=2)
 
 
 def test_parallel_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
@@ -66,37 +64,32 @@ def test_parallel_rmsnorm_and_block_quant(M=4096, N=4096, bench=False):
     q_ref, scale_ref, rms_ref, qt_ref, scale_t_ref = triton_rms_norm_and_block_quant_forward(
         x, weight,
         round_scale=False,
-        output_mode=2
-        )
+        output_mode=2)
 
     q, scale, rms, qt, scale_t = triton_parallel_rms_norm_and_block_quant_forward(
         x, weight,
         round_scale=False,
-        output_mode=2
-        )
+        output_mode=2)
     output_check(q_ref, q, name='parallel.block.data', rtol=-0.125)
     output_check(scale_ref, scale, name="parallel.block.scale", rtol=-0.125)
     output_check(rms_ref, rms, name="parallel.block.rms", rtol=-0.125)
     output_check(qt_ref, qt, name='parallel.block.t_data', rtol=-0.125)
     output_check(scale_t_ref, scale_t, name="parallel.block.t_scale",
-                 rtol=-0.125
-                 )
+                 rtol=-0.125)
 
     if bench:
         benchmark_func(triton_rms_norm_and_block_quant_forward, x, weight,
                        round_scale=False,
                        output_mode=2,
                        ref_bytes=M * N * 4,
-                       n_profile=2
-                       )
+                       n_profile=2)
 
         benchmark_func(triton_parallel_rms_norm_and_block_quant_forward, x,
                        weight,
                        round_scale=False,
                        output_mode=2,
                        ref_bytes=M * N * 4,
-                       n_profile=2
-                       )
+                       n_profile=2)
 
 
 if __name__ == '__main__':

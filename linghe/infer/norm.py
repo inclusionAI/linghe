@@ -23,8 +23,7 @@ def rms_norm_and_block_quant_kernel(
         N: tl.constexpr,
         nb: tl.constexpr,
         W: tl.constexpr,
-        ROUND: tl.constexpr
-        ):
+        ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
 
     # row-wise read, row-wise write
@@ -52,8 +51,7 @@ def rms_norm_and_block_quant_kernel(
             scale = tl.exp2(tl.ceil(tl.log2(scale)))
         tl.store(scale_ptr + tl.arange(0, nb)[:, None] * PM + indices[None, :],
                  tl.trans(scale),
-                 mask=indices[None, :] < M
-                 )
+                 mask=indices[None, :] < M)
 
         x = x / scale[:, :, None]
         x = tl.reshape(x, [W, N])
@@ -72,8 +70,7 @@ def triton_rms_norm_and_block_quant(
         out: Optional[torch.Tensor] = None,
         scale: Optional[torch.Tensor] = None,
         rms: Optional[torch.Tensor] = None,
-        round_scale: bool = False,
-        ):
+        round_scale: bool = False, ):
     """
     Fused RMSNorm forward and block quantization.
     Args:
@@ -120,8 +117,7 @@ def triton_rms_norm_and_block_quant(
         W,
         round_scale,
         num_stages=3,
-        num_warps=8
-        )
+        num_warps=8)
 
     return out, scale[:, :M].t(), residual
 
@@ -139,8 +135,7 @@ def residual_rms_norm_and_block_quant_kernel(
         N: tl.constexpr,
         nb: tl.constexpr,
         W: tl.constexpr,
-        ROUND: tl.constexpr
-        ):
+        ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
 
     # row-wise read, row-wise write
@@ -180,8 +175,7 @@ def triton_residual_rms_norm_and_block_quant(
         weight: torch.Tensor,
         residual: torch.Tensor,
         eps: float = 1e-6,
-        round_scale: bool = False,
-        ):
+        round_scale: bool = False, ):
     """
     Fused RMSNorm forward and block quantization.
     Args:
@@ -226,8 +220,7 @@ def triton_residual_rms_norm_and_block_quant(
         W,
         round_scale,
         num_stages=3,
-        num_warps=2
-        )
+        num_warps=2)
 
     return x, out, scale[:, :M].t(), residual
     # return x, None, residual

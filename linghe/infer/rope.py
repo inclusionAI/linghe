@@ -21,8 +21,7 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
                                         D: tl.constexpr,
                                         d: tl.constexpr,
                                         INTERLEAVED: tl.constexpr,
-                                        SILU: tl.constexpr
-                                        ):
+                                        SILU: tl.constexpr):
     pid = tl.program_id(0)
 
     pos = tl.load(position_ids + pid)
@@ -48,16 +47,17 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
         row_mask = row_offs[:, None] < H
     q_mask = tl.arange(0, PH)[:, None] < H
 
-    q0 = tl.load(q_ptr + pid * stride + DD * row_offs[:,
-                                             None] + tl.arange(
-        0, D
-        )[None, :], mask=row_mask
-                 ).to(tl.float32)
-    q1 = tl.load(q_ptr + pid * stride + D + DD * row_offs[:,
-                                                 None] + tl.arange(
-        0, D
-        )[None, :], mask=row_mask
-                 ).to(tl.float32)
+    q0 = tl.load(q_ptr
+                 + pid * stride
+                 + DD * row_offs[:, None]
+                 + tl.arange(0, D)[None, :],
+                 mask=row_mask).to(tl.float32)
+    q1 = tl.load(q_ptr
+                 + pid * stride
+                 + D
+                 + DD * row_offs[:, None]
+                 + tl.arange(0, D)[None, :],
+                 mask=row_mask).to(tl.float32)
 
     if SILU:
         q0 = q0 * tl.sigmoid(q0)
@@ -66,28 +66,31 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
     q1 *= rms[:, None]
     q1 *= q_weight_1
     tl.store(
-        qo_ptr + pid * H * DD + D + DD * tl.arange(0, PH)[:,
-                                         None] + tl.arange(0, D
-                                                           )[None, :], q1, mask=q_mask
-        )
+        qo_ptr
+        + pid * H * DD
+        + D
+        + DD * tl.arange(0, PH)[:, None]
+        + tl.arange(0, D)[None, :],
+        q1,
+        mask=q_mask)
 
     q0 *= rms[:, None]
     q0 *= q_weight_0
     qr = tl.reshape(tl.permute(
-        tl.flip(tl.permute(tl.reshape(q0, (PH, 2, d)), (0, 2, 1)),
-                dim=2
-                ) * signs, (0, 2, 1)
-        ), (PH, D)
-        )
+        tl.flip(tl.permute(tl.reshape(q0,
+                                      (PH, 2, d)),
+                           (0, 2, 1)),
+                dim=2) * signs,
+        (0, 2, 1)),
+        (PH, D))
     q0 = q0 * cos + qr * sin
     tl.store(
-        qo_ptr + pid * H * DD + DD * tl.arange(0, PH)[:,
-                                     None] + tl.arange(0,
-                                                       D
-                                                       )[
-                                             None, :], q0,
-        mask=q_mask
-        )
+        qo_ptr
+        + pid * H * DD
+        + DD * tl.arange(0, PH)[:, None]
+        + tl.arange(0, D)[None, :],
+        q0,
+        mask=q_mask)
 
     k_weight_0 = tl.load(k_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
     k_weight_1 = tl.load(k_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
@@ -101,16 +104,17 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
         k_ptr = qkv_ptr + DD * H
         row_mask = tl.arange(0, ph)[:, None] < h
 
-    k0 = tl.load(k_ptr + pid * stride + DD * row_offs[:,
-                                             None] + tl.arange(
-        0, D
-        )[None, :], mask=row_mask
-                 ).to(tl.float32)
+    k0 = tl.load(k_ptr
+                 + pid * stride
+                 + DD * row_offs[:, None]
+                 + tl.arange(0, D)[None, :],
+                 mask=row_mask).to(tl.float32)
     k1 = tl.load(
-        k_ptr + pid * stride + D + DD * row_offs[:,
-                                        None] + tl.arange(0, D
-                                                          )[None, :], mask=row_mask
-        ).to(tl.float32)
+        k_ptr
+        + pid * stride
+        + D + DD * row_offs[:, None]
+        + tl.arange(0, D)[None, :],
+        mask=row_mask).to(tl.float32)
 
     if SILU:
         k0 = k0 * tl.sigmoid(k0)
@@ -119,29 +123,31 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
     k1 *= rms[:, None]
     k1 *= k_weight_1
     k_mask = tl.arange(0, ph)[:, None] < h
-    tl.store(
-        ko_ptr + pid * h * DD + D + DD * tl.arange(0, ph)[:,
-                                         None] + tl.arange(0, D
-                                                           )[None, :], k1, mask=k_mask
-        )
+    tl.store(ko_ptr
+             + pid * h * DD
+             + D
+             + DD * tl.arange(0, ph)[:, None]
+             + tl.arange(0, D)[None, :],
+             k1,
+             mask=k_mask)
 
     k0 *= rms[:, None]
     k0 *= k_weight_0
     kr = tl.reshape(tl.permute(
-        tl.flip(tl.permute(tl.reshape(k0, (ph, 2, d)), (0, 2, 1)),
-                dim=2
-                ) * signs, (0, 2, 1)
-        ), (ph, D)
-        )
+        tl.flip(tl.permute(tl.reshape(k0,
+                                      (ph, 2, d)),
+                           (0, 2, 1)),
+                dim=2) * signs,
+        (0, 2, 1)),
+        (ph, D))
     k0 = k0 * cos + kr * sin
     tl.store(
-        ko_ptr + pid * h * DD + DD * tl.arange(0, ph)[:,
-                                     None] + tl.arange(0,
-                                                       D
-                                                       )[
-                                             None, :], k0,
-        mask=k_mask
-        )
+        ko_ptr
+        + pid * h * DD
+        + DD * tl.arange(0, ph)[: None]
+        + tl.arange(0, D)[None, :],
+        k0,
+        mask=k_mask)
 
     if INTERLEAVED:
         row_offs = tl.arange(0, ph) * (w + 2)
@@ -152,16 +158,17 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
         row_mask = tl.arange(0, ph)[:, None] < h
         v_ptr = qkv_ptr + DD * H + DD * h
 
-    v0 = tl.load(v_ptr + pid * stride + DD * row_offs[:,
-                                             None] + tl.arange(
-        0, D
-        )[None, :], mask=row_mask
-                 ).to(tl.float32)
-    v1 = tl.load(
-        v_ptr + pid * stride + D + DD * row_offs[:,
-                                        None] + tl.arange(0, D
-                                                          )[None, :], mask=row_mask
-        ).to(tl.float32)
+    v0 = tl.load(v_ptr
+                 + pid * stride
+                 + DD * row_offs[:, None]
+                 + tl.arange(0, D)[None, :],
+                 mask=row_mask).to(tl.float32)
+    v1 = tl.load(v_ptr
+                 + pid * stride
+                 + D
+                 + DD * row_offs[:, None]
+                 + tl.arange(0, D)[None, :],
+                 mask=row_mask).to(tl.float32)
 
     if SILU:
         v0 = v0 * tl.sigmoid(v0)
@@ -169,17 +176,20 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
 
     v_mask = tl.arange(0, ph)[:, None] < h
     tl.store(
-        vo_ptr + pid * h * DD + DD * tl.arange(0, ph)[:,
-                                     None] + tl.arange(0,
-                                                       D
-                                                       )[
-                                             None, :], v0, mask=v_mask
-        )
+        vo_ptr
+        + pid * h * DD
+        + DD * tl.arange(0, ph)[:, None]
+        + tl.arange(0, D)[None, :],
+        v0,
+        mask=v_mask)
     tl.store(
-        vo_ptr + pid * h * DD + D + DD * tl.arange(0, ph)[:,
-                                         None] + tl.arange(0, D
-                                                           )[None, :], v1, mask=v_mask
-        )
+        vo_ptr
+        + pid * h * DD
+        + D
+        + DD * tl.arange(0, ph)[:, None]
+        + tl.arange(0, D)[None, :],
+        v1,
+        mask=v_mask)
 
 
 def triton_varlen_qk_norm_and_half_rope(qkv,
@@ -193,8 +203,7 @@ def triton_varlen_qk_norm_and_half_rope(qkv,
                                         interleaved=False,
                                         silu=False,
                                         mscale=1.0,
-                                        output_dtype=None
-                                        ):
+                                        output_dtype=None):
     """
     split qkv to q/k/v, apply qk norm and half rope to q/k
     Args:
@@ -255,6 +264,5 @@ def triton_varlen_qk_norm_and_half_rope(qkv,
         interleaved,
         silu,
         num_stages=num_stages,
-        num_warps=num_warps
-        )
+        num_warps=num_warps)
     return qo, ko, vo

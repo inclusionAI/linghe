@@ -16,8 +16,7 @@ def inplace_add_kernel(x_ptr,
                        N,
                        B: tl.constexpr,
                        EVEN: tl.constexpr,
-                       ACCUM: tl.constexpr
-                       ):
+                       ACCUM: tl.constexpr):
     pid = tl.program_id(axis=0)
     offs = pid * B + tl.arange(0, B)
     if ACCUM:
@@ -67,8 +66,7 @@ def triton_inplace_add(x: torch.Tensor, y: torch.Tensor, accum: bool = True):
         EVEN,
         accum,
         num_stages=num_stages,
-        num_warps=num_warps
-        )
+        num_warps=num_warps)
     return x
 
 
@@ -80,8 +78,7 @@ def batch_inplace_add_kernel(x_ptrs,
                              B: tl.constexpr,
                              ACCUM: tl.constexpr,
                              XT: tl.constexpr,
-                             YT: tl.constexpr
-                             ):
+                             YT: tl.constexpr):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1)
     size = tl.load(size_ptr + tid)
@@ -133,14 +130,11 @@ def triton_batch_inplace_add(xs: List[torch.Tensor], ys: List[torch.Tensor],
 
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs],
-                         dtype=torch.int64
-                         ).cuda(device, non_blocking=True)
+                         dtype=torch.int64).cuda(device, non_blocking=True)
     x_ptrs = torch.tensor([x.data_ptr() for x in xs],
-                          dtype=torch.int64
-                          ).cuda(device, non_blocking=True)
+                          dtype=torch.int64).cuda(device, non_blocking=True)
     y_ptrs = torch.tensor([y.data_ptr() for y in ys],
-                          dtype=torch.int64
-                          ).cuda(device, non_blocking=True)
+                          dtype=torch.int64).cuda(device, non_blocking=True)
     x_dtype = xs[0].dtype
     assert x_dtype in (torch.bfloat16, torch.float32, torch.float16)
     if x_dtype == torch.float32:
@@ -174,6 +168,5 @@ def triton_batch_inplace_add(xs: List[torch.Tensor], ys: List[torch.Tensor],
         XT,
         YT,
         num_stages=num_stages,
-        num_warps=num_warps
-        )
+        num_warps=num_warps)
     return xs

@@ -25,8 +25,7 @@ def smooth_gemm(A, B, layout='TN', out=None, accumulate=True,
                                scale_a=x_scale.view(-1, 1),
                                scale_b=w_scale.view(1, -1),
                                out_dtype=torch.bfloat16,
-                               use_fast_accum=True
-                               )
+                               use_fast_accum=True)
         out = out.view(*B.shape[:-1], A.shape[0])
     elif layout == 'NN':  # backward, dx=dy@wT
         y_q = B._rowwise_data
@@ -35,8 +34,7 @@ def smooth_gemm(A, B, layout='TN', out=None, accumulate=True,
         if w_q is None:
             w_q = triton_pad_transpose(A._rowwise_data,
                                        out=A._columnwise_data,
-                                       multiple=32
-                                       )
+                                       multiple=32)
             if not online_transpose:
                 A._columnwise_data = w_q
         w_scale = A._columnwise_scale_inv
@@ -45,8 +43,7 @@ def smooth_gemm(A, B, layout='TN', out=None, accumulate=True,
                                scale_a=y_scale.view(-1, 1),
                                scale_b=w_scale.view(1, -1),
                                out_dtype=torch.bfloat16,
-                               use_fast_accum=True
-                               )
+                               use_fast_accum=True)
         out = out.view(*B.shape[:-1], A.shape[1])
     elif layout == 'NT':  # update, dw=dyT@dx
         y_q = B._columnwise_data
@@ -61,8 +58,7 @@ def smooth_gemm(A, B, layout='TN', out=None, accumulate=True,
                              scale_a=y_scale.view(-1, 1),
                              scale_b=x_scale.view(1, -1),
                              out_dtype=torch.bfloat16,
-                             use_fast_accum=True,
-                             )
+                             use_fast_accum=True, )
         triton_inplace_add(out, o, accum=accumulate)
         A._columnwise_data = None
     else:
@@ -90,8 +86,7 @@ def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True,
                              scale_b=w_scale.view(1, -1),
                              out_dtype=torch.bfloat16,
                              use_fast_accum=True,
-                             out=out[0][s:s + m]
-                             )
+                             out=out[0][s:s + m])
             s += m
     elif layout == 'NN':  # backward, dx=dy@wT
         for i, m in enumerate(m_splits):
@@ -104,8 +99,7 @@ def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True,
             if w_q is None:
                 w_q = triton_pad_transpose(A[i]._rowwise_data,
                                            out=A[i]._columnwise_data,
-                                           multiple=32
-                                           )
+                                           multiple=32)
                 if not online_transpose:
                     A[i]._columnwise_data = w_q
 
@@ -116,8 +110,7 @@ def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True,
                              scale_b=w_scale.view(1, -1),
                              out_dtype=torch.bfloat16,
                              use_fast_accum=True,
-                             out=out[0][s:s + m]
-                             )
+                             out=out[0][s:s + m])
             s += m
     elif layout == 'NT':  # update, dw=dyT@dx
         for i, m in enumerate(m_splits):
@@ -128,8 +121,7 @@ def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True,
             y_scale = B[i]._columnwise_scale_inv
             if A[i]._columnwise_data is None:
                 x_q = triton_pad_transpose(A[i]._rowwise_data,
-                                           multiple=32
-                                           )
+                                           multiple=32)
             else:
                 x_q = A[i]._columnwise_data
             x_scale = A[i]._columnwise_scale_inv
@@ -139,8 +131,7 @@ def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True,
                                  scale_a=y_scale.view(-1, 1),
                                  scale_b=x_scale.view(1, -1),
                                  out_dtype=torch.bfloat16,
-                                 use_fast_accum=True,
-                                 )
+                                 use_fast_accum=True, )
 
             triton_inplace_add(out[i], o, accum=accumulate)
             A[i]._columnwise_data = None
@@ -173,8 +164,7 @@ class Fp32GEMM(torch.autograd.Function):
         grad_shape = grad_output.shape
         if len(grad_shape) == 3:
             grad_output = grad_output.view(grad_shape[0] * grad_shape[1],
-                                           grad_shape[2]
-                                           )
+                                           grad_shape[2])
 
         input, weight = ctx.saved_tensors
 

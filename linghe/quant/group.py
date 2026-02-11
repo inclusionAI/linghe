@@ -16,8 +16,7 @@ def group_quant_kernel(
         N,
         BLOCK_SIZE: tl.constexpr,
         K: tl.constexpr,
-        ROUND: tl.constexpr,
-        ):
+        ROUND: tl.constexpr, ):
     pid = tl.program_id(axis=0)
     offs = pid * N + tl.arange(0, K * BLOCK_SIZE)
     n = tl.cdiv(N, K * BLOCK_SIZE)
@@ -59,6 +58,5 @@ def triton_group_quant(x, dtype=torch.float8_e4m3fn, group_size=128,
     s = torch.empty(M, N // group_size, device=x.device, dtype=torch.float32)
     grid = (M,)  # noqa
     group_quant_kernel[grid](
-        x, y, s, N, group_size, K, round_scale, num_stages=5, num_warps=4
-        )
+        x, y, s, N, group_size, K, round_scale, num_stages=5, num_warps=4)
     return y, s

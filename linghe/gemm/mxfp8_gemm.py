@@ -37,8 +37,7 @@ def mxfp8_gemm_kernel(
         K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-        ACCUM: tl.constexpr
-        ):
+        ACCUM: tl.constexpr):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = K // 32
@@ -81,8 +80,7 @@ def triton_mxfp8_gemm(a: torch.Tensor,
                       out: Optional[torch.tensor] = None,
                       out_dtype: torch.dtype = torch.bfloat16,
                       layout: str = 'TN',
-                      accumulate: bool = False
-                      ):
+                      accumulate: bool = False):
     """
     triton implementation to simulate mxfp8 grouped gemm
     layout is defined as the same in TE:
@@ -123,8 +121,7 @@ def triton_mxfp8_gemm(a: torch.Tensor,
                             BLOCK_SIZE_N=BLOCK_SIZE_N,
                             ACCUM=accumulate,
                             num_warps=4,
-                            num_stages=3
-                            )
+                            num_stages=3)
     return out
 
 
@@ -139,8 +136,7 @@ def mxfp8_gemm_forward_kernel(
         N: tl.constexpr,
         K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
-        ):
+        BLOCK_SIZE_N: tl.constexpr, ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = K // 32
@@ -178,8 +174,7 @@ def triton_mxfp8_gemm_forward(a: torch.Tensor,
                               a_s: torch.Tensor,
                               b_s: torch.Tensor,
                               out: Optional[torch.tensor] = None,
-                              out_dtype: torch.dtype = torch.bfloat16,
-                              ):
+                              out_dtype: torch.dtype = torch.bfloat16, ):
     """
     triton implementation to simulate mxfp8 gemm
     """
@@ -205,8 +200,7 @@ def triton_mxfp8_gemm_forward(a: torch.Tensor,
                                     BLOCK_SIZE_M=BLOCK_SIZE_M,
                                     BLOCK_SIZE_N=BLOCK_SIZE_N,
                                     num_warps=4,
-                                    num_stages=3
-                                    )
+                                    num_stages=3)
     return out
 
 
@@ -221,8 +215,7 @@ def mxfp8_gemm_backward_kernel(
         N: tl.constexpr,
         K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
-        ):
+        BLOCK_SIZE_N: tl.constexpr, ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = K // 32
@@ -258,8 +251,7 @@ def triton_mxfp8_gemm_backward(a: torch.Tensor,
                                a_s: torch.Tensor,
                                b_s: torch.Tensor,
                                out: Optional[torch.tensor] = None,
-                               out_dtype: torch.dtype = torch.bfloat16,
-                               ):
+                               out_dtype: torch.dtype = torch.bfloat16, ):
     """
     triton implementation to simulate mxfp8 gemm
     """
@@ -284,8 +276,7 @@ def triton_mxfp8_gemm_backward(a: torch.Tensor,
                                      BLOCK_SIZE_M=BLOCK_SIZE_M,
                                      BLOCK_SIZE_N=BLOCK_SIZE_N,
                                      num_warps=4,
-                                     num_stages=3
-                                     )
+                                     num_stages=3)
     return out
 
 
@@ -301,8 +292,7 @@ def mxfp8_gemm_update_kernel(
         K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-        ACCUM: tl.constexpr,
-        ):
+        ACCUM: tl.constexpr, ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = K // 32
@@ -345,8 +335,7 @@ def triton_mxfp8_gemm_update(a: torch.Tensor,
                              b_s: torch.Tensor,
                              out: Optional[torch.tensor] = None,
                              out_dtype: torch.dtype = torch.float32,
-                             accumulate: bool = False,
-                             ):
+                             accumulate: bool = False, ):
     """
     triton implementation to simulate mxfp8 gemm
     """
@@ -371,8 +360,7 @@ def triton_mxfp8_gemm_update(a: torch.Tensor,
                                    BLOCK_SIZE_N=BLOCK_SIZE_N,
                                    ACCUM=accumulate,
                                    num_warps=4,
-                                   num_stages=3
-                                   )
+                                   num_stages=3)
     return out
 
 
@@ -391,8 +379,7 @@ def mxfp8_grouped_gemm_kernel(
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
         ACCUM: tl.constexpr,
-        LAYOUT: tl.constexpr,
-        ):
+        LAYOUT: tl.constexpr, ):
     pid_e = tl.program_id(axis=0)
     pid_m = tl.program_id(axis=1)
     pid_n = tl.program_id(axis=2)
@@ -454,15 +441,13 @@ def triton_mxfp8_grouped_gemm(a: List[torch.Tensor],
                               out: Optional[torch.tensor] = None,
                               out_dtype: torch.dtype = torch.bfloat16,
                               layout: str = 'TN',
-                              accumulate: bool = False
-                              ):
+                              accumulate: bool = False):
     """
     triton implementation to simulate mxfp8 grouped gemm
     """
     device = a[0].device
     sizes = torch.tensor(m_splits,
-                         dtype=torch.int64
-                         ).cuda(device, non_blocking=True)
+                         dtype=torch.int64).cuda(device, non_blocking=True)
     accums = torch.cumsum(sizes, 0)
     ms = sum(m_splits)
 
@@ -500,22 +485,17 @@ def triton_mxfp8_grouped_gemm(a: List[torch.Tensor],
         a = [triton_transpose(x) for x in a]
         b = [triton_transpose(x) for x in b]
         out_ptrs = torch.tensor([x.data_ptr() for x in out],
-                                dtype=torch.int64
-                                ).cuda(device, non_blocking=True)
+                                dtype=torch.int64).cuda(device, non_blocking=True)
 
     as_ptrs = torch.tensor([x.data_ptr() for x in a_s],
-                           dtype=torch.int64
-                           ).cuda(device, non_blocking=True)
+                           dtype=torch.int64).cuda(device, non_blocking=True)
     bs_ptrs = torch.tensor([x.data_ptr() for x in b_s],
-                           dtype=torch.int64
-                           ).cuda(device, non_blocking=True)
+                           dtype=torch.int64).cuda(device, non_blocking=True)
 
     a_ptrs = torch.tensor([x.data_ptr() for x in a],
-                          dtype=torch.int64
-                          ).cuda(device, non_blocking=True)
+                          dtype=torch.int64).cuda(device, non_blocking=True)
     b_ptrs = torch.tensor([x.data_ptr() for x in b],
-                          dtype=torch.int64
-                          ).cuda(device, non_blocking=True)
+                          dtype=torch.int64).cuda(device, non_blocking=True)
 
     grid = (len(m_splits),
             M // BLOCK_SIZE_M,
@@ -529,8 +509,7 @@ def triton_mxfp8_grouped_gemm(a: List[torch.Tensor],
                                     ACCUM=accumulate,
                                     LAYOUT=layout,
                                     num_warps=4,
-                                    num_stages=3
-                                    )
+                                    num_stages=3)
     return out
 
 
@@ -546,8 +525,7 @@ def mxfp8_grouped_gemm_forward_kernel(
         N: tl.constexpr,
         K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
-        ):
+        BLOCK_SIZE_N: tl.constexpr, ):
     pid_e = tl.program_id(axis=0)
     pid_m = tl.program_id(axis=1)
     pid_n = tl.program_id(axis=2)
@@ -596,32 +574,26 @@ def triton_mxfp8_grouped_gemm_forward(a: List[torch.Tensor],
                                       b_s: List[torch.Tensor],
                                       m_splits: List[int],
                                       out: Optional[torch.tensor] = None,
-                                      out_dtype: torch.dtype = torch.bfloat16,
-                                      ):
+                                      out_dtype: torch.dtype = torch.bfloat16, ):
     """
     triton implementation to simulate mxfp8 grouped gemm
     """
     device = a[0].device
     sizes = torch.tensor(m_splits,
-                         dtype=torch.int64
-                         ).cuda(device, non_blocking=True)
+                         dtype=torch.int64).cuda(device, non_blocking=True)
     accums = torch.cumsum(sizes, 0)
     a_ptrs = torch.tensor([x.data_ptr() for x in a],
-                          dtype=torch.int64
-                          ).cuda(device, non_blocking=True)
+                          dtype=torch.int64).cuda(device, non_blocking=True)
     b_ptrs = torch.tensor([x.data_ptr() for x in b],
-                          dtype=torch.int64
-                          ).cuda(device, non_blocking=True)
+                          dtype=torch.int64).cuda(device, non_blocking=True)
 
     # not work if in one line
     at_s = [x.t().contiguous() for x in a_s]
     as_ptrs = torch.tensor([x.data_ptr() for x in at_s],
-                           dtype=torch.int64
-                           ).cuda(device, non_blocking=True)
+                           dtype=torch.int64).cuda(device, non_blocking=True)
     bt_s = [x.t().contiguous() for x in b_s]
     bs_ptrs = torch.tensor([x.data_ptr() for x in bt_s],
-                           dtype=torch.int64
-                           ).cuda(device, non_blocking=True)
+                           dtype=torch.int64).cuda(device, non_blocking=True)
 
     BLOCK_SIZE_M = 32
     BLOCK_SIZE_N = 128
@@ -640,8 +612,7 @@ def triton_mxfp8_grouped_gemm_forward(a: List[torch.Tensor],
                                             BLOCK_SIZE_M=BLOCK_SIZE_M,
                                             BLOCK_SIZE_N=BLOCK_SIZE_N,
                                             num_warps=4,
-                                            num_stages=3
-                                            )
+                                            num_stages=3)
     return out
 
 
@@ -657,8 +628,7 @@ def mxfp8_grouped_gemm_backward_kernel(
         N: tl.constexpr,
         K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
-        ):
+        BLOCK_SIZE_N: tl.constexpr, ):
     pid_e = tl.program_id(axis=0)
     pid_m = tl.program_id(axis=1)
     pid_n = tl.program_id(axis=2)
@@ -711,8 +681,7 @@ def triton_mxfp8_grouped_gemm_backward(a: List[torch.Tensor],
                                        b_s: List[torch.Tensor],
                                        m_splits: List[int],
                                        out: Optional[torch.tensor] = None,
-                                       out_dtype: torch.dtype = torch.bfloat16,
-                                       ):
+                                       out_dtype: torch.dtype = torch.bfloat16, ):
     """
     triton implementation to simulate mxfp8 grouped gemm
     layout is defined as the same in TE:
@@ -722,24 +691,19 @@ def triton_mxfp8_grouped_gemm_backward(a: List[torch.Tensor],
     """
     device = a[0].device
     sizes = torch.tensor(m_splits,
-                         dtype=torch.int64
-                         ).cuda(device, non_blocking=True)
+                         dtype=torch.int64).cuda(device, non_blocking=True)
     accums = torch.cumsum(sizes, 0)
     a_ptrs = torch.tensor([x.data_ptr() for x in a],
-                          dtype=torch.int64
-                          ).cuda(device, non_blocking=True)
+                          dtype=torch.int64).cuda(device, non_blocking=True)
     b_ptrs = torch.tensor([x.data_ptr() for x in b],
-                          dtype=torch.int64
-                          ).cuda(device, non_blocking=True)
+                          dtype=torch.int64).cuda(device, non_blocking=True)
 
     # not work if in one line
     at_s = [x.t().contiguous() for x in a_s]
     as_ptrs = torch.tensor([x.data_ptr() for x in at_s],
-                           dtype=torch.int64
-                           ).cuda(device, non_blocking=True)
+                           dtype=torch.int64).cuda(device, non_blocking=True)
     bs_ptrs = torch.tensor([x.data_ptr() for x in b_s],
-                           dtype=torch.int64
-                           ).cuda(device, non_blocking=True)
+                           dtype=torch.int64).cuda(device, non_blocking=True)
 
     BLOCK_SIZE_M = 32
     BLOCK_SIZE_N = 128
@@ -758,8 +722,7 @@ def triton_mxfp8_grouped_gemm_backward(a: List[torch.Tensor],
                                              BLOCK_SIZE_M=BLOCK_SIZE_M,
                                              BLOCK_SIZE_N=BLOCK_SIZE_N,
                                              num_warps=4,
-                                             num_stages=3
-                                             )
+                                             num_stages=3)
     return out
 
 
@@ -776,8 +739,7 @@ def mxfp8_grouped_gemm_update_kernel(
         N: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-        ACCUM: tl.constexpr,
-        ):
+        ACCUM: tl.constexpr, ):
     pid_e = tl.program_id(axis=0)
     pid_m = tl.program_id(axis=1)
     pid_n = tl.program_id(axis=2)
@@ -831,8 +793,7 @@ def triton_mxfp8_grouped_gemm_update(a: List[torch.Tensor],
                                      m_splits: List[int],
                                      out: Optional[List[torch.tensor]],
                                      out_dtype: torch.dtype = torch.float32,
-                                     accumulate: bool = False,
-                                     ):
+                                     accumulate: bool = False, ):
     """
     triton implementation to simulate mxfp8 grouped gemm
     layout is defined as the same in TE:
@@ -843,30 +804,24 @@ def triton_mxfp8_grouped_gemm_update(a: List[torch.Tensor],
     """
     device = a[0].device
     sizes = torch.tensor(m_splits,
-                         dtype=torch.int64
-                         ).cuda(device, non_blocking=True)
+                         dtype=torch.int64).cuda(device, non_blocking=True)
     accums = torch.cumsum(sizes, 0)
     a_ptrs = torch.tensor([x.data_ptr() for x in a],
-                          dtype=torch.int64
-                          ).cuda(device, non_blocking=True)
+                          dtype=torch.int64).cuda(device, non_blocking=True)
     b_ptrs = torch.tensor([x.data_ptr() for x in b],
-                          dtype=torch.int64
-                          ).cuda(device, non_blocking=True)
+                          dtype=torch.int64).cuda(device, non_blocking=True)
 
     as_ptrs = torch.tensor([x.data_ptr() for x in a_s],
-                           dtype=torch.int64
-                           ).cuda(device, non_blocking=True)
+                           dtype=torch.int64).cuda(device, non_blocking=True)
     bs_ptrs = torch.tensor([x.data_ptr() for x in b_s],
-                           dtype=torch.int64
-                           ).cuda(device, non_blocking=True)
+                           dtype=torch.int64).cuda(device, non_blocking=True)
 
     BLOCK_SIZE_M = 64
     BLOCK_SIZE_N = 64
     M = a[0].size(1)
     N = b[0].size(1)
     out_ptrs = torch.tensor([x.data_ptr() for x in out],
-                            dtype=torch.int64
-                            ).cuda(device, non_blocking=True)
+                            dtype=torch.int64).cuda(device, non_blocking=True)
 
     grid = (len(m_splits),
             M // BLOCK_SIZE_M,
@@ -879,8 +834,7 @@ def triton_mxfp8_grouped_gemm_update(a: List[torch.Tensor],
                                            BLOCK_SIZE_N=BLOCK_SIZE_N,
                                            ACCUM=accumulate,
                                            num_warps=4,
-                                           num_stages=3
-                                           )
+                                           num_stages=3)
     return out
 
 
@@ -896,8 +850,7 @@ def native_mxfp8_gemm_kernel(
         K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-        ACCUM: tl.constexpr
-        ):
+        ACCUM: tl.constexpr):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = K // 32
@@ -943,8 +896,7 @@ def triton_native_mxfp8_gemm(a: torch.Tensor,
                              out: Optional[torch.tensor] = None,
                              out_dtype: torch.dtype = torch.bfloat16,
                              layout: str = 'TN',
-                             accumulate: bool = False
-                             ):
+                             accumulate: bool = False):
     """
     triton implementation to simulate mxfp8 grouped gemm
     layout is defined as the same in TE:
@@ -992,8 +944,7 @@ def triton_native_mxfp8_gemm(a: torch.Tensor,
                                    BLOCK_SIZE_N=BLOCK_SIZE_N,
                                    ACCUM=accumulate,
                                    num_warps=4,
-                                   num_stages=3
-                                   )
+                                   num_stages=3)
     return out
 
 
@@ -1003,8 +954,7 @@ def triton_native_mxfp8_grouped_gemm(a: List[torch.Tensor],
                                      b_s: List[torch.Tensor],
                                      out: List[torch.Tensor],
                                      m_splits: List[int],
-                                     layout: str = 'TN'
-                                     ):
+                                     layout: str = 'TN'):
     device = a[0].device
     dtype = a[0].dtype
     if layout != 'NT':

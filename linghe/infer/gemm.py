@@ -18,8 +18,7 @@ def split_fp32_gemm_kernel(
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-        SPLIT_COUNT: tl.constexpr
-        ):
+        SPLIT_COUNT: tl.constexpr):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     pid_k = tl.program_id(axis=2)
@@ -28,10 +27,14 @@ def split_fp32_gemm_kernel(
     offs_m = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M))
     offs_n = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
     offs_k = tl.arange(0, BLOCK_SIZE_K)
-    a_ptrs = a_ptr + pid_k * K // SPLIT_COUNT + offs_m[:, None] * K + offs_k[
-                                                                      None, :]
-    b_ptrs = b_ptr + pid_k * K // SPLIT_COUNT + offs_n[None, :] * K + offs_k[:,
-                                                                      None]
+    a_ptrs = (a_ptr
+              + pid_k * K // SPLIT_COUNT
+              + offs_m[:, None] * K
+              + offs_k[None, :])
+    b_ptrs = (b_ptr
+              + pid_k * K // SPLIT_COUNT
+              + offs_n[None, :] * K
+              + offs_k[:, None])
 
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     for i in range(k):
@@ -93,6 +96,5 @@ def triton_split_fp32_gemm(x: torch.Tensor, w: torch.Tensor):
                                  BLOCK_SIZE_N,
                                  SPLIT_COUNT,
                                  num_warps=num_warps,
-                                 num_stages=num_stages
-                                 )
+                                 num_stages=num_stages)
     return c

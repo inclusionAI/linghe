@@ -12,8 +12,7 @@ from torch.profiler import profile, ProfilerActivity
 def benchmark_func(fn, *args, n_warmup=10, n_repeat=100, ref_flops=None,
                    ref_bytes=None, ref_time=None,
                    n_profile=0, trace_dir=None,
-                   name='', **kwargs
-                   ):
+                   name='', **kwargs):
     func_name = getattr(fn, '__name__', None)
     func_name = name if func_name == 'apply' or func_name is None else func_name
 
@@ -36,15 +35,12 @@ def benchmark_func(fn, *args, n_warmup=10, n_repeat=100, ref_flops=None,
         with profile(activities=[ProfilerActivity.CPU,
                                  ProfilerActivity.CUDA,
                                  ProfilerActivity.XPU],
-                     with_stack=True
-                     ) as prof:
+                     with_stack=True) as prof:
             for i in range(n_profile):
                 fn(*args, **kwargs)
         print(prof.key_averages().table(sort_by="cuda_time_total",
                                         top_level_events_only=True,
-                                        row_limit=100
-                                        )
-              )
+                                        row_limit=100))
         if trace_dir is not None:
             assert trace_dir.endswith('.json')
             prof.export_chrome_trace(trace_dir)
@@ -72,6 +68,5 @@ def benchmark_func(fn, *args, n_warmup=10, n_repeat=100, ref_flops=None,
         ss = f'speedup:{ref_time / average_event_time:.3f}'
 
     print(
-        f'{func_name:<30} {name} time:{average_event_time:.1f} us {fs} {bs} {ss}'
-        )
+        f'{func_name:<30} {name} time:{average_event_time:.1f} us {fs} {bs} {ss}')
     return average_event_time

@@ -16,8 +16,7 @@ def group_rms_norm_gate_kernel(x_ptr,
                                eps,
                                DIM: tl.constexpr,
                                D: tl.constexpr,
-                               GROUP_SIZE: tl.constexpr
-                               ):
+                               GROUP_SIZE: tl.constexpr):
     pid = tl.program_id(axis=0)
     weight = tl.load(weight_ptr + tl.arange(0, DIM))
     weight = tl.reshape(weight, [GROUP_SIZE, D])
@@ -37,8 +36,7 @@ def triton_group_rms_norm_gate(x: torch.Tensor,
                                gate: torch.Tensor,
                                weight: torch.Tensor,
                                eps=1e-6,
-                               group_size=4
-                               ):
+                               group_size=4):
     """
     norm and gate in linear attention
     Args:
@@ -68,6 +66,5 @@ def triton_group_rms_norm_gate(x: torch.Tensor,
         d,
         group_size,
         num_stages=3,
-        num_warps=4
-        )
+        num_warps=4)
     return out

@@ -36,8 +36,7 @@ def scaled_mm_kernel(
         EVEN: tl.constexpr,
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
-        ):
+        BLOCK_SIZE_N: tl.constexpr, ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = tl.cdiv(K, BLOCK_SIZE_K)
@@ -86,8 +85,7 @@ def triton_scaled_mm(a: torch.Tensor,
                      b_scale: torch.Tensor,
                      out_dtype=torch.float32,
                      c=None,
-                     accum=True
-                     ):
+                     accum=True):
     """
     similar to torch._scaled_mm, support accumulating gemm output to c
         and low precision output tensor
@@ -124,7 +122,6 @@ def triton_scaled_mm(a: torch.Tensor,
                            BLOCK_SIZE_M,
                            BLOCK_SIZE_N,
                            num_stages=3,
-                           num_warps=8
-                           )
+                           num_warps=8)
 
     return c

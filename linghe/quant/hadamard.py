@@ -17,8 +17,7 @@ def hadamard_quant_row_kernel(
         M,
         N,
         BLOCK_SIZE: tl.constexpr,
-        R: tl.constexpr,
-        ):
+        R: tl.constexpr, ):
     pid = tl.program_id(0)
     row_start = pid * R * BLOCK_SIZE
     rows = row_start + tl.arange(0, R * BLOCK_SIZE)
@@ -26,10 +25,8 @@ def hadamard_quant_row_kernel(
 
     hm = tl.load(
         hm_ptr + tl.arange(0, BLOCK_SIZE)[:, None] * BLOCK_SIZE + tl.arange(0,
-                                                                            BLOCK_SIZE
-                                                                            )[
-                                                                  None, :]
-        )
+                                                                            BLOCK_SIZE)[
+                                                                  None, :])
 
     max_val = tl.zeros((R * BLOCK_SIZE,), dtype=tl.float32) + 1.17e-38
 
@@ -41,8 +38,7 @@ def hadamard_quant_row_kernel(
 
         offs = rows[:, None] * N + cols[None, :]
         x = tl.load(x_ptr + offs, mask=mask_rows[:, None] & mask_cols[None, :],
-                    other=0.0
-                    )
+                    other=0.0)
         x_transformed = tl.dot(x, hm)
         current_max = tl.max(tl.abs(x_transformed), axis=1)
         max_val = tl.maximum(max_val, current_max)
@@ -58,13 +54,11 @@ def hadamard_quant_row_kernel(
 
         offs = rows[:, None] * N + cols[None, :]
         x = tl.load(x_ptr + offs, mask=mask_rows[:, None] & mask_cols[None, :],
-                    other=0.0
-                    )
+                    other=0.0)
         x_transformed = tl.dot(x, hm)
         quantized = (x_transformed * s[:, None]).to(x_q_ptr.dtype.element_ty)
         tl.store(x_q_ptr + offs, quantized,
-                 mask=mask_rows[:, None] & mask_cols[None, :]
-                 )
+                 mask=mask_rows[:, None] & mask_cols[None, :])
 
 
 @triton.jit
@@ -76,8 +70,7 @@ def hadamard_quant_col_kernel(
         M,
         N,
         BLOCK_SIZE: tl.constexpr,
-        R: tl.constexpr,
-        ):
+        R: tl.constexpr, ):
     pid = tl.program_id(0)
     col_start = pid * R * BLOCK_SIZE
     cols = col_start + tl.arange(0, R * BLOCK_SIZE)
@@ -85,10 +78,8 @@ def hadamard_quant_col_kernel(
 
     hm = tl.load(
         hm_ptr + tl.arange(0, BLOCK_SIZE)[:, None] * BLOCK_SIZE + tl.arange(0,
-                                                                            BLOCK_SIZE
-                                                                            )[
-                                                                  None, :]
-        )
+                                                                            BLOCK_SIZE)[
+                                                                  None, :])
 
     max_val = tl.zeros((R * BLOCK_SIZE,), dtype=tl.float32) + 1.17e-38
 
@@ -100,8 +91,7 @@ def hadamard_quant_col_kernel(
 
         offs = rows[:, None] * N + cols[None, :]
         x = tl.load(x_ptr + offs, mask=mask_rows[:, None] & mask_cols[None, :],
-                    other=0.0
-                    )
+                    other=0.0)
         x_transformed = tl.dot(hm, x)
         current_max = tl.max(tl.abs(x_transformed), axis=0)
         max_val = tl.maximum(max_val, current_max)
@@ -117,15 +107,13 @@ def hadamard_quant_col_kernel(
 
         offs = rows[:, None] * N + cols[None, :]
         x = tl.load(x_ptr + offs, mask=mask_rows[:, None] & mask_cols[None, :],
-                    other=0.0
-                    )
+                    other=0.0)
         x_transformed = tl.dot(hm, x)
         quantized = (x_transformed * s[None, :]).to(xt_q_ptr.dtype.element_ty)
         quantized_t = tl.trans(quantized)
         store_offs = cols[:, None] * M + rows[None, :]
         tl.store(xt_q_ptr + store_offs, quantized_t,
-                 mask=mask_cols[:, None] & mask_rows[None, :]
-                 )
+                 mask=mask_cols[:, None] & mask_rows[None, :])
 
 
 def triton_hadamard_quant(x, hm):
@@ -160,8 +148,7 @@ def triton_hadamard_quant(x, hm):
         BLOCK_SIZE,
         R,
         num_stages=6,
-        num_warps=4
-        )
+        num_warps=4)
 
     grid_col = (triton.cdiv(N, R * BLOCK_SIZE),)
     hadamard_quant_col_kernel[grid_col](
@@ -174,7 +161,6 @@ def triton_hadamard_quant(x, hm):
         BLOCK_SIZE,
         R,
         num_stages=6,
-        num_warps=4
-        )
+        num_warps=4)
 
     return x_q, x_scale, xt_q, xt_scale

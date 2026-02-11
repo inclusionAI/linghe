@@ -23,8 +23,7 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                 cu_seqlens_q, cu_seqlens_kv,
                 H=32, h=4, eps=1e-6,
                 cp_rank=0, cp_size=1, mscale=1.0,
-                silu=False, reuse=False
-                ):
+                silu=False, reuse=False):
         if cu_seqlens_q is None:
             qo, ko, vo = triton_qk_norm_and_half_rope_forward(qkv,
                                                               q_norm_weight,
@@ -35,8 +34,7 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                               eps=eps,
                                                               interleaved=True,
                                                               transposed=True,
-                                                              silu=silu
-                                                              )
+                                                              silu=silu)
         else:
             qo, ko, vo = triton_varlen_qk_norm_and_half_rope_forward(qkv,
                                                                      q_norm_weight,
@@ -52,8 +50,7 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                                      cp_size=cp_size,
                                                                      mscale=mscale,
                                                                      silu=silu,
-                                                                     reuse=reuse
-                                                                     )
+                                                                     reuse=reuse)
         ctx.save_for_backward(qkv, q_norm_weight, k_norm_weight, freqs)
         ctx.H = H
         ctx.h = h
@@ -82,8 +79,7 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                                    eps=ctx.eps,
                                                                    transposed=True,
                                                                    interleaved=True,
-                                                                   silu=ctx.silu
-                                                                   )
+                                                                   silu=ctx.silu)
         else:
             dqkv, dqw, dkw = triton_varlen_qk_norm_and_half_rope_backward(grad_q,
                                                                           grad_k,
@@ -100,8 +96,7 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                                           cp_size=ctx.cp_size,
                                                                           mscale=ctx.mscale,
                                                                           silu=ctx.silu,
-                                                                          reuse=ctx.reuse
-                                                                          )
+                                                                          reuse=ctx.reuse)
         return dqkv, dqw, dkw, None, None, None, None, None, None, None, None, None, None, None
 
 
@@ -118,8 +113,7 @@ def qk_norm_half_rope(qkv: torch.Tensor,
                       cp_size=1,
                       mscale=1.0,
                       silu=False,
-                      reuse=False
-                      ):
+                      reuse=False):
     """
     split qkv to q/k/v, apply qk norm and half rope to q/k, transpose q/k/v to flash-attention layout
     Args:
@@ -154,8 +148,7 @@ def qk_norm_half_rope(qkv: torch.Tensor,
                                         cp_size,
                                         mscale,
                                         silu,
-                                        reuse
-                                        )
+                                        reuse)
 
 
 class MLARopeFunction(torch.autograd.Function):
@@ -163,8 +156,7 @@ class MLARopeFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, q, kv, k_pos_emb, freqs, mscale, transpose, cu_seqlens_q,
-                cu_seqlens_kv, cp_size, cp_rank, reuse
-                ):
+                cu_seqlens_kv, cp_size, cp_rank, reuse):
         qo, ko, vo = triton_mla_rope_forward(q,
                                              kv,
                                              k_pos_emb,
@@ -175,8 +167,7 @@ class MLARopeFunction(torch.autograd.Function):
                                              cu_seqlens_kv=cu_seqlens_kv,
                                              cp_size=cp_size,
                                              cp_rank=cp_rank,
-                                             reuse=reuse
-                                             )
+                                             reuse=reuse)
 
         ctx.save_for_backward(freqs)
         ctx.mscale = mscale
@@ -201,8 +192,7 @@ class MLARopeFunction(torch.autograd.Function):
                                                cu_seqlens_kv=ctx.cu_seqlens_kv,
                                                cp_size=ctx.cp_size,
                                                cp_rank=ctx.cp_rank,
-                                               reuse=ctx.reuse
-                                               )
+                                               reuse=ctx.reuse)
         return dq, dkv, dp, None, None, None, None, None, None, None, None
 
 
@@ -216,8 +206,7 @@ def mla_rope(q: torch.Tensor,
              transpose: bool = False,
              cp_size: int = 1,
              cp_rank: int = 0,
-             reuse: bool = False
-             ):
+             reuse: bool = False):
     """
     inplace apply rope to tail 64 dims, split kv and apply rope to k_pos_emb and copy to k
     Args:
@@ -249,6 +238,5 @@ def mla_rope(q: torch.Tensor,
                                     cu_seqlens_kv,
                                     cp_size,
                                     cp_rank,
-                                    reuse
-                                    )
+                                    reuse)
     return q, k, v

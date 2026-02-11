@@ -18,36 +18,31 @@ from linghe.tools.util import round_up
 
 @triton.jit
 def transpose_kernel(x_ptr, t_ptr, M, N, H: tl.constexpr, W: tl.constexpr,
-                     EVEN: tl.constexpr
-                     ):
+                     EVEN: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     offs = rid * H * N + cid * W + tl.arange(0, H)[:, None] * N + tl.arange(0,
-                                                                            W
-                                                                            )[
+                                                                            W)[
                                                                   None, :]
     toffs = rid * H + cid * M * W + tl.arange(0, W)[:, None] * M + tl.arange(0,
-                                                                             H
-                                                                             )[
+                                                                             H)[
                                                                    None, :]
     if EVEN:
         y = tl.trans(tl.load(x_ptr + offs))
         tl.store(t_ptr + toffs, y)
     else:
-        y = tl.trans(tl.load(x_ptr + offs,
-                             mask=(cid * W + tl.arange(0, W)[None, :] < N) & (rid * H + tl.arange(0, H)[:,
-                                                                                        None] < M)
-                             )
-                     )
+        mask = (cid * W + tl.arange(0, W)[None, :] < N) & (
+                rid * H + tl.arange(0, H)[:, None] < M)
+        y = tl.trans(tl.load(x_ptr + offs, mask=mask))
+        mask = (cid * W + tl.arange(0, W)[:, None] < N) & (
+                rid * H + tl.arange(0, H)[None, :] < M)
         tl.store(t_ptr + toffs, y,
-                 mask=(cid * W + tl.arange(0, W)[:, None] < N) & (rid * H + tl.arange(0, H)[None, :] < M)
-                 )
+                 mask=mask)
 
 
 @triton.jit
 def transpose_inner_dims_kernel(x_ptr, t_ptr, B, M, b_stride, m_stride,
-                                N: tl.constexpr
-                                ):
+                                N: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     offs = rid * b_stride + cid * m_stride + tl.arange(0, N)
@@ -59,33 +54,29 @@ def transpose_inner_dims_kernel(x_ptr, t_ptr, B, M, b_stride, m_stride,
 @triton.jit
 def transpose_outer_dims_kernel(x_ptr, t_ptr, M, N, H: tl.constexpr,
                                 W: tl.constexpr,
-                                EVEN: tl.constexpr
-                                ):
+                                EVEN: tl.constexpr):
     bid = tl.program_id(axis=0)
     rid = tl.program_id(axis=1)
     cid = tl.program_id(axis=2)
     offs = bid * M * N + rid * H * N + cid * W + tl.arange(0, H)[:,
                                                  None] * N + tl.arange(0,
-                                                                       W
-                                                                       )[
+                                                                       W)[
                                                              None, :]
-    toffs = bid * M * N + rid * H + cid * M * W + tl.arange(0, W)[:,
-                                                  None] * M + tl.arange(0,
-                                                                        H
-                                                                        )[
-                                                              None, :]
+    toffs = (bid * M * N
+             + rid * H
+             + cid * M * W
+             + tl.arange(0, W)[:, None] * M
+             + tl.arange(0, H)[None, :])
     if EVEN:
         y = tl.trans(tl.load(x_ptr + offs))
         tl.store(t_ptr + toffs, y)
     else:
-        y = tl.trans(tl.load(x_ptr + offs,
-                             mask=(cid * W + tl.arange(0, W)[None, :] < N) & (rid * H + tl.arange(0, H)[:,
-                                                                                        None] < M)
-                             )
-                     )
-        tl.store(t_ptr + toffs, y,
-                 mask=(cid * W + tl.arange(0, W)[:, None] < N) & (rid * H + tl.arange(0, H)[None, :] < M)
-                 )
+        mask = (cid * W + tl.arange(0, W)[None, :] < N) & (
+                rid * H + tl.arange(0, H)[:, None] < M)
+        y = tl.trans(tl.load(x_ptr + offs, mask=mask))
+        mask = (cid * W + tl.arange(0, W)[:, None] < N) & (
+                rid * H + tl.arange(0, H)[None, :] < M)
+        tl.store(t_ptr + toffs, y, mask=mask)
 
 
 def triton_transpose(x: torch.Tensor, inner=True):
@@ -117,16 +108,14 @@ def triton_transpose(x: torch.Tensor, inner=True):
                                H, W,
                                EVEN,
                                num_stages=num_stages,
-                               num_warps=num_warps
-                               )
+                               num_warps=num_warps)
     elif inner:
         stride = x.stride()
         if rank == 4:
             B, M, N = shape[0], shape[1], shape[2] * shape[3]
             assert stride[2] == shape[3], 'must be contiguous in last two dims'
             t = torch.empty((M, B, shape[2], shape[3]), device=x.device,
-                            dtype=x.dtype
-                            )
+                            dtype=x.dtype)
         else:
             B, M, N = shape
             t = torch.empty((M, B, N), device=x.device, dtype=x.dtype)
@@ -143,15 +132,13 @@ def triton_transpose(x: torch.Tensor, inner=True):
                                           m_stride,
                                           N,
                                           num_stages=num_stages,
-                                          num_warps=num_warps
-                                          )
+                                          num_warps=num_warps)
     else:
 
         if rank == 4:
             B, M, N = shape[0] * shape[1], shape[2], shape[3]
             t = torch.empty((shape[0], shape[1], N, M), device=x.device,
-                            dtype=x.dtype
-                            )
+                            dtype=x.dtype)
         else:
             B, M, N = shape
             t = torch.empty((B, N, M), device=x.device, dtype=x.dtype)
@@ -168,8 +155,7 @@ def triton_transpose(x: torch.Tensor, inner=True):
                                           H, W,
                                           EVEN,
                                           num_stages=num_stages,
-                                          num_warps=num_warps
-                                          )
+                                          num_warps=num_warps)
     return t
 
 
@@ -178,32 +164,27 @@ def pad_transpose_kernel(x_ptr, t_ptr,
                          M, N, P,
                          H: tl.constexpr,
                          W: tl.constexpr,
-                         EVEN: tl.constexpr
-                         ):
+                         EVEN: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     offs = rid * H * N + cid * W + tl.arange(0, H)[:, None] * N + tl.arange(0,
-                                                                            W
-                                                                            )[
+                                                                            W)[
                                                                   None, :]
     toffs = rid * H + cid * P * W + tl.arange(0, W)[:, None] * P + tl.arange(0,
-                                                                             H
-                                                                             )[
+                                                                             H)[
                                                                    None, :]
     if EVEN:
         y = tl.load(x_ptr + offs)
     else:
         y = tl.load(x_ptr + offs,
-                    mask=(rid * H + tl.arange(0, H)[:, None] < M)
-                    )
+                    mask=(rid * H + tl.arange(0, H)[:, None] < M))
     y = tl.trans(y)
     if EVEN:
         tl.store(t_ptr + toffs, y)
     else:
         # paddings are filled with 0
         tl.store(t_ptr + toffs, y,
-                 mask=(rid * H + tl.arange(0, H)[None, :] < P)
-                 )
+                 mask=(rid * H + tl.arange(0, H)[None, :] < P))
 
 
 def triton_pad_transpose(x, out=None, multiple=32):
@@ -239,15 +220,13 @@ def triton_pad_transpose(x, out=None, multiple=32):
         H, W,
         EVEN,
         num_stages=num_stages,
-        num_warps=num_warps
-        )
+        num_warps=num_warps)
     return out
 
 
 @triton.jit
 def batch_transpose_kernel(xs_ptr, xts_ptr, M, N, H: tl.constexpr,
-                           W: tl.constexpr
-                           ):
+                           W: tl.constexpr):
     eid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     x_ptr = tl.load(xs_ptr + eid).to(tl.pointer_type(xts_ptr.dtype.element_ty))
@@ -276,11 +255,9 @@ def triton_batch_transpose(xs, xts=None):
     if xts is None:
         xts = torch.empty((M * n_experts, N),
                           device=device,
-                          dtype=xs[0].dtype
-                          )
+                          dtype=xs[0].dtype)
     pointers = torch.tensor([x.data_ptr() for x in xs],
-                            dtype=torch.int64
-                            ).cuda(device, non_blocking=True)
+                            dtype=torch.int64).cuda(device, non_blocking=True)
 
     H = 32
     W = 64
@@ -292,8 +269,7 @@ def triton_batch_transpose(xs, xts=None):
         M, N,
         H, W,
         num_stages=num_stages,
-        num_warps=num_warps
-        )
+        num_warps=num_warps)
     outputs = torch.split(xts, [M] * n_experts)
     return outputs
 
@@ -306,8 +282,7 @@ def batch_pad_transpose_kernel(x_ptr,
                                pad_accum_ptr,
                                N,
                                H: tl.constexpr,
-                               W: tl.constexpr
-                               ):
+                               W: tl.constexpr):
     eid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     count = tl.load(count_ptr + eid)
@@ -318,11 +293,9 @@ def batch_pad_transpose_kernel(x_ptr,
     offs = si * N + cid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[
                                                              None, :]
     toffs = pad_si * N + cid * W * P + tl.arange(0, W)[:, None] * P + tl.arange(
-        0, H
-        )[None, :]
+        0, H)[None, :]
     for i in range(0, P, H):
-        y = tl.trans(tl.load(x_ptr + offs, mask=i + tl.arange(0, H)[:, None] < count)
-                     )
+        y = tl.trans(tl.load(x_ptr + offs, mask=i + tl.arange(0, H)[:, None] < count))
         # paddings are filled with 0
         tl.store(t_ptr + toffs, y, mask=i + tl.arange(0, H)[None, :] < P)
         offs += N * H
@@ -350,8 +323,7 @@ def triton_batch_pad_transpose(x, count_list, x_t=None, multiple=32):
     counts = torch.tensor(count_list, dtype=torch.int32, device=x.device)
     pad_accum_sizes = torch.tensor(
         list(itertools.accumulate(pad_sizes, initial=0)), dtype=torch.int32,
-        device=x.device
-        )
+        device=x.device)
     accums = torch.cumsum(counts, 0)
     device = x.device
     if x_t is None:
@@ -371,8 +343,7 @@ def triton_batch_pad_transpose(x, count_list, x_t=None, multiple=32):
         H,
         W,
         num_stages=num_stages,
-        num_warps=num_warps
-        )
+        num_warps=num_warps)
     split_size = [x * N for x in pad_sizes]
     chunks = torch.split(x_t.view(torch.uint8), split_size)
     outputs = []
@@ -393,13 +364,15 @@ configs = [
 @triton.autotune(configs=configs, key=["M", "N", "D"])
 @triton.jit
 def opt_transpose_kernel(x_ptr, t_ptr, M, N, D, H: tl.constexpr,
-                         W: tl.constexpr
-                         ):
+                         W: tl.constexpr):
     pid = tl.program_id(axis=0)
     # row-wise read, col-wise write
-    offs = pid * W + tl.arange(0, H)[:, None] * N + tl.arange(0, W)[None, :]
-    toffs = pid * W * M + tl.arange(0, W)[:, None] * M + tl.arange(0, H)[None,
-                                                         :]
+    offs = (pid * W
+            + tl.arange(0, H)[:, None] * N
+            + tl.arange(0, W)[None, :])
+    toffs = (pid * W * M
+             + tl.arange(0, W)[:, None] * M
+             + tl.arange(0, H)[None, :])
     m = tl.cdiv(M, H)
     for i in range(m):
         y = tl.trans(tl.load(x_ptr + offs))
@@ -417,6 +390,5 @@ def triton_opt_transpose(x):
     grid = lambda META: (N // META["W"],)  # noqa
     opt_transpose_kernel[grid](
         x, t,
-        M, N, D
-        )
+        M, N, D)
     return t

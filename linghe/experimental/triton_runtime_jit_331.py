@@ -96,8 +96,7 @@ class DependenciesFinder(ast.NodeVisitor):
                 v2, _ = func.used_global_vals[k]
                 if v1 != v2:
                     raise RuntimeError(
-                        f"Global variable {var_name} has value {v1} when compiling {self.name}, but inner kernel {func.__name__} has conflicting value {v2} from when it was first compiled.  This is not allowed."
-                        )
+                        f"Global variable {var_name} has value {v1} when compiling {self.name}, but inner kernel {func.__name__} has conflicting value {v2} from when it was first compiled.  This is not allowed.")
             self.used_global_vals.update(func.used_global_vals)
             # update hash
             func_key = func.cache_key
@@ -243,8 +242,7 @@ class KernelParam:
 
     def __init__(self, num: int, param: inspect.Parameter,
                  do_not_specialize: bool,
-                 do_not_specialize_on_alignment: bool
-                 ):
+                 do_not_specialize_on_alignment: bool):
         self.num = num
         self._param = param
         self.do_not_specialize = do_not_specialize
@@ -486,8 +484,7 @@ class JITFunction(KernelInterface[T]):
                    options,
                    configs,
                    is_warmup,
-                   before,
-                   ):
+                   before, ):
         hook = JITFunction.cache_hook if before else JITFunction.compiled_hook
         if hook is None:
             return False
@@ -530,8 +527,7 @@ class JITFunction(KernelInterface[T]):
                     fn=JitFunctionInfo(module, name, self),
                     compile={"key": key, **kwargs},
                     is_manual_warmup=is_warmup,
-                    already_compiled=False,
-                    )
+                    already_compiled=False, )
 
     def add_pre_run_hook(self, hook):
         '''
@@ -614,8 +610,7 @@ class JITFunction(KernelInterface[T]):
         for (name, _), (val, globals_dict) in self.used_global_vals.items():
             if (newVal := globals_dict.get(name, not_present)) != val:
                 raise RuntimeError(
-                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}"
-                    )
+                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}")
 
         if not warmup:
             # canonicalize grid
@@ -633,8 +628,7 @@ class JITFunction(KernelInterface[T]):
                        kernel.packed_metadata,
                        launch_metadata, self.CompiledKernel.launch_enter_hook,
                        self.CompiledKernel.launch_exit_hook,
-                       *bound_args.values()
-                       )
+                       *bound_args.values())
         return kernel
 
     def run_with_cache(self, *args, grid, warmup, **kwargs):
@@ -656,8 +650,7 @@ class JITFunction(KernelInterface[T]):
             exit_hook = None
             kernel.run(grid_0, grid_1, grid_2, self.stream, kernel.function,
                        kernel.packed_metadata, launch_metadata,
-                       enter_hook, exit_hook, *args
-                       )
+                       enter_hook, exit_hook, *args)
             return kernel
 
         kwargs["debug"] = kwargs.get("debug", self.debug) or os.environ.get("TRITON_DEBUG", "0") == "1"
@@ -717,8 +710,7 @@ class JITFunction(KernelInterface[T]):
                 and len(kernel_cache) == 1
                 and not callable(grid)
                 and len(self.pre_run_hooks) == 0
-                and len(bound_args) == len(args)
-        ):
+                and len(bound_args) == len(args)):
             self.kernel = kernel
             self.stream = stream
 
@@ -727,8 +719,7 @@ class JITFunction(KernelInterface[T]):
         for (name, _), (val, globals_dict) in self.used_global_vals.items():
             if (newVal := globals_dict.get(name, not_present)) != val:
                 raise RuntimeError(
-                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}"
-                    )
+                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}")
 
         if not warmup:
             # canonicalize grid
@@ -746,8 +737,7 @@ class JITFunction(KernelInterface[T]):
                        kernel.packed_metadata,
                        launch_metadata, self.CompiledKernel.launch_enter_hook,
                        self.CompiledKernel.launch_exit_hook,
-                       *bound_args.values()
-                       )
+                       *bound_args.values())
             self.invoke_count += 1
         return kernel
 
@@ -756,8 +746,7 @@ class JITFunction(KernelInterface[T]):
 
     def __init__(self, fn, version=None, do_not_specialize=None,
                  do_not_specialize_on_alignment=None, debug=None,
-                 noinline=None, repr=None, launch_metadata=None
-                 ):
+                 noinline=None, repr=None, launch_metadata=None):
         do_not_specialize = do_not_specialize if do_not_specialize else []
         do_not_specialize_on_alignment = do_not_specialize_on_alignment if do_not_specialize_on_alignment else []
 
@@ -844,8 +833,7 @@ class JITFunction(KernelInterface[T]):
         deserialized_obj = json.loads(specialization_data)
         if deserialized_obj['name'] != self.fn.__name__:
             raise RuntimeError(
-                f"Specialization data is for {deserialized_obj['name']} but trying to preload for {self.fn.__name__}"
-                )
+                f"Specialization data is for {deserialized_obj['name']} but trying to preload for {self.fn.__name__}")
         constant_keys = map(tuple, deserialized_obj['constant_keys'])
         constant_vals = deserialized_obj['constant_vals']
         constants = {
@@ -884,8 +872,7 @@ class JITFunction(KernelInterface[T]):
         if name == "src":
             raise AttributeError(f"Cannot set attribute '{name}' directly. "
                                  f"Use '_unsafe_update_src()' and manually clear `.hash` of all callers"
-                                 f"instead."
-                                 )
+                                 f"instead.")
         super(JITFunction, self).__setattr__(name, value)
 
     def _unsafe_update_src(self, new_src):
@@ -919,8 +906,7 @@ def jit(
         do_not_specialize: Optional[Iterable[int]] = None,
         do_not_specialize_on_alignment: Optional[Iterable[int]] = None,
         debug: Optional[bool] = None,
-        noinline: Optional[bool] = None,
-        ) -> Callable[[T], JITFunction[T]]:
+        noinline: Optional[bool] = None, ) -> Callable[[T], JITFunction[T]]:
     ...
 
 
@@ -933,8 +919,7 @@ def jit(
         do_not_specialize: Optional[Iterable[int]] = None,
         do_not_specialize_on_alignment: Optional[Iterable[int]] = None,
         debug: Optional[bool] = None,
-        noinline: Optional[bool] = None,
-        ) -> Union[JITFunction[T], Callable[[T], JITFunction[T]]]:
+        noinline: Optional[bool] = None, ) -> Union[JITFunction[T], Callable[[T], JITFunction[T]]]:
     """
     Decorator for JIT-compiling a function using the Triton compiler.
 
@@ -962,8 +947,7 @@ def jit(
                                        do_not_specialize_on_alignment=do_not_specialize_on_alignment,
                                        debug=debug,
                                        noinline=noinline, repr=repr,
-                                       launch_metadata=launch_metadata
-                                       )
+                                       launch_metadata=launch_metadata)
         else:
             return JITFunction(fn,
                                version=version,
@@ -972,8 +956,7 @@ def jit(
                                debug=debug,
                                noinline=noinline,
                                repr=repr,
-                               launch_metadata=launch_metadata,
-                               )
+                               launch_metadata=launch_metadata, )
 
     if fn is not None:
         return decorator(fn)

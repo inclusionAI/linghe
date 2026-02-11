@@ -18,8 +18,7 @@ def abs_max_kernel(x_ptr,
                    H: tl.constexpr,
                    W: tl.constexpr,
                    EVEN: tl.constexpr,
-                   QUANTIZED: tl.constexpr
-                   ):
+                   QUANTIZED: tl.constexpr):
     pid = tl.program_id(axis=0)
     # col-wise read, col-wise write
     x_max = tl.zeros((W,), dtype=tl.float32)
@@ -33,13 +32,10 @@ def abs_max_kernel(x_ptr,
             x = tl.load(x_ptr + offs).to(tl.float32)
         else:
             x = tl.load(x_ptr + offs,
-                        mask=i * H + tl.arange(0, H)[:, None] < M
-                        ).to(tl.float32
-                             )
+                        mask=i * H + tl.arange(0, H)[:, None] < M).to(tl.float32)
         if QUANTIZED:
             scale = tl.load(scale_ptr + i * H + tl.arange(0, H),
-                            mask=i * H + tl.arange(0, H) < M
-                            )
+                            mask=i * H + tl.arange(0, H) < M)
             x = x * scale[:, None] * smooth_scale
         x_max = tl.maximum(x_max, tl.max(tl.abs(x), axis=0))
         offs += H * N
@@ -85,8 +81,7 @@ def triton_abs_max(x, scale=None, smooth_scale=None, min_value=1e-30, axis=0):
         EVEN,
         quantized,
         num_stages=2,
-        num_warps=4
-        )
+        num_warps=4)
     return maxs
 
 
@@ -121,17 +116,14 @@ def triton_batch_count_zero(xs):
     assert all([x.is_contiguous() for x in xs])
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs],
-                         dtype=torch.int64
-                         ).cuda(device, non_blocking=True)
+                         dtype=torch.int64).cuda(device, non_blocking=True)
     ptrs = torch.tensor([x.data_ptr() for x in xs],
-                        dtype=torch.int64
-                        ).cuda(device, non_blocking=True)
+                        dtype=torch.int64).cuda(device, non_blocking=True)
 
     block = 2048
     tensor_count = len(xs)
     counts = torch.empty((tensor_count, block), device=device,
-                         dtype=torch.int64
-                         )
+                         dtype=torch.int64)
     B = 1024
     grid = (tensor_count, block)
     batch_count_zero_kernel[grid](
@@ -140,8 +132,7 @@ def triton_batch_count_zero(xs):
         counts,
         B,
         num_stages=2,
-        num_warps=2
-        )
+        num_warps=2)
     count = counts.sum()
     return count
 
@@ -149,8 +140,7 @@ def triton_batch_count_zero(xs):
 @triton.jit
 def norm_kernel(input_ptr, tmp_ptr, m,
                 B: tl.constexpr,
-                ORD: tl.constexpr
-                ):
+                ORD: tl.constexpr):
     pid = tl.program_id(axis=0).to(tl.int64)
 
     offs = pid * B + tl.arange(0, B)
@@ -195,8 +185,7 @@ def triton_norm(x, ord=2, norm=True, scalar=True, dtype=torch.float32):
         B,
         ord,
         num_stages=2,
-        num_warps=2
-        )
+        num_warps=2)
     if ord == -1:
         output = tmp.max()
     else:
@@ -213,8 +202,7 @@ def batch_norm_kernel(input_ptrs, size_ptr, tmp_ptr,
                       DT: tl.constexpr,
                       B: tl.constexpr,
                       ORD: tl.constexpr,
-                      HP: tl.constexpr
-                      ):
+                      HP: tl.constexpr):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1).to(tl.int64)
     T = tl.num_programs(axis=1)
@@ -267,8 +255,7 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
     """
     if len(xs) == 0:
         return torch.zeros(() if scalar else (1,), device='cuda',
-                           dtype=torch.float32
-                           )
+                           dtype=torch.float32)
     dtype = xs[0].dtype
     assert dtype in (torch.float32, torch.bfloat16)
     assert all([x.is_contiguous() and x.dtype == dtype for x in xs])
@@ -276,18 +263,15 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
 
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs],
-                         dtype=torch.int64
-                         ).cuda(device, non_blocking=True)
+                         dtype=torch.int64).cuda(device, non_blocking=True)
     ptrs = torch.tensor([x.data_ptr() for x in xs],
-                        dtype=torch.int64
-                        ).cuda(device, non_blocking=True)
+                        dtype=torch.int64).cuda(device, non_blocking=True)
 
     DT = 0 if dtype == torch.float32 else 1
     T = 256
     tensor_count = len(xs)
     tmp = torch.empty((tensor_count, T), device=device,
-                      dtype=torch.float64 if high_precision else torch.float32
-                      )
+                      dtype=torch.float64 if high_precision else torch.float32)
     B = 128
     grid = (tensor_count, T)
     batch_norm_kernel[grid](
@@ -299,8 +283,7 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
         ord,
         high_precision,
         num_stages=2,
-        num_warps=2
-        )
+        num_warps=2)
     if ord == -1:
         output = tmp.max()
     elif ord == 1:

@@ -27,8 +27,7 @@ def split_tp_mm_kernel(
         BLOCK_SIZE_N: tl.constexpr,
         SPLIT_COUNT: tl.constexpr,
         SIZE: tl.constexpr,
-        RANK: tl.constexpr,
-        ):
+        RANK: tl.constexpr, ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     nbn = tl.num_programs(1)
@@ -39,10 +38,14 @@ def split_tp_mm_kernel(
     offs_m = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M))
     offs_n = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
     offs_k = tl.arange(0, BLOCK_SIZE_K)
-    a_ptrs = a_ptr + pid_k * K // SPLIT_COUNT + offs_m[:, None] * K + offs_k[
-                                                                      None, :]
-    b_ptrs = b_ptr + pid_k * K // SPLIT_COUNT + offs_n[None, :] * K + offs_k[:,
-                                                                      None]
+    a_ptrs = (a_ptr
+              + pid_k * K // SPLIT_COUNT
+              + offs_m[:, None] * K
+              + offs_k[None, :])
+    b_ptrs = (b_ptr
+              + pid_k * K // SPLIT_COUNT
+              + offs_n[None, :] * K
+              + offs_k[:, None])
 
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     for i in range(k):
@@ -65,16 +68,13 @@ def split_tp_mm_kernel(
                       RANK,
                       SIZE,
                       hasPreviousMemAccess=True,
-                      hasSubsequentMemAccess=True,
-                      )
+                      hasSubsequentMemAccess=True, )
 
         outputs = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
         for i in tl.static_range(SIZE):
-            buffer_ptr = tl.load(buffer_ptrs + i).to(tl.pointer_type(tl.float32)
-                                                     )
+            buffer_ptr = tl.load(buffer_ptrs + i).to(tl.pointer_type(tl.float32))
             buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-            outputs += tl.load(buffer_ptr + offs_m[:, None] * N + offs_n[None, :]
-                               )
+            outputs += tl.load(buffer_ptr + offs_m[:, None] * N + offs_n[None, :])
         tl.store(c_ptrs, outputs)
 
         # for j in range(0, RANK):
@@ -100,8 +100,7 @@ def split_tp_mm_kernel(
 
             c = tl.load(c_ptrs)
 
-            buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.float32)
-                                                        )
+            buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.float32))
             buffer_ptr = tl.multiple_of(buffer_ptr, 16)
             tl.store(buffer_ptr + offs_m[:, None] * N + offs_n[None, :], c)
 
@@ -110,16 +109,13 @@ def split_tp_mm_kernel(
                           RANK,
                           SIZE,
                           hasPreviousMemAccess=True,
-                          hasSubsequentMemAccess=True,
-                          )
+                          hasSubsequentMemAccess=True, )
 
             outputs = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
             for j in tl.static_range(SIZE):
-                buffer_ptr = tl.load(buffer_ptrs + j).to(tl.pointer_type(tl.float32)
-                                                         )
+                buffer_ptr = tl.load(buffer_ptrs + j).to(tl.pointer_type(tl.float32))
                 buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-                outputs += tl.load(buffer_ptr + offs_m[:, None] * N + offs_n[None, :]
-                                   )
+                outputs += tl.load(buffer_ptr + offs_m[:, None] * N + offs_n[None, :])
             tl.store(c_ptrs, outputs)
 
             # for j in range(0, RANK):
@@ -136,8 +132,7 @@ def split_tp_mm_kernel(
 def triton_split_tp_gemm(x: torch.Tensor,
                          w: torch.Tensor,
                          hdl,
-                         group: dist.ProcessGroup
-                         ):
+                         group: dist.ProcessGroup):
     """
     tensor-parallel fc2 in the shared expert, use split-k implementation
     y = all_reduce(x @ fc2)
@@ -166,8 +161,7 @@ def triton_split_tp_gemm(x: torch.Tensor,
         c = torch.zeros(M, N, dtype=torch.float32, device=device)
         split_atomic_signal = torch.zeros(M // BLOCK_SIZE_M * N // BLOCK_SIZE_N,
                                           dtype=torch.int32,
-                                          device=device
-                                          )
+                                          device=device)
     group_size = hdl.world_size
     group_rank = hdl.rank
 
@@ -188,8 +182,7 @@ def triton_split_tp_gemm(x: torch.Tensor,
                              group_size,
                              group_rank,
                              num_warps=num_warps,
-                             num_stages=num_stages
-                             )
+                             num_stages=num_stages)
     if SPLIT_COUNT > 1:
         c = c.to(x.dtype)
     return c

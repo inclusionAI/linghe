@@ -18,15 +18,13 @@ def mxfp8_quant_kernel(
         m,
         N: tl.constexpr,
         B: tl.constexpr,
-        OUTPUT_MODE: tl.constexpr,
-        ):
+        OUTPUT_MODE: tl.constexpr, ):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     offs = (rid * 32 * N
             + cid * B
             + tl.arange(0, 32)[:, None] * N
-            + tl.arange(0, B)[None, :]
-            )
+            + tl.arange(0, B)[None, :])
     indices = rid * 32 + tl.arange(0, 32)
     mask = indices[:, None] < m
     b = N // 32
@@ -44,8 +42,7 @@ def mxfp8_quant_kernel(
                  + cid * B // 32
                  + tl.arange(0, 32)[:, None] * b
                  + tl.arange(0, sb),
-                 log_scale + 127,
-                 )
+                 log_scale + 127, )
         xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(x_q_ptr.dtype.element_ty)
         tl.store(x_q_ptr
                  + rid * 32 * N
@@ -53,8 +50,7 @@ def mxfp8_quant_kernel(
                  + tl.arange(0, 32)[:, None] * N
                  + tl.arange(0, B)[None, :],
                  xq,
-                 mask=mask,
-                 )
+                 mask=mask, )
 
     if OUTPUT_MODE > 0:
         scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
@@ -69,8 +65,7 @@ def mxfp8_quant_kernel(
                  + tl.arange(0, 32)[:, None] * N
                  + tl.arange(0, B)[None, :],
                  xq,
-                 mask=mask,
-                 )
+                 mask=mask, )
 
 
 def triton_mxfp8_quant(x, output_mode=2):
@@ -103,8 +98,7 @@ def triton_mxfp8_quant(x, output_mode=2):
     grid = (M // 32, N // B)
     mxfp8_quant_kernel[grid](
         x, x_q, x_scale, xt_q, xt_scale, m, N, B, output_mode, num_stages=3,
-        num_warps=2
-        )
+        num_warps=2)
 
     return x_q, x_scale, xt_q, xt_scale
 
@@ -120,8 +114,7 @@ def batch_mxfp8_quant_kernel(
         N: tl.constexpr,
         B: tl.constexpr,
         E: tl.constexpr,
-        OUTPUT_MODE: tl.constexpr,
-        ):
+        OUTPUT_MODE: tl.constexpr, ):
     eid = tl.program_id(axis=0)
     rid = tl.program_id(axis=1)
     cid = tl.program_id(axis=2)
@@ -140,8 +133,7 @@ def batch_mxfp8_quant_kernel(
             + rid * 32 * N
             + cid * B
             + tl.arange(0, 32)[:, None] * N
-            + tl.arange(0, B)[None, :]
-            )
+            + tl.arange(0, B)[None, :])
     indices = rid * 32 + tl.arange(0, 32)
     mask = indices[:, None] < count
     b = N // 32
@@ -160,8 +152,7 @@ def batch_mxfp8_quant_kernel(
                  + cid * B // 32
                  + tl.arange(0, 32)[:, None] * b
                  + tl.arange(0, sb),
-                 log_scale + 127,
-                 )
+                 log_scale + 127, )
         xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(xq_ptr.dtype.element_ty)
         tl.store(xq_ptr + offs, xq, mask=mask)
 
@@ -170,8 +161,7 @@ def batch_mxfp8_quant_kernel(
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
         tl.store(xts_ptr + m_block * N + rid * N + cid * B + tl.arange(0, B),
-                 log_scale + 127
-                 )
+                 log_scale + 127)
         xq = (x / scale).to(xtq_ptr.dtype.element_ty)
         tl.store(xtq_ptr + offs, xq, mask=mask)
 
@@ -224,7 +214,6 @@ def triton_batch_mxfp8_quant(xs, token_count_per_expert, splits, output_mode=2):
         n_experts,
         output_mode,
         num_stages=3,
-        num_warps=4,
-        )
+        num_warps=4, )
 
     return x_q, x_scale, xt_q, xt_scale

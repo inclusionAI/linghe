@@ -52,8 +52,7 @@ def triton_dot(x, y):
         M, N,
         H, W,
         num_stages=num_stages,
-        num_warps=num_warps
-        )
+        num_warps=num_warps)
     return s
 
 
@@ -86,8 +85,7 @@ def triton_inplace_scale(x, scale):
         m,
         B,
         num_stages=2,
-        num_warps=2
-        )
+        num_warps=2)
     return x
 
 
@@ -135,11 +133,9 @@ def triton_batch_scale(xs, scale):
 
     device = xs[0].device
     sizes = torch.tensor([x.numel() for x in xs],
-                         dtype=torch.int64
-                         ).cuda(device, non_blocking=True)
+                         dtype=torch.int64).cuda(device, non_blocking=True)
     ptrs = torch.tensor([x.data_ptr() for x in xs],
-                        dtype=torch.int64
-                        ).cuda(device, non_blocking=True)
+                        dtype=torch.int64).cuda(device, non_blocking=True)
 
     DT = 0 if dtype == torch.float32 else 1
     T = 256
@@ -155,6 +151,5 @@ def triton_batch_scale(xs, scale):
         B,
         ZERO,
         num_stages=2,
-        num_warps=2
-        )
+        num_warps=2)
     return xs

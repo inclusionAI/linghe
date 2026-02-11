@@ -15,8 +15,7 @@ def inplace_add_warp_specialized_kernel(
         y_ptr,
         n_elements,
         BLOCK_SIZE: tl.constexpr,
-        BLOCK_TILE: tl.constexpr,
-        ):
+        BLOCK_TILE: tl.constexpr, ):
     pid = tl.program_id(axis=0)
     block_start = pid * BLOCK_SIZE * BLOCK_TILE
     loop = BLOCK_TILE // 2
