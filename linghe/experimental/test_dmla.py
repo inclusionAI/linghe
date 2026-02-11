@@ -4,13 +4,12 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 import math
-from datetime import timedelta
 import os
+from datetime import timedelta
 
 import torch
 import torch.distributed as dist
 import torch.distributed._symmetric_memory as symm_mem
-
 
 from linghe.experimental.dmla import (triton_cp_mla_forward,
                                       triton_cp_mla_backward)
@@ -33,7 +32,7 @@ def torch_attn(q, k, v, causal=True, mask=None, safe=True, clip_value=0.0, hp=Fa
             mask = -10000 * torch.triu(
                 torch.ones((q_len, k_len), dtype=q.dtype, device="cuda"),
                 k_len - q_len + 1,
-            )
+                )
         else:
             mask = torch.zeros((q_len, k_len), dtype=q.dtype, device="cuda")
 
@@ -50,7 +49,7 @@ def torch_attn(q, k, v, causal=True, mask=None, safe=True, clip_value=0.0, hp=Fa
     score = qk / math.sqrt(v_head_dim) + mask
     if safe:
         max_logits = torch.amax(score, -1)
-        lse = torch.sum(torch.exp(score-max_logits[:,:,:,None]), -1)
+        lse = torch.sum(torch.exp(score - max_logits[:, :, :, None]), -1)
     else:
         max_logits = 0.0 * torch.amax(score, -1)
         lse = torch.sum(torch.exp(score), -1)
@@ -60,12 +59,14 @@ def torch_attn(q, k, v, causal=True, mask=None, safe=True, clip_value=0.0, hp=Fa
         prob = prob.to(dtype)
     att = torch.matmul(prob, value)
     att = torch.reshape(att.transpose(1, 2),
-                        [bs, q_len, q_head, v_head_dim]).contiguous()
+                        [bs, q_len, q_head, v_head_dim]
+                        ).contiguous()
     return att.to(dtype), lse, max_logits
 
 
 def torch_varlen_attn(qs, ks, vs, cu_seqlens, padded_cu_seqlens=None,
-                      causal=True, hp=False):
+                      causal=True, hp=False
+                      ):
     cu_seqlens = cu_seqlens.tolist()
     if padded_cu_seqlens is not None:
         padded_cu_seqlens = padded_cu_seqlens.tolist()
@@ -93,7 +94,7 @@ def torch_varlen_attn(qs, ks, vs, cu_seqlens, padded_cu_seqlens=None,
         logits.append(logit[0])
         if padded_cu_seqlens is not None:
             gap = (padded_cu_seqlens[i + 1] - padded_cu_seqlens[i]) - (
-                        cu_seqlens[i + 1] - cu_seqlens[i])
+                    cu_seqlens[i + 1] - cu_seqlens[i])
             outputs.append(torch.zeros_like(out[0][:gap]))
             lses.append(torch.zeros_like(lse[0][:, :gap]))
             logits.append(torch.zeros_like(logit[0][:, :gap]))
@@ -104,16 +105,17 @@ def torch_varlen_attn(qs, ks, vs, cu_seqlens, padded_cu_seqlens=None,
     return outputs, lses, logits
 
 
-
 def rearange(x, group):
     B, L, H, D = x.shape
     group_size = group.size()
     X = torch.empty((group_size, B, L, H, D), dtype=x.dtype, device=x.device)
     dist.all_gather_into_tensor(X, x.detach(), group=group)
     X = torch.permute(torch.reshape(X, (group_size, B, 2, L // 2, H, D)),
-                      (1, 2, 0, 3, 4, 5))
+                      (1, 2, 0, 3, 4, 5)
+                      )
     X = torch.reshape(torch.cat([X[:, 0], torch.flip(X[:, 1], (1,))], 1),
-                      (B, L * group_size, H, D))
+                      (B, L * group_size, H, D)
+                      )
     X = X.contiguous().requires_grad_()
     return X
 
@@ -127,6 +129,7 @@ def select(x, group):
     x2 = x[:, (group_size * 2 - group_rank - 1) * l:(group_size * 2 - group_rank) * l]
     return torch.cat([x1, x2], 1)
 
+
 def select_stat(x, group):
     group_size = group.size()
     group_rank = group.rank()
@@ -138,7 +141,8 @@ def select_stat(x, group):
 
 
 def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False, safe=True, coef=1.0,
-             clip_value=0.0, bench=False):
+                clip_value=0.0, bench=False
+                ):
     group_size = group.size()
     group_rank = group.rank()
 
@@ -148,18 +152,22 @@ def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False, safe=True
     device = 'cuda'
 
     buffers = symm_mem.empty((B, H, L, (192 + 128) * 2), dtype=dtype,
-                             device=device)
+                             device=device
+                             )
     hdl = symm_mem.rendezvous(buffers, group)
 
     q = (torch.ones((B, L, H, 192), device=device,
-                     dtype=dtype) * coef).requires_grad_()
+                    dtype=dtype
+                    ) * coef).requires_grad_()
     k = torch.randn((B, L, H, 192), device=device, dtype=dtype)
     k[:, :, :, 128:] = k[:, :, :1, 128:]  # rope
     k = k.requires_grad_()
     v = torch.randn((B, L, H, 128), device=device, dtype=dtype,
-                    requires_grad=True)
+                    requires_grad=True
+                    )
     g = torch.ones((B, L, H, 128), device=device, dtype=dtype,
-                    requires_grad=True)
+                   requires_grad=True
+                   )
 
     Q = rearange(q.detach(), group).requires_grad_()
     K = rearange(k.detach(), group).requires_grad_()
@@ -167,7 +175,8 @@ def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False, safe=True
     G = rearange(g, group)
 
     global_output_ref, global_lse_ref, global_max_logits_ref = torch_attn(Q, K, V, causal=causal,
-                                                     hp=True, safe=safe)
+                                                                          hp=True, safe=safe
+                                                                          )
     global_output_ref.backward(G, retain_graph=False)
     DQ_ref = Q.grad
     DK_ref = K.grad
@@ -184,18 +193,19 @@ def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False, safe=True
     lse_ref = select_stat(global_lse_ref, group)
     ml_ref = select_stat(global_max_logits_ref, group)
 
-
     output, lse, max_logits = triton_cp_mla_forward(q, k, v, hdl, group, causal=causal,
-                                                 safe=safe,
-                                                 clip_value=clip_value)
+                                                    safe=safe,
+                                                    clip_value=clip_value
+                                                    )
     output_check(output_ref, output, atol=-0.05, rtol=0.05, name=f'output:{group_rank}')
     output_check(lse_ref, lse, atol=-0.05, rtol=0.05, name=f'lse:{group_rank}')
     output_check(ml_ref, max_logits, atol=-0.01, rtol=0.03, name=f'max_logits:{group_rank}')
 
     gq, gk, gv = triton_cp_mla_backward(g, output, q, k, v, lse, max_logits,
-                                      hdl, group,
-                                     causal=causal, hpc=hpc,
-                                     safe=safe, clip_value=clip_value)
+                                        hdl, group,
+                                        causal=causal, hpc=hpc,
+                                        safe=safe, clip_value=clip_value
+                                        )
     if clip_value == 0.0:
         output_check(dv_ref, gv, atol=-0.05, rtol=0.05, name=f'gv:{group_rank}')
         output_check(dk_ref, gk, atol=-0.05 * coef, rtol=0.05, name=f'gk:{group_rank}')
@@ -203,16 +213,18 @@ def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False, safe=True
 
     if bench:
         ref_flops = B * L * L * H * (192 + 128) * (1 if causal else 2) * group_size
-        benchmark_func(triton_cp_mla_forward, q, k, v,  hdl, group, causal=causal, safe=safe,
-                       clip_value=clip_value, ref_flops=ref_flops)
+        benchmark_func(triton_cp_mla_forward, q, k, v, hdl, group, causal=causal, safe=safe,
+                       clip_value=clip_value, ref_flops=ref_flops
+                       )
         ref_flops = B * L * L * H * (192 + 128 * 2 + 192 * 2) * (
             1 if causal else 2) * group_size
         benchmark_func(triton_cp_mla_backward, g, output, q, k, v, lse, max_logits,
-                        hdl, group,
+                       hdl, group,
                        causal=causal, hpc=hpc, safe=safe,
                        clip_value=clip_value,
                        ref_flops=ref_flops,
-                       n_profile=0)
+                       n_profile=0
+                       )
 
 
 if __name__ == '__main__':
@@ -223,9 +235,12 @@ if __name__ == '__main__':
     print(f'{world_size=} {local_rank=}')
     dist.init_process_group(backend='nccl', init_method="env://",
                             world_size=world_size, rank=local_rank,
-                            timeout=timedelta(seconds=10))
+                            timeout=timedelta(seconds=10)
+                            )
     group = dist.distributed_c10d._get_default_group()
     torch.distributed.distributed_c10d._set_pg_timeout(timedelta(seconds=10),
-                                                       dist.group.WORLD)
+                                                       dist.group.WORLD
+                                                       )
     test_cp_mla(B=2, L=4096, H=32, group=group, causal=True, hpc=False, safe=False, coef=1.0,
-                clip_value=0.0, bench=True)
+                clip_value=0.0, bench=True
+                )

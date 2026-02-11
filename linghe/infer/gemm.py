@@ -7,8 +7,6 @@ import triton
 import triton.language as tl
 
 
-
-
 @triton.jit
 def split_fp32_gemm_kernel(
         a_ptr,
@@ -21,7 +19,7 @@ def split_fp32_gemm_kernel(
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
         SPLIT_COUNT: tl.constexpr
-):
+        ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     pid_k = tl.program_id(axis=2)

@@ -12,19 +12,23 @@ def group_rms_norm_gate_forward_kernel(x_ptr, gate_ptr, weight_ptr, out_ptr,
                                        D: tl.constexpr,
                                        GROUP_SIZE: tl.constexpr,
                                        SHARE: tl.constexpr,
-                                       TRANSPOSE: tl.constexpr):
+                                       TRANSPOSE: tl.constexpr
+                                       ):
     pid = tl.program_id(axis=0)
     bid = pid // length
     sid = pid % length
 
     if SHARE:
         weight = tl.load(weight_ptr + tl.arange(0, D),
-                         mask=tl.arange(0, D) < d)[None, :]
+                         mask=tl.arange(0, D) < d
+                         )[None, :]
     else:
         weight = tl.load(
             weight_ptr + tl.arange(0, GROUP_SIZE)[:, None] * d + tl.arange(0,
-                                                                           D),
-            mask=tl.arange(0, D)[None, :] < d)
+                                                                           D
+                                                                           ),
+            mask=tl.arange(0, D)[None, :] < d
+            )
 
     x_offs = (
             pid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * d + tl.arange(0, D)[
@@ -40,7 +44,8 @@ def group_rms_norm_gate_forward_kernel(x_ptr, gate_ptr, weight_ptr, out_ptr,
                 + tl.arange(0, D)[None, :]
         )
         g = tl.load(gate_ptr + g_offs, mask=tl.arange(0, D)[None, :] < d).to(
-            tl.float32)
+            tl.float32
+            )
     else:
         g = tl.load(gate_ptr + x_offs, mask=x_offs_mask).to(tl.float32)
 
@@ -59,7 +64,8 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
                                        weight: torch.Tensor,
                                        eps=1e-6,
                                        group_size=4,
-                                       transpose=True):
+                                       transpose=True
+                                       ):
     """
     norm and gate in linear attention
     Args:
@@ -110,7 +116,7 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
         transpose,
         num_stages=3,
         num_warps=4,
-    )
+        )
     return out
 
 
@@ -133,7 +139,7 @@ def group_rms_norm_gate_backward_kernel(
         T: tl.constexpr,
         SHARE: tl.constexpr,
         TRANSPOSE: tl.constexpr
-):
+        ):
     pid = tl.program_id(0)
     bid = pid * T // length
     sid = pid * T % length
@@ -144,11 +150,12 @@ def group_rms_norm_gate_backward_kernel(
         w = tl.load(
             w_ptr + tl.arange(0, GROUP_SIZE)[:, None] * d + tl.arange(0, D),
             mask=tl.arange(0, D)[None, :] < d,
-        )
+            )
 
     x_offs = (
             pid * DIM * T + tl.arange(0, GROUP_SIZE)[:, None] * d + tl.arange(0,
-                                                                              D)[
+                                                                              D
+                                                                              )[
                                                                     None, :]
     )
     x_offs_mask = tl.arange(0, D)[None, :] < d
@@ -169,7 +176,8 @@ def group_rms_norm_gate_backward_kernel(
             gate = tl.load(gate_ptr + offs, offs_mask).to(tl.float32)
         else:
             g = tl.load(grad_output_ptr + x_offs, mask=x_offs_mask).to(
-                tl.float32)
+                tl.float32
+                )
             gate = tl.load(gate_ptr + x_offs, mask=x_offs_mask).to(tl.float32)
         gate = tl.sigmoid(gate)
         r = tl.rsqrt(tl.sum(x * x, 1) / d + eps)[:, None]
@@ -179,7 +187,8 @@ def group_rms_norm_gate_backward_kernel(
         dx = (
                 r * g * w * gate
                 - r * r * r * x * tl.sum(x * g * w * gate, 1,
-                                         keep_dims=True) / d
+                                         keep_dims=True
+                                         ) / d
         )
 
         tl.store(dx_ptr + x_offs, dx, mask=x_offs_mask)
@@ -197,7 +206,8 @@ def group_rms_norm_gate_backward_kernel(
     if SHARE:
         dw = tl.sum(dw, 0)
         tl.store(dw_ptr + pid * d + tl.arange(0, d), dw,
-                 mask=tl.arange(0, D) < d)
+                 mask=tl.arange(0, D) < d
+                 )
     else:
         tl.store(
             dw_ptr
@@ -206,11 +216,12 @@ def group_rms_norm_gate_backward_kernel(
             + tl.arange(0, D)[None, :],
             dw,
             mask=tl.arange(0, D)[None, :] < d,
-        )
+            )
 
 
 def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6,
-                                        group_size=4, transpose=True):
+                                        group_size=4, transpose=True
+                                        ):
     if transpose:
         length, bs, dim = gate.shape
     else:
@@ -254,6 +265,6 @@ def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6,
         transpose,
         num_stages=3,
         num_warps=8
-    )
+        )
     dw = tmp_dw.sum(dim=0)
     return dx, dg, dw

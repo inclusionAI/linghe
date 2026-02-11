@@ -1,4 +1,5 @@
 from __future__ import annotations, division
+
 import ast
 import hashlib
 import inspect
@@ -8,10 +9,11 @@ import re
 import textwrap
 from collections import defaultdict
 from functools import cached_property
-from typing import Callable, Generic, Iterable, Optional, TypeVar, Union, overload, Dict, Any, Tuple
-from ..runtime.driver import driver
 from types import ModuleType
+from typing import Callable, Generic, Iterable, Optional, TypeVar, Union, overload, Dict, Any, Tuple
+
 from .._utils import find_paths_if, get_iterable_path
+from ..runtime.driver import driver
 
 TRITON_MODULE = __name__[:-len(".runtime.jit")]
 
@@ -56,7 +58,7 @@ class DependenciesFinder(ast.NodeVisitor):
             'min',
             'print',
             'range',
-        }
+            }
 
         # used_global_vals tells us which global variables are used by this
         # function and all those it transitively calls, plus the values of those
@@ -93,7 +95,7 @@ class DependenciesFinder(ast.NodeVisitor):
                 if v1 != v2:
                     raise RuntimeError(
                         f"Global variable {var_name} has value {v1} when compiling {self.name}, but inner kernel {func.__name__} has conflicting value {v2} from when it was first compiled.  This is not allowed."
-                    )
+                        )
             self.used_global_vals.update(func.used_global_vals)
             # update hash
             func_key = func.cache_key
@@ -234,7 +236,8 @@ class KernelParam:
     """Represents a parameter (name plus metadata) to a @jit'ed function."""
 
     def __init__(self, num: int, param: inspect.Parameter, do_not_specialize: bool,
-                 do_not_specialize_on_alignment: bool):
+                 do_not_specialize_on_alignment: bool
+                 ):
         self.num = num
         self._param = param
         self.do_not_specialize = do_not_specialize
@@ -302,9 +305,9 @@ def create_specialize_impl():
             key = specialize_extra(arg, "int", align=align) if specialize_value else None
             if arg == 1 and specialize_value:
                 return ("constexpr", 1)
-            elif -(2**31) <= arg and arg <= 2**31 - 1:
+            elif -(2 ** 31) <= arg and arg <= 2 ** 31 - 1:
                 return ("i32", key)
-            elif 2**63 <= arg and arg <= 2**64 - 1:
+            elif 2 ** 63 <= arg and arg <= 2 ** 64 - 1:
                 return ("u64", key)
             else:
                 return ("i64", key)
@@ -357,9 +360,9 @@ def serialize_specialization_data(name, signature, constants, attrs, options, ke
     import json
     obj = {
         'name': name, 'signature': signature, 'constant_keys': [list(x) for x in constants.keys()], 'constant_vals':
-        list(constants.values()), 'attrs_keys': [list(x) for x in attrs.keys()], 'attrs_vals': list(attrs.values()),
+            list(constants.values()), 'attrs_keys': [list(x) for x in attrs.keys()], 'attrs_vals': list(attrs.values()),
         'options': options.__dict__, 'key': key
-    }
+        }
     serialized_obj = json.dumps(obj)
     return serialized_obj
 
@@ -402,7 +405,7 @@ def dynamic_func({", ".join(list(map(arg, sig.parameters.items())) + ["**options
         f"default_{name}": param.default
         for name, param in sig.parameters.items()
         if param.default is not inspect.Parameter.empty
-    }
+        }
 
     func_namespace["JITFunction"] = JITFunction
     func_namespace["specialize_impl"] = create_specialize_impl()
@@ -438,7 +441,7 @@ type_canonicalisation_dict = {
     "uint16": "u16",
     "uint32": "u32",
     "uint64": "u64",
-}
+    }
 
 for v in list(type_canonicalisation_dict.values()):
     type_canonicalisation_dict[v] = v
@@ -452,16 +455,16 @@ class JITFunction(KernelInterface[T]):
     compiled_hook = None
 
     def _call_hook(
-        self,
-        key,
-        signature,
-        device,
-        constants,
-        options,
-        configs,
-        is_warmup,
-        before,
-    ):
+            self,
+            key,
+            signature,
+            device,
+            constants,
+            options,
+            configs,
+            is_warmup,
+            before,
+            ):
         hook = JITFunction.cache_hook if before else JITFunction.compiled_hook
         if hook is None:
             return False
@@ -494,7 +497,7 @@ class JITFunction(KernelInterface[T]):
             'configs': configs,
             'specialization_data': specialization_data,
             'is_warmup': is_warmup,
-        }
+            }
 
         return hook(
             key=key,
@@ -503,7 +506,7 @@ class JITFunction(KernelInterface[T]):
             compile={"key": key, **kwargs},
             is_manual_warmup=is_warmup,
             already_compiled=False,
-        )
+            )
 
     def add_pre_run_hook(self, hook):
         '''
@@ -579,7 +582,8 @@ class JITFunction(KernelInterface[T]):
         for (name, _), (val, globals_dict) in self.used_global_vals.items():
             if (newVal := globals_dict.get(name, not_present)) != val:
                 raise RuntimeError(
-                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}")
+                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}"
+                    )
 
         if not warmup:
             # canonicalize grid
@@ -594,7 +598,8 @@ class JITFunction(KernelInterface[T]):
             launch_metadata = kernel.launch_metadata(grid, stream, *bound_args.values())
             kernel.run(grid_0, grid_1, grid_2, stream, kernel.function, kernel.packed_metadata,
                        launch_metadata, self.CompiledKernel.launch_enter_hook, self.CompiledKernel.launch_exit_hook,
-                       *bound_args.values())
+                       *bound_args.values()
+                       )
         return kernel
 
     def run_with_cache(self, *args, grid, warmup, **kwargs):
@@ -615,7 +620,8 @@ class JITFunction(KernelInterface[T]):
             enter_hook = None
             exit_hook = None
             kernel.run(grid_0, grid_1, grid_2, self.stream, kernel.function, kernel.packed_metadata, launch_metadata,
-                       enter_hook, exit_hook, *args)
+                       enter_hook, exit_hook, *args
+                       )
             return kernel
 
         kwargs["debug"] = kwargs.get("debug", self.debug) or os.environ.get("TRITON_DEBUG", "0") == "1"
@@ -665,13 +671,12 @@ class JITFunction(KernelInterface[T]):
             kernel_cache[key] = kernel
             self._call_hook(key, signature, device, constexprs, options, [attrs], warmup, before=False)
 
-
         if (self.invoke_count >= MAX_CHECK_COUNT
-            and len(kernel_cache) == 1
-            and not callable(grid)
-            and len(self.pre_run_hooks) == 0
-            and len(bound_args) == len(args)
-            ):
+                and len(kernel_cache) == 1
+                and not callable(grid)
+                and len(self.pre_run_hooks) == 0
+                and len(bound_args) == len(args)
+        ):
             self.kernel = kernel
             self.stream = stream
 
@@ -680,7 +685,8 @@ class JITFunction(KernelInterface[T]):
         for (name, _), (val, globals_dict) in self.used_global_vals.items():
             if (newVal := globals_dict.get(name, not_present)) != val:
                 raise RuntimeError(
-                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}")
+                    f"Global variable {name} has changed since we compiled this kernel, from {val} to {newVal}"
+                    )
 
         if not warmup:
             # canonicalize grid
@@ -695,16 +701,17 @@ class JITFunction(KernelInterface[T]):
             launch_metadata = kernel.launch_metadata(grid, stream, *bound_args.values())
             kernel.run(grid_0, grid_1, grid_2, stream, kernel.function, kernel.packed_metadata,
                        launch_metadata, self.CompiledKernel.launch_enter_hook, self.CompiledKernel.launch_exit_hook,
-                       *bound_args.values())
+                       *bound_args.values()
+                       )
             self.invoke_count += 1
         return kernel
-
 
     def repr(self, _):
         return self._fn_name if self._repr is None else self._repr(_)
 
     def __init__(self, fn, version=None, do_not_specialize=None, do_not_specialize_on_alignment=None, debug=None,
-                 noinline=None, repr=None, launch_metadata=None):
+                 noinline=None, repr=None, launch_metadata=None
+                 ):
         do_not_specialize = do_not_specialize if do_not_specialize else []
         do_not_specialize_on_alignment = do_not_specialize_on_alignment if do_not_specialize_on_alignment else []
 
@@ -787,13 +794,14 @@ class JITFunction(KernelInterface[T]):
         deserialized_obj = json.loads(specialization_data)
         if deserialized_obj['name'] != self.fn.__name__:
             raise RuntimeError(
-                f"Specialization data is for {deserialized_obj['name']} but trying to preload for {self.fn.__name__}")
+                f"Specialization data is for {deserialized_obj['name']} but trying to preload for {self.fn.__name__}"
+                )
         constant_keys = map(tuple, deserialized_obj['constant_keys'])
         constant_vals = deserialized_obj['constant_vals']
         constants = {
             key: tl.dtype(value) if tl.dtype.is_dtype(value) else value
             for key, value in zip(constant_keys, constant_vals)
-        }
+            }
         attrs_keys = map(tuple, deserialized_obj['attrs_keys'])
         attrs_vals = deserialized_obj['attrs_vals']
         attrs = dict(zip(attrs_keys, attrs_vals))
@@ -802,7 +810,7 @@ class JITFunction(KernelInterface[T]):
         options = {
             key: tuple(value) if isinstance(value, list) else value
             for key, value in deserialized_obj['options'].items()
-        }
+            }
         key = deserialized_obj['key']
         kernel = compile(src, None, options)
         self.device_caches[device][0][key] = kernel
@@ -826,7 +834,8 @@ class JITFunction(KernelInterface[T]):
         if name == "src":
             raise AttributeError(f"Cannot set attribute '{name}' directly. "
                                  f"Use '_unsafe_update_src()' and manually clear `.hash` of all callers"
-                                 f"instead.")
+                                 f"instead."
+                                 )
         super(JITFunction, self).__setattr__(name, value)
 
     def _unsafe_update_src(self, new_src):
@@ -853,29 +862,29 @@ def jit(fn: T) -> JITFunction[T]:
 
 @overload
 def jit(
-    *,
-    version=None,
-    repr: Optional[Callable] = None,
-    launch_metadata: Optional[Callable] = None,
-    do_not_specialize: Optional[Iterable[int]] = None,
-    do_not_specialize_on_alignment: Optional[Iterable[int]] = None,
-    debug: Optional[bool] = None,
-    noinline: Optional[bool] = None,
-) -> Callable[[T], JITFunction[T]]:
+        *,
+        version=None,
+        repr: Optional[Callable] = None,
+        launch_metadata: Optional[Callable] = None,
+        do_not_specialize: Optional[Iterable[int]] = None,
+        do_not_specialize_on_alignment: Optional[Iterable[int]] = None,
+        debug: Optional[bool] = None,
+        noinline: Optional[bool] = None,
+        ) -> Callable[[T], JITFunction[T]]:
     ...
 
 
 def jit(
-    fn: Optional[T] = None,
-    *,
-    version=None,
-    repr: Optional[Callable] = None,
-    launch_metadata: Optional[Callable] = None,
-    do_not_specialize: Optional[Iterable[int]] = None,
-    do_not_specialize_on_alignment: Optional[Iterable[int]] = None,
-    debug: Optional[bool] = None,
-    noinline: Optional[bool] = None,
-) -> Union[JITFunction[T], Callable[[T], JITFunction[T]]]:
+        fn: Optional[T] = None,
+        *,
+        version=None,
+        repr: Optional[Callable] = None,
+        launch_metadata: Optional[Callable] = None,
+        do_not_specialize: Optional[Iterable[int]] = None,
+        do_not_specialize_on_alignment: Optional[Iterable[int]] = None,
+        debug: Optional[bool] = None,
+        noinline: Optional[bool] = None,
+        ) -> Union[JITFunction[T], Callable[[T], JITFunction[T]]]:
     """
     Decorator for JIT-compiling a function using the Triton compiler.
 
@@ -900,7 +909,8 @@ def jit(
             from .interpreter import InterpretedFunction
             return InterpretedFunction(fn, version=version, do_not_specialize=do_not_specialize,
                                        do_not_specialize_on_alignment=do_not_specialize_on_alignment, debug=debug,
-                                       noinline=noinline, repr=repr, launch_metadata=launch_metadata)
+                                       noinline=noinline, repr=repr, launch_metadata=launch_metadata
+                                       )
         else:
             return JITFunction(
                 fn,
@@ -911,7 +921,7 @@ def jit(
                 noinline=noinline,
                 repr=repr,
                 launch_metadata=launch_metadata,
-            )
+                )
 
     if fn is not None:
         return decorator(fn)

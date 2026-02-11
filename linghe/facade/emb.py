@@ -28,7 +28,8 @@ class DeprecatedFusedAccumulationEmbeddingLookup(torch.autograd.Function):
 
 def deprecated_fused_accumulation_embedding_lookup(x: torch.Tensor, w_ptr,
                                                    g_ptr, dim, dtype,
-                                                   grad_dtype):
+                                                   grad_dtype
+                                                   ):
     """
     embedding lookup
     Args:
@@ -44,7 +45,8 @@ def deprecated_fused_accumulation_embedding_lookup(x: torch.Tensor, w_ptr,
     x = x.double().requires_grad_()
     return DeprecatedFusedAccumulationEmbeddingLookup.apply(x, w_ptr, g_ptr,
                                                             dim, dtype,
-                                                            grad_dtype)
+                                                            grad_dtype
+                                                            )
 
 
 class FusedAccumulationEmbeddingLookup(torch.autograd.Function):
@@ -67,7 +69,8 @@ class FusedAccumulationEmbeddingLookup(torch.autograd.Function):
 
 
 def fused_accumulation_embedding_lookup(x: torch.Tensor, w: torch.nn.Parameter,
-                                        grad_name: str = 'grad'):
+                                        grad_name: str = 'grad'
+                                        ):
     """
     embedding lookup
     Args:

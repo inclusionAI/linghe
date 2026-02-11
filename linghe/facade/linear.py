@@ -23,7 +23,7 @@ class _HadamardQuantLinear(torch.autograd.Function):
             weight: torch.Tensor,
             bias: Optional[torch.Tensor],
             hadamard_matrix: torch.Tensor
-    ):
+            ):
         ctx.input_requires_grad = input.requires_grad
         ctx.weight_requires_grad = weight.requires_grad
         ctx.bias_requires_grad = bias is not None and bias.requires_grad
@@ -33,9 +33,11 @@ class _HadamardQuantLinear(torch.autograd.Function):
         input = input.view(-1, input.shape[-1])
 
         x_q, x_scale, xt_q, xt_scale = triton_hadamard_quant(input,
-                                                             hadamard_matrix)
+                                                             hadamard_matrix
+                                                             )
         w_q, w_scale, wt_q, wt_scale = triton_hadamard_quant(weight,
-                                                             hadamard_matrix)
+                                                             hadamard_matrix
+                                                             )
 
         output = torch._scaled_mm(x_q,
                                   w_q.t(),
@@ -54,7 +56,7 @@ class _HadamardQuantLinear(torch.autograd.Function):
             wt_q if ctx.input_requires_grad else None,
             wt_scale if ctx.input_requires_grad else None,
             hadamard_matrix if ctx.weight_requires_grad or ctx.weight_requires_grad else None
-        ]
+            ]
 
         ctx.save_for_backward(*saved_tensors)
         out_shape = (*ctx.input_shape[0:-1], -1)
@@ -64,13 +66,14 @@ class _HadamardQuantLinear(torch.autograd.Function):
     def backward(
             ctx,
             output_grad: torch.Tensor,
-    ):
+            ):
         xt_q, xt_scale, wt_q, wt_scale, hadamard_matrix = ctx.saved_tensors
 
         output_grad = output_grad.view(-1, output_grad.shape[-1])
 
         y_q, y_scale, yt_q, yt_scale = triton_hadamard_quant(output_grad,
-                                                             hadamard_matrix)
+                                                             hadamard_matrix
+                                                             )
 
         dx = torch._scaled_mm(y_q,
                               wt_q.t(),
@@ -109,7 +112,7 @@ class HadamardQuantLinear(torch.nn.Module):
             bias: bool = True,
             device=None,
             dtype=None
-    ):
+            ):
         """
         Args:
             in_features: in feature number
@@ -123,18 +126,23 @@ class HadamardQuantLinear(torch.nn.Module):
         self.out_features = out_features
         self.weight = torch.nn.parameter.Parameter(
             torch.empty((out_features, in_features), device=device,
-                        dtype=dtype))
+                        dtype=dtype
+                        )
+            )
         if bias:
             self.bias = torch.nn.parameter.Parameter(
-                torch.empty(out_features, device=device, dtype=dtype))
+                torch.empty(out_features, device=device, dtype=dtype)
+                )
         else:
             self.bias = None
 
         size = 32 if 'H20' in torch.cuda.get_device_properties(0).name else 64
         data = self._hadamard_matrix(size, device=device, dtype=dtype,
-                                     norm=True)
+                                     norm=True
+                                     )
         self.hadamard_matrix = torch.nn.parameter.Parameter(data,
-                                                            requires_grad=False)
+                                                            requires_grad=False
+                                                            )
         self.reset_parameters()
 
     def _hadamard_matrix(self, size, device=None, dtype=None, norm=False):
@@ -153,7 +161,8 @@ class HadamardQuantLinear(torch.nn.Module):
         """"""
         if self.training:
             return _HadamardQuantLinear.apply(input, self.weight, self.bias,
-                                              self.hadamard_matrix)
+                                              self.hadamard_matrix
+                                              )
         else:
             output = input @ self.weight.t()
             if self.bias is not None:
@@ -171,7 +180,6 @@ class HadamardQuantLinear(torch.nn.Module):
             self.bias.data.zero_()
 
 
-
 class _SmoothQuantLinear(torch.autograd.Function):
     @staticmethod
     def forward(
@@ -180,7 +188,7 @@ class _SmoothQuantLinear(torch.autograd.Function):
             weight: torch.Tensor,
             bias: Optional[torch.Tensor],
             smooth_scale: torch.Tensor,
-    ):
+            ):
         ctx.input_requires_grad = input.requires_grad
         ctx.weight_requires_grad = weight.requires_grad
         ctx.bias_requires_grad = bias is not None and bias.requires_grad
@@ -193,16 +201,19 @@ class _SmoothQuantLinear(torch.autograd.Function):
         input = input.view(-1, input.shape[-1])
 
         x_q, x_scale = triton_smooth_quant(input, 1 / smooth_scale,
-                                                   round_scale=round_scale)
+                                           round_scale=round_scale
+                                           )
         w_q, w_scale = triton_smooth_quant(weight, smooth_scale,
-                                                   round_scale=round_scale)
+                                           round_scale=round_scale
+                                           )
 
         output = torch._scaled_mm(x_q,
                                   w_q.t(),
                                   scale_a=x_scale.view(-1, 1),
                                   scale_b=w_scale.view(1, -1),
                                   out_dtype=ctx.out_dtype,
-                                  use_fast_accum=True)
+                                  use_fast_accum=True
+                                  )
 
         if bias is not None:
             output += bias
@@ -213,7 +224,7 @@ class _SmoothQuantLinear(torch.autograd.Function):
             w_q if ctx.input_requires_grad else None,
             w_scale if ctx.input_requires_grad else None,
             smooth_scale if ctx.weight_requires_grad or ctx.weight_requires_grad else None
-        ]
+            ]
 
         ctx.save_for_backward(*saved_tensors)
         out_shape = (*ctx.input_shape[0:-1], -1)
@@ -223,16 +234,17 @@ class _SmoothQuantLinear(torch.autograd.Function):
     def backward(
             ctx,
             output_grad: torch.Tensor
-    ):
+            ):
 
         x_q, x_s, w_q, w_s, smooth_scale = ctx.saved_tensors
 
         output_grad = output_grad.view(-1, output_grad.shape[-1])
         round_scale = ctx.round_scale
         y_q, y_scale = triton_smooth_quant(output_grad,
-                                                   w_s,
-                                                   reverse=True,
-                                                   round_scale=round_scale)
+                                           w_s,
+                                           reverse=True,
+                                           round_scale=round_scale
+                                           )
 
         wt_q = triton_pad_transpose(w_q, multiple=32)
         dx = torch._scaled_mm(y_q,
@@ -240,12 +252,14 @@ class _SmoothQuantLinear(torch.autograd.Function):
                               scale_a=y_scale.view(-1, 1),
                               scale_b=smooth_scale.view(1, -1),
                               out_dtype=ctx.out_dtype,
-                              use_fast_accum=True)
+                              use_fast_accum=True
+                              )
 
         yt_q, yt_scale = triton_transpose_smooth_quant(output_grad,
                                                        x_s,
                                                        reverse=True,
-                                                       round_scale=round_scale)
+                                                       round_scale=round_scale
+                                                       )
 
         xt_q = triton_pad_transpose(x_q, multiple=32)
         dw = torch._scaled_mm(yt_q,
@@ -253,7 +267,8 @@ class _SmoothQuantLinear(torch.autograd.Function):
                               scale_a=yt_scale.view(-1, 1),
                               scale_b=1.0 / smooth_scale.view(1, -1),
                               out_dtype=ctx.out_dtype,
-                              use_fast_accum=True)
+                              use_fast_accum=True
+                              )
 
         db = None
         if ctx.bias_requires_grad:
@@ -274,7 +289,7 @@ class SmoothQuantLinear(torch.nn.Module):
             bias: bool = True,
             device=None,
             dtype=None
-    ):
+            ):
         """
         Args:
             in_features: in feature number
@@ -288,10 +303,13 @@ class SmoothQuantLinear(torch.nn.Module):
         self.out_features = out_features
         self.weight = torch.nn.parameter.Parameter(
             torch.empty((out_features, in_features), device=device,
-                        dtype=dtype))
+                        dtype=dtype
+                        )
+            )
         if bias:
             self.bias = torch.nn.parameter.Parameter(
-                torch.empty(out_features, device=device, dtype=dtype))
+                torch.empty(out_features, device=device, dtype=dtype)
+                )
         else:
             self.bias = None
 
@@ -313,7 +331,8 @@ class SmoothQuantLinear(torch.nn.Module):
             output = _SmoothQuantLinear.apply(input,
                                               self.weight,
                                               self.bias,
-                                              self.smooth_scale)
+                                              self.smooth_scale
+                                              )
             self.smooth_update_step += 1
         else:
             output = input @ self.weight.t()

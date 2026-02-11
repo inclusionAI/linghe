@@ -20,7 +20,7 @@ def _get_tid():
         dtype=(tl.uint32, tl.uint32, tl.uint32),
         is_pure=True,
         pack=1,
-    )
+        )
 
 
 @triton.jit
@@ -36,7 +36,7 @@ def _get_ntid():
         dtype=(tl.uint32, tl.uint32, tl.uint32),
         is_pure=True,
         pack=1,
-    )
+        )
 
 
 @triton.jit
@@ -74,7 +74,7 @@ def _send_signal(addrs, sem: tl.constexpr):
         dtype=addrs.dtype,
         is_pure=False,
         pack=1,
-    )
+        )
 
 
 @triton.jit
@@ -96,7 +96,7 @@ def _wait_signal(addrs, sem: tl.constexpr):
         dtype=tl.int32,
         is_pure=False,
         pack=1,
-    )
+        )
 
 
 @triton.jit
@@ -107,7 +107,7 @@ def symm_mem_sync(
         world_size: tl.constexpr,
         hasPreviousMemAccess: tl.constexpr = False,
         hasSubsequentMemAccess: tl.constexpr = False,
-):
+        ):
     """
     Synchronizes blocks with matching block_id across participating devices.
 
@@ -144,12 +144,12 @@ def symm_mem_sync(
     signal_pad_ptrs = signal_pad_ptrs.to(tl.pointer_type(tl.uint64))
     remote_signal_pad_addrs = tl.load(signal_pad_ptrs + remote_ranks).to(
         tl.pointer_type(tl.uint32)
-    )
+        )
     send_addrs = remote_signal_pad_addrs + block_id * world_size + rank
 
     local_signal_pad_addr = tl.load(signal_pad_ptrs + rank).to(
         tl.pointer_type(tl.uint32)
-    )
+        )
     wait_addrs = local_signal_pad_addr + block_id * world_size + remote_ranks
 
     if hasPreviousMemAccess:
@@ -157,9 +157,11 @@ def symm_mem_sync(
 
     if flat_tid < world_size:
         _send_signal(send_addrs,
-                     "release" if hasPreviousMemAccess else "relaxed")
+                     "release" if hasPreviousMemAccess else "relaxed"
+                     )
         _wait_signal(wait_addrs,
-                     "acquire" if hasSubsequentMemAccess else "relaxed")
+                     "acquire" if hasSubsequentMemAccess else "relaxed"
+                     )
 
     if hasSubsequentMemAccess:
         tl.debug_barrier()

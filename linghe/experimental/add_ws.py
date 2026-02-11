@@ -11,12 +11,12 @@ import triton.language.extra.tlx as tlx
 
 @triton.jit
 def inplace_add_warp_specialized_kernel(
-    x_ptr,
-    y_ptr,
-    n_elements,
-    BLOCK_SIZE: tl.constexpr,
-    BLOCK_TILE: tl.constexpr,
-):
+        x_ptr,
+        y_ptr,
+        n_elements,
+        BLOCK_SIZE: tl.constexpr,
+        BLOCK_TILE: tl.constexpr,
+        ):
     pid = tl.program_id(axis=0)
     block_start = pid * BLOCK_SIZE * BLOCK_TILE
     loop = BLOCK_TILE // 2
@@ -43,7 +43,6 @@ def triton_inplace_add_warp_specialized(x: torch.Tensor, y: torch.Tensor):
     assert x.is_contiguous() and y.is_contiguous()
     n_elements = x.numel()
     BLOCK_TILE = 64
-    grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"] * BLOCK_TILE), )
+    grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"] * BLOCK_TILE),)
     inplace_add_warp_specialized_kernel[grid](x, y, n_elements, BLOCK_SIZE=1024, BLOCK_TILE=BLOCK_TILE)
     return x
-

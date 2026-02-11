@@ -21,7 +21,7 @@ class GroupRMSNormGateFunction(torch.autograd.Function):
             eps=eps,
             group_size=group_size,
             transpose=transpose
-        )
+            )
         ctx.save_for_backward(attn_output, gate, weight)
         ctx.eps = eps
         ctx.group_size = group_size
@@ -41,7 +41,7 @@ class GroupRMSNormGateFunction(torch.autograd.Function):
             eps=ctx.eps,
             group_size=ctx.group_size,
             transpose=ctx.transpose
-        )
+            )
 
         return dx, dg, dw, None, None, None
 
@@ -51,7 +51,8 @@ def group_rms_norm_gate(attn_output: torch.Tensor,
                         weight: torch.Tensor,
                         eps: float = 1e-6,
                         group_size: int = 4,
-                        transpose: bool = True):
+                        transpose: bool = True
+                        ):
     """
     return group_rms_norm(transpose(attn_output, [0,1]), weight) * sigmoid(gate)
     Args:
@@ -65,4 +66,5 @@ def group_rms_norm_gate(attn_output: torch.Tensor,
         output with shape [length, bs, dim]
     """
     return GroupRMSNormGateFunction.apply(attn_output, gate, weight, eps,
-                                          group_size, transpose)
+                                          group_size, transpose
+                                          )

@@ -39,19 +39,24 @@ def test_triton_inplace_add(M=4096, N=4096, bench=False):
     if bench:
         n_repeat = 100
         ref_time = benchmark_func(torch_add, x, out, accum=False,
-                                  n_repeat=n_repeat)
+                                  n_repeat=n_repeat
+                                  )
         benchmark_func(triton_inplace_add, out, x, accum=False,
                        n_repeat=n_repeat,
-                       ref_time=ref_time, ref_bytes=M * N * 4)
+                       ref_time=ref_time, ref_bytes=M * N * 4
+                       )
 
         ref_time = benchmark_func(torch_add, x, out, accum=True,
-                                  n_repeat=n_repeat)
+                                  n_repeat=n_repeat
+                                  )
         benchmark_func(triton_inplace_add, out, x, accum=True,
                        n_repeat=n_repeat,
-                       ref_time=ref_time, ref_bytes=M * N * 6)
+                       ref_time=ref_time, ref_bytes=M * N * 6
+                       )
         benchmark_func(triton_inplace_add_warp_specialized, out, x,
                        n_repeat=n_repeat,
-                       ref_time=ref_time, ref_bytes=M * N * 6)
+                       ref_time=ref_time, ref_bytes=M * N * 6
+                       )
 
 
 if __name__ == '__main__':

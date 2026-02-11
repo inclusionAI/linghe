@@ -45,14 +45,16 @@ class MultiLatentAttention(torch.autograd.Function):
                                                                 max_q_length=max_q_length,
                                                                 causal=causal,
                                                                 safe=safe,
-                                                                clip_value=clip_value)
+                                                                clip_value=clip_value
+                                                                )
         else:
             output, lse, max_logits = triton_mla_forward(q,
                                                          k,
                                                          v,
                                                          causal=causal,
                                                          safe=safe,
-                                                         clip_value=clip_value)
+                                                         clip_value=clip_value
+                                                         )
         ctx.save_for_backward(q, k, v, output, lse, max_logits)
         return output
 
@@ -72,7 +74,8 @@ class MultiLatentAttention(torch.autograd.Function):
                                                     padded_cu_seqlens=ctx.padded_cu_seqlens,
                                                     causal=ctx.causal,
                                                     safe=ctx.safe,
-                                                    clip_value=ctx.clip_value)
+                                                    clip_value=ctx.clip_value
+                                                    )
         else:
             dq, dk, dv = triton_mla_backward(grad_output,
                                              output,
@@ -83,7 +86,8 @@ class MultiLatentAttention(torch.autograd.Function):
                                              max_logits,
                                              causal=ctx.causal,
                                              safe=ctx.safe,
-                                             clip_value=ctx.clip_value)
+                                             clip_value=ctx.clip_value
+                                             )
         return dq, dk, dv, None, None, None, None, None, None,
 
 
@@ -113,4 +117,5 @@ def multi_latend_attention(q: torch.Tensor,
                                       max_q_length,
                                       causal,
                                       safe,
-                                      clip_value)
+                                      clip_value
+                                      )

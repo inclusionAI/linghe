@@ -26,7 +26,7 @@ def deprecated_mla_forward_kernel(
         M: tl.constexpr,
         N: tl.constexpr,
         CAUSAL: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     mid = tl.num_programs(2) - tl.program_id(2) - 1
@@ -97,7 +97,8 @@ def deprecated_mla_forward_kernel(
         qk = tl.dot(q0, tl.trans(k0), qk)
 
         qk += tl.where((mid * M + offs_m)[:, None] >= (n + offs_n)[None, :],
-                       0.0, -1e9)
+                       0.0, -1e9
+                       )
 
         p = tl.exp(qk * softmax_scale)
         lse += tl.sum(p, 1)
@@ -139,7 +140,7 @@ def mla_forward_kernel(
         CAUSAL: tl.constexpr,
         SAFE: tl.constexpr,
         CLIP: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     mid = tl.num_programs(2) - tl.program_id(2) - 1
@@ -203,7 +204,8 @@ def mla_forward_kernel(
 
         if CAUSAL:
             qk += tl.where((mid * M + offs_m)[:, None] >= (n + offs_n)[None, :],
-                           0.0, -1e9)
+                           0.0, -1e9
+                           )
 
         qk *= softmax_scale
 
@@ -241,7 +243,8 @@ def mla_forward_kernel(
     tl.store(LSE + bid * H * L + hid * L + mid * M + tl.arange(0, M), lse)
     if SAFE:
         tl.store(ML + bid * H * L + hid * L + mid * M + tl.arange(0, M),
-                 max_logits)
+                 max_logits
+                 )
 
 
 def triton_mla_forward(q, k, v, causal=True, safe=True, clip_value=None):
@@ -292,7 +295,7 @@ def triton_mla_forward(q, k, v, causal=True, safe=True, clip_value=None):
         clip,
         num_warps=num_warps,
         num_stages=num_stages,
-    )
+        )
     return o, lse, max_logits
 
 
@@ -313,7 +316,7 @@ def naive_mla_ds_kernel(
         L,
         M: tl.constexpr,
         N: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     mid = tl.num_programs(2) - tl.program_id(2) - 1
@@ -382,7 +385,8 @@ def naive_mla_ds_kernel(
         qk = tl.dot(q2, tl.trans(k2), qk)
 
         qk += tl.where((mid * M + offs_m)[:, None] >= (n + offs_n)[None, :],
-                       0.0, -1e9)
+                       0.0, -1e9
+                       )
 
         p = tl.exp(qk * softmax_scale)  # [M, N]
         v = tl.load(v_ptrs + n * stride_v)
@@ -403,7 +407,7 @@ def mla_ds_kernel(
         DS,
         L,
         M: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     mid = tl.program_id(2)
@@ -423,7 +427,8 @@ def mla_ds_kernel(
     o = tl.load(O + offs, mask=mask[:, None]).to(tl.float32)
     ds = tl.sum(g * o, 1)
     tl.store(DS + bid * H * L + hid * L + mid * M + tl.arange(0, M), ds,
-             mask=mask)
+             mask=mask
+             )
 
 
 @triton.jit
@@ -447,7 +452,7 @@ def deprecated_mla_backward_kernel(
         N: tl.constexpr,
         ATOMIC: tl.constexpr,  # not used
         CAUSAL: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     nid = tl.program_id(2)
@@ -530,7 +535,8 @@ def deprecated_mla_backward_kernel(
 
         if CAUSAL:
             qk += tl.where((m + offs_m)[:, None] >= (nid * N + offs_n)[None, :],
-                           0.0, -1e9)
+                           0.0, -1e9
+                           )
         p = tl.exp(qk * softmax_scale) / lse[:, None]
 
         dp = tl.dot(go0, tl.trans(v0))  # [M, 128]@[128, N]=[M,N]
@@ -599,7 +605,7 @@ def mla_backward_kernel(
         CAUSAL: tl.constexpr,
         SAFE: tl.constexpr,
         CLIP: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     nid = tl.program_id(2)
@@ -705,7 +711,8 @@ def mla_backward_kernel(
         lse = 1 / tl.load(LSE + bid * H * L + hid * L + m + tl.arange(0, M))
         if SAFE:
             max_logits = tl.load(
-                ML + bid * H * L + hid * L + m + tl.arange(0, M))
+                ML + bid * H * L + hid * L + m + tl.arange(0, M)
+                )
         ds = tl.load(DS + bid * H * L + hid * L + m + tl.arange(0, M))
 
         q0 = tl.load(q0_ptrs + m * stride_q)
@@ -714,7 +721,8 @@ def mla_backward_kernel(
 
         if CAUSAL:
             qk = tl.where((m + offs_m)[:, None] >= (nid * N + offs_n)[None, :],
-                          0.0, -10000.0)
+                          0.0, -10000.0
+                          )
             qk = tl.dot(q1, tl.trans(k1), qk)
             qk = tl.dot(q0, tl.trans(k0), qk)
         else:
@@ -791,7 +799,7 @@ def mla_rs_kernel(
         N: tl.constexpr,
         BLOCK: tl.constexpr,
         CAUSAL: tl.constexpr
-):
+        ):
     bid = tl.program_id(0)
     L = tl.num_programs(1).to(tl.int64)
     lid = L - tl.program_id(1) - 1
@@ -831,7 +839,8 @@ def mla_rs_kernel(
 # should use triton>=3.5.1 for better performance
 # hpc: high precision cache
 def triton_mla_backward(go, o, q, k, v, lse, max_logits, causal=True, safe=True,
-                        atomic=True, hpc=False, clip_value=None):
+                        atomic=True, hpc=False, clip_value=None
+                        ):
     # q: [B, L, H, 192]
     # k: [B, L, H, 192]
     # v: [B, L, H, 128]
@@ -860,16 +869,18 @@ def triton_mla_backward(go, o, q, k, v, lse, max_logits, causal=True, safe=True,
         M,
         num_warps=num_warps,
         num_stages=num_stages
-    )
+        )
 
     M = 32
     N = 128
     if atomic:
         gq = torch.zeros((B, L, H, 192), dtype=torch.float32 if hpc else dtype,
-                         device=device)
+                         device=device
+                         )
     else:
         gq = torch.empty((L // N, B, L, H, 192),
-                         dtype=torch.float32 if hpc else dtype, device=device)
+                         dtype=torch.float32 if hpc else dtype, device=device
+                         )
 
     gk = torch.empty((B, L, H, 192), dtype=dtype, device=device)
     gv = torch.empty((B, L, H, 128), dtype=dtype, device=device)
@@ -905,7 +916,7 @@ def triton_mla_backward(go, o, q, k, v, lse, max_logits, causal=True, safe=True,
         clip,
         num_warps=num_warps,
         num_stages=num_stages,
-    )
+        )
 
     if atomic:
         if hpc:
@@ -952,7 +963,7 @@ def varlen_mla_forward_kernel(
         PAD: tl.constexpr,
         SAFE: tl.constexpr,
         CLIP: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     mid = tl.num_programs(2) - tl.program_id(2) - 1
@@ -1036,7 +1047,8 @@ def varlen_mla_forward_kernel(
         if CAUSAL:
             qk += tl.where(
                 ((mid * M + offs_m)[:, None] >= (n + offs_n)[None, :]) & (
-                n_mask[None, :]), 0.0, -1e9)
+                    n_mask[None, :]), 0.0, -1e9
+                )
         else:
             qk += tl.where(n_mask[None, :], 0.0, -1e9)
 
@@ -1077,12 +1089,14 @@ def varlen_mla_forward_kernel(
     tl.store(LSE + hid * T + c0 + mid * M + tl.arange(0, M), lse, mask=m_mask)
     if SAFE:
         tl.store(ML + hid * T + c0 + mid * M + tl.arange(0, M), max_logits,
-                 mask=m_mask)
+                 mask=m_mask
+                 )
 
 
 def triton_varlen_mla_forward(q, k, v, cu_seqlens, max_q_length,
                               padded_cu_seqlens=None, causal=True, safe=True,
-                              clip_value=None):
+                              clip_value=None
+                              ):
     # q: [T, H, 192]
     # k: [T, H, 192]
     # v: [T, H, 128]
@@ -1131,7 +1145,7 @@ def triton_varlen_mla_forward(q, k, v, cu_seqlens, max_q_length,
         clip,
         num_warps=num_warps,
         num_stages=num_stages,
-    )
+        )
     return o, lse, max_logits
 
 
@@ -1162,7 +1176,7 @@ def varlen_mla_backward_kernel(
         PAD: tl.constexpr,
         SAFE: tl.constexpr,
         CLIP: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     nid = tl.program_id(2)
@@ -1287,10 +1301,12 @@ def varlen_mla_backward_kernel(
 
         # [H, T]
         lse = 1 / tl.load(LSE + hid * T + c0 + m + tl.arange(0, M), mask=m_mask,
-                          other=1e30)
+                          other=1e30
+                          )
         if SAFE:
             max_logits = tl.load(ML + hid * T + c0 + m + tl.arange(0, M),
-                                 mask=m_mask)
+                                 mask=m_mask
+                                 )
         ds = tl.load(DS + hid * T + c0 + m + tl.arange(0, M), mask=m_mask)
 
         q0 = tl.load(q0_ptrs + m * stride_q, mask=m_mask[:, None])
@@ -1300,7 +1316,8 @@ def varlen_mla_backward_kernel(
         if CAUSAL:
             qk = tl.where(
                 ((m + offs_m)[:, None] >= (nid * N + offs_n)[None, :]) & (
-                n_mask[None, :]), 0.0, -1e9)
+                    n_mask[None, :]), 0.0, -1e9
+                )
             qk = tl.dot(q1, tl.trans(k1), qk)
             qk = tl.dot(q0, tl.trans(k0), qk)
         else:
@@ -1333,9 +1350,11 @@ def varlen_mla_backward_kernel(
         dq1 = tl.dot(dp, k1)  # [M, N]@[N, 64]=[M, 64]
         if ATOMIC:
             tl.atomic_add(dq0_ptrs + m * H * 192, dq0, mask=m_mask[:, None],
-                          sem='relaxed')
+                          sem='relaxed'
+                          )
             tl.atomic_add(dq1_ptrs + m * H * 192, dq1, mask=m_mask[:, None],
-                          sem='relaxed')
+                          sem='relaxed'
+                          )
         else:
             tl.store(dq0_ptrs + m * H * 192, dq0, mask=m_mask[:, None])
             tl.store(dq1_ptrs + m * H * 192, dq1, mask=m_mask[:, None])
@@ -1382,11 +1401,10 @@ def varlen_mla_rs_kernel(
         N: tl.constexpr,
         BLOCK: tl.constexpr,
         CAUSAL: tl.constexpr
-):
+        ):
     tid = tl.program_id(0)
     T = tl.num_programs(0).to(tl.int64)
     kid = tl.program_id(1)
-
 
     # cu = tl.load(CU + tl.arange(0, PB), mask=tl.arange(0, PB) <= B)
     # c0 = tl.max(tl.where(cu > tid, 0, cu), 0)
@@ -1396,13 +1414,14 @@ def varlen_mla_rs_kernel(
     c1 = 1048576
     for i in range(tl.cdiv(B + 1, PB)):
         cus = tl.load(CU + i * PB + tl.arange(0, PB),
-                    mask=i * PB + tl.arange(0, PB) <= B)
+                      mask=i * PB + tl.arange(0, PB) <= B
+                      )
         c0 = tl.maximum(tl.max(tl.where(cus > tid, 0, cus), 0), c0)
     for i in range(tl.cdiv(B, PB)):
         cus = tl.load(CU + i * PB + tl.arange(0, PB),
-                    mask=i * PB + tl.arange(0, PB) <= B)
+                      mask=i * PB + tl.arange(0, PB) <= B
+                      )
         c1 = tl.minimum(tl.min(tl.where(cus <= c0, 2 ** 24, cus), 0), c1)
-
 
     length = c1 - c0
     pid = tid - c0
@@ -1473,17 +1492,19 @@ def triton_varlen_mla_backward(go, o, q, k, v, lse,
         M,
         num_warps=num_warps,
         num_stages=num_stages
-    )
+        )
 
     M = 32
     N = 128
     num_n_block = triton.cdiv(T, N)
     if atomic:
         gq = torch.zeros((T, H, 192), dtype=torch.float32 if hpc else dtype,
-                         device=device)
+                         device=device
+                         )
     else:
         gq = torch.empty((num_n_block, T, H, 192),
-                         dtype=torch.float32 if hpc else dtype, device=q.device)
+                         dtype=torch.float32 if hpc else dtype, device=q.device
+                         )
 
     gk = torch.empty((T, H, 192), dtype=dtype, device=device)
     gv = torch.empty((T, H, 128), dtype=dtype, device=device)
@@ -1519,7 +1540,7 @@ def triton_varlen_mla_backward(go, o, q, k, v, lse,
         clip,
         num_warps=num_warps,
         num_stages=num_stages,
-    )
+        )
 
     if atomic:
         if hpc:
@@ -1567,7 +1588,7 @@ def deprecated_fp8_mla_forward_kernel(
         M: tl.constexpr,
         N: tl.constexpr,
         CAUSAL: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     mid = tl.num_programs(2) - tl.program_id(2) - 1
@@ -1657,7 +1678,8 @@ def deprecated_fp8_mla_forward_kernel(
         qk = tl.dot(q0, tl.trans(k0), qk)
 
         qk += tl.where((mid * M + offs_m)[:, None] >= (n + offs_n)[None, :],
-                       0.0, -1e9)
+                       0.0, -1e9
+                       )
         qk = qk * qs[:, None] * ks[None, :]
 
         p = tl.exp(qk * softmax_scale)
@@ -1700,7 +1722,7 @@ def padding_fp8_mla_forward_kernel(
         M: tl.constexpr,
         N: tl.constexpr,
         CAUSAL: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     mid = tl.num_programs(2) - tl.program_id(2) - 1
@@ -1770,7 +1792,8 @@ def padding_fp8_mla_forward_kernel(
         qk = tl.dot(q0, tl.trans(k0))
 
         qk += tl.where((mid * M + offs_m)[:, None] >= (n + offs_n)[None, :],
-                       0.0, -1e9)
+                       0.0, -1e9
+                       )
         qk = qk * qs[:, None] * ks[None, :]
 
         p = tl.exp(qk * softmax_scale)
@@ -1814,7 +1837,7 @@ def fp8_mla_forward_kernel(
         M: tl.constexpr,
         N: tl.constexpr,
         CAUSAL: tl.constexpr,
-):
+        ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     mid = tl.num_programs(2) - tl.program_id(2) - 1
@@ -1898,7 +1921,8 @@ def fp8_mla_forward_kernel(
 
         if CAUSAL:
             qk = tl.where((mid * M + offs_m)[:, None] >= (n + offs_n)[None, :],
-                          0.0, -1e9)
+                          0.0, -1e9
+                          )
             qk = tl.dot(q0, tl.trans(k0), qk)
             qk = tl.dot(q1, tl.trans(k1), qk)
             qk = tl.dot(q2, tl.trans(k2), qk)
@@ -1936,7 +1960,8 @@ def fp8_mla_forward_kernel(
 
 
 def triton_fp8_mla_forward(q, k, v, qs, ks, vs=None, causal=True,
-                           out_dtype=torch.bfloat16):
+                           out_dtype=torch.bfloat16
+                           ):
     # q: [B, L, H, 192]
     # k: [B, L, H, 192]
     # v: [B, L, H, 128]
@@ -1978,5 +2003,5 @@ def triton_fp8_mla_forward(q, k, v, qs, ks, vs=None, causal=True,
         causal,
         num_warps=num_warps,
         num_stages=num_stages,
-    )
+        )
     return o, lse, max_logits

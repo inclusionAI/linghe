@@ -4,48 +4,49 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
 import torch
-from linghe.utils.transpose import triton_pad_transpose
-from linghe.utils.add import triton_inplace_add
+
 from linghe.gemm.fp32_gemm import (triton_fp32_gemm,
                                    triton_fp32_gemm_for_backward,
                                    triton_fp32_gemm_for_update)
+from linghe.utils.add import triton_inplace_add
+from linghe.utils.transpose import triton_pad_transpose
 
 
 # the function is used in transformer_engine/pytorch/cpp_extensions/gemm.py
 def smooth_gemm(A, B, layout='TN', out=None, accumulate=True, online_transpose=False):
-
     if layout == 'TN':  # forward, y=x@w
         x_q = B._rowwise_data
         x_scale = B._rowwise_scale_inv
         w_q = A._rowwise_data
         w_scale = A._rowwise_scale_inv
-        out = torch._scaled_mm(x_q, 
-                                w_q.t(),
-                                scale_a=x_scale.view(-1,1),
-                                scale_b=w_scale.view(1,-1),
-                                out_dtype=torch.bfloat16,
-                                use_fast_accum=True
-                                )
-        out = out.view(*B.shape[:-1],A.shape[0])
+        out = torch._scaled_mm(x_q,
+                               w_q.t(),
+                               scale_a=x_scale.view(-1, 1),
+                               scale_b=w_scale.view(1, -1),
+                               out_dtype=torch.bfloat16,
+                               use_fast_accum=True
+                               )
+        out = out.view(*B.shape[:-1], A.shape[0])
     elif layout == 'NN':  # backward, dx=dy@wT
         y_q = B._rowwise_data
         y_scale = B._rowwise_scale_inv
         w_q = A._columnwise_data
         if w_q is None:
-            w_q = triton_pad_transpose(A._rowwise_data, 
-                                            out=A._columnwise_data,
-                                            multiple=32)
+            w_q = triton_pad_transpose(A._rowwise_data,
+                                       out=A._columnwise_data,
+                                       multiple=32
+                                       )
             if not online_transpose:
                 A._columnwise_data = w_q
         w_scale = A._columnwise_scale_inv
-        out = torch._scaled_mm(y_q, 
+        out = torch._scaled_mm(y_q,
                                w_q.t(),
-                               scale_a=y_scale.view(-1,1),
-                               scale_b=w_scale.view(1,-1),
+                               scale_a=y_scale.view(-1, 1),
+                               scale_b=w_scale.view(1, -1),
                                out_dtype=torch.bfloat16,
                                use_fast_accum=True
-                                )
-        out = out.view(*B.shape[:-1],A.shape[1])
+                               )
+        out = out.view(*B.shape[:-1], A.shape[1])
     elif layout == 'NT':  # update, dw=dyT@dx
         y_q = B._columnwise_data
         y_scale = B._columnwise_scale_inv
@@ -54,10 +55,10 @@ def smooth_gemm(A, B, layout='TN', out=None, accumulate=True, online_transpose=F
         else:
             x_q = A._columnwise_data
         x_scale = A._columnwise_scale_inv
-        o = torch._scaled_mm(y_q, 
+        o = torch._scaled_mm(y_q,
                              x_q.t(),
-                             scale_a=y_scale.view(-1,1),
-                             scale_b=x_scale.view(1,-1),
+                             scale_a=y_scale.view(-1, 1),
+                             scale_b=x_scale.view(1, -1),
                              out_dtype=torch.bfloat16,
                              use_fast_accum=True,
                              )
@@ -81,14 +82,14 @@ def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True, online
             x_scale = B[i]._rowwise_scale_inv
             w_q = A[i]._rowwise_data
             w_scale = A[i]._rowwise_scale_inv
-            torch._scaled_mm(x_q, 
-                                    w_q.t(),
-                                    scale_a=x_scale.view(-1,1),
-                                    scale_b=w_scale.view(1,-1),
-                                    out_dtype=torch.bfloat16,
-                                    use_fast_accum=True,
-                                    out=out[0][s:s+m]
-                                    )
+            torch._scaled_mm(x_q,
+                             w_q.t(),
+                             scale_a=x_scale.view(-1, 1),
+                             scale_b=w_scale.view(1, -1),
+                             out_dtype=torch.bfloat16,
+                             use_fast_accum=True,
+                             out=out[0][s:s + m]
+                             )
             s += m
     elif layout == 'NN':  # backward, dx=dy@wT
         for i, m in enumerate(m_splits):
@@ -99,21 +100,22 @@ def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True, online
             y_scale = B[i]._rowwise_scale_inv
             w_q = A[i]._columnwise_data
             if w_q is None:
-                w_q = triton_pad_transpose(A[i]._rowwise_data, 
-                                                    out=A[i]._columnwise_data, 
-                                                    multiple=32)
+                w_q = triton_pad_transpose(A[i]._rowwise_data,
+                                           out=A[i]._columnwise_data,
+                                           multiple=32
+                                           )
                 if not online_transpose:
                     A[i]._columnwise_data = w_q
-            
+
             w_scale = A[i]._columnwise_scale_inv
-            torch._scaled_mm(y_q, 
-                                    w_q.t(),
-                                    scale_a=y_scale.view(-1,1),
-                                    scale_b=w_scale.view(1,-1),
-                                    out_dtype=torch.bfloat16,
-                                    use_fast_accum=True,
-                                    out=out[0][s:s+m]
-                                    )
+            torch._scaled_mm(y_q,
+                             w_q.t(),
+                             scale_a=y_scale.view(-1, 1),
+                             scale_b=w_scale.view(1, -1),
+                             out_dtype=torch.bfloat16,
+                             use_fast_accum=True,
+                             out=out[0][s:s + m]
+                             )
             s += m
     elif layout == 'NT':  # update, dw=dyT@dx
         for i, m in enumerate(m_splits):
@@ -124,26 +126,26 @@ def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True, online
             y_scale = B[i]._columnwise_scale_inv
             if A[i]._columnwise_data is None:
                 x_q = triton_pad_transpose(A[i]._rowwise_data,
-                                                multiple=32)
+                                           multiple=32
+                                           )
             else:
                 x_q = A[i]._columnwise_data
             x_scale = A[i]._columnwise_scale_inv
             # out is float32
-            o = torch._scaled_mm(y_q, 
-                                    x_q.t(),
-                                    scale_a=y_scale.view(-1,1),
-                                    scale_b=x_scale.view(1,-1),
-                                    out_dtype=torch.bfloat16,
-                                    use_fast_accum=True,
-                                    )
-            
+            o = torch._scaled_mm(y_q,
+                                 x_q.t(),
+                                 scale_a=y_scale.view(-1, 1),
+                                 scale_b=x_scale.view(1, -1),
+                                 out_dtype=torch.bfloat16,
+                                 use_fast_accum=True,
+                                 )
+
             triton_inplace_add(out[i], o, accum=accumulate)
             A[i]._columnwise_data = None
             s += m
     else:
         raise ValueError(f"layout {layout} is not supported")
     return out
-
 
 
 class Fp32GEMM(torch.autograd.Function):
@@ -169,7 +171,8 @@ class Fp32GEMM(torch.autograd.Function):
         grad_shape = grad_output.shape
         if len(grad_shape) == 3:
             grad_output = grad_output.view(grad_shape[0] * grad_shape[1],
-                                           grad_shape[2])
+                                           grad_shape[2]
+                                           )
 
         input, weight = ctx.saved_tensors
 

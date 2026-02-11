@@ -33,7 +33,7 @@ def fp32_gemm_kernel(
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-):
+        ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = tl.cdiv(K, BLOCK_SIZE_K)
@@ -103,7 +103,7 @@ def fp32_gemm_for_backward_kernel(
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-):
+        ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = tl.cdiv(K, BLOCK_SIZE_K)
@@ -128,7 +128,8 @@ def fp32_gemm_for_backward_kernel(
 
 
 def triton_fp32_gemm_for_backward(y: torch.Tensor,
-                                  w: torch.Tensor):
+                                  w: torch.Tensor
+                                  ):
     """
     mix precision gemm for backward, a@b.float()
     Args:
@@ -171,7 +172,7 @@ def fp32_gemm_for_update_kernel(
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-):
+        ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = tl.cdiv(K, BLOCK_SIZE_K)
@@ -238,7 +239,7 @@ def split_fp32_gemm_kernel(
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
         SPLIT_COUNT: tl.constexpr
-):
+        ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     pid_k = tl.program_id(axis=2)
@@ -325,7 +326,7 @@ def split_fp32_gemm_for_backward_kernel(
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
         SPLIT_COUNT: tl.constexpr
-):
+        ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     pid_k = tl.program_id(axis=2)
@@ -357,7 +358,8 @@ def split_fp32_gemm_for_backward_kernel(
 
 
 def triton_split_fp32_gemm_for_backward(y: torch.Tensor,
-                                        w: torch.Tensor):
+                                        w: torch.Tensor
+                                        ):
     """
     mix precision gemm for backward, a@b.float()
     Args:
@@ -411,7 +413,7 @@ def split_fp32_gemm_for_update_kernel(
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
         SPLIT_COUNT: tl.constexpr,
-):
+        ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     pid_k = tl.program_id(axis=2)
@@ -480,7 +482,6 @@ def triton_split_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
     return c
 
 
-
 @triton.jit
 def _compute_pid(tile_id, num_pid_in_group, num_pid_m, GROUP_SIZE_M):
     group_id = tile_id // num_pid_in_group
@@ -493,18 +494,18 @@ def _compute_pid(tile_id, num_pid_in_group, num_pid_m, GROUP_SIZE_M):
 
 @triton.jit
 def tma_persistent_matmul_kernel(
-    a_desc,
-    b_desc,
-    c_desc,
-    M,
-    N,
-    K,
-    BLOCK_SIZE_M: tl.constexpr,
-    BLOCK_SIZE_N: tl.constexpr,
-    BLOCK_SIZE_K: tl.constexpr,
-    GROUP_SIZE_M: tl.constexpr,
-    SM: tl.constexpr,
-):
+        a_desc,
+        b_desc,
+        c_desc,
+        M,
+        N,
+        K,
+        BLOCK_SIZE_M: tl.constexpr,
+        BLOCK_SIZE_N: tl.constexpr,
+        BLOCK_SIZE_K: tl.constexpr,
+        GROUP_SIZE_M: tl.constexpr,
+        SM: tl.constexpr,
+        ):
     start_pid = tl.program_id(axis=0)
     num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
     num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
@@ -529,7 +530,7 @@ def tma_persistent_matmul_kernel(
         tid_c += SM
         pid_m, pid_n = _compute_pid(
             tid_c, num_pid_in_group, num_pid_m, GROUP_SIZE_M
-        )
+            )
         offs_a_acc = pid_m * BLOCK_SIZE_M
         offs_b_acc = pid_n * BLOCK_SIZE_N
 
@@ -564,8 +565,8 @@ def triton_tma_persistent_matmul(a, b):
             min(
                 SM,
                 triton.cdiv(M, BLOCK_M) * triton.cdiv(N, BLOCK_N),
-            ),
-        )
+                ),
+            )
 
     tma_persistent_matmul_kernel[grid](
         a_desc,
@@ -579,6 +580,5 @@ def triton_tma_persistent_matmul(a, b):
         BLOCK_N,
         GROUP_SIZE_M,
         SM=SM,
-    )
+        )
     return c
-

@@ -13,7 +13,8 @@ def sort_chunks_by_index_kernel(x_ptr, y_ptr, scale_ptr, scale_output_ptr,
                                 count_ptr,
                                 accum_ptr, rev_accum_ptr, index_ptr, M,
                                 N: tl.constexpr, SCALE: tl.constexpr,
-                                K: tl.constexpr):
+                                K: tl.constexpr
+                                ):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     index = tl.load(index_ptr + pid)
@@ -29,9 +30,11 @@ def sort_chunks_by_index_kernel(x_ptr, y_ptr, scale_ptr, scale_output_ptr,
     if SCALE:
         for i in range(tl.cdiv(count, K)):
             scale = tl.load(scale_ptr + si + i * K + tl.arange(0, K),
-                            mask=i * K + tl.arange(0, K) < count)
+                            mask=i * K + tl.arange(0, K) < count
+                            )
             tl.store(scale_output_ptr + rev_si + i * K + tl.arange(0, K), scale,
-                     mask=i * K + tl.arange(0, K) < count)
+                     mask=i * K + tl.arange(0, K) < count
+                     )
 
 
 def triton_sort_chunks_by_index(x, counts, indices, scales=None):
@@ -79,5 +82,5 @@ def triton_sort_chunks_by_index(x, counts, indices, scales=None):
         K,
         num_stages=3,
         num_warps=8
-    )
+        )
     return y, output_scales

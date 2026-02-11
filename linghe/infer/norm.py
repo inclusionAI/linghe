@@ -3,27 +3,28 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+from typing import Optional
+
 import torch
 import triton
 import triton.language as tl
-from typing import Optional
 
 
 @triton.jit
 def rms_norm_and_block_quant_kernel(
-    x_ptr,
-    weight_ptr,
-    residual_ptr,
-    out_ptr,
-    scale_ptr,
-    eps,
-    M,
-    T: tl.constexpr,
-    N: tl.constexpr,
-    nb: tl.constexpr,
-    W: tl.constexpr,
-    ROUND: tl.constexpr
-):
+        x_ptr,
+        weight_ptr,
+        residual_ptr,
+        out_ptr,
+        scale_ptr,
+        eps,
+        M,
+        T: tl.constexpr,
+        N: tl.constexpr,
+        nb: tl.constexpr,
+        W: tl.constexpr,
+        ROUND: tl.constexpr
+        ):
     pid = tl.program_id(axis=0)
 
     # row-wise read, row-wise write
@@ -44,14 +45,16 @@ def rms_norm_and_block_quant_kernel(
         rms = tl.rsqrt(tl.sum(x * x, axis=1) / N + eps)
         x = x * rms[:, None] * weight
         x = tl.reshape(x, [W, nb, 128])
-        
+
         scale = tl.max(tl.abs(x), 2) / 448.0
-        scale = tl.where(scale==0.0, 1.0, scale)
+        scale = tl.where(scale == 0.0, 1.0, scale)
         if ROUND:
             scale = tl.exp2(tl.ceil(tl.log2(scale)))
-        tl.store(scale_ptr + tl.arange(0, nb)[:, None] * PM + indices[None, :], tl.trans(scale), mask=indices[None, :] < M)
+        tl.store(scale_ptr + tl.arange(0, nb)[:, None] * PM + indices[None, :], tl.trans(scale),
+                 mask=indices[None, :] < M
+                 )
 
-        x = x / scale[:,:, None]
+        x = x / scale[:, :, None]
         x = tl.reshape(x, [W, N])
 
         tl.store(out_ptr + offs, x.to(out_ptr.dtype.element_ty), mask=indices[:, None] < M)
@@ -60,15 +63,15 @@ def rms_norm_and_block_quant_kernel(
 
 
 def triton_rms_norm_and_block_quant(
-    x: torch.Tensor,
-    weight: torch.Tensor,
-    residual: Optional[torch.Tensor] = None,
-    eps: float = 1e-6,
-    out: Optional[torch.Tensor] = None,
-    scale: Optional[torch.Tensor] = None,
-    rms: Optional[torch.Tensor] = None,
-    round_scale: bool = False,
-):
+        x: torch.Tensor,
+        weight: torch.Tensor,
+        residual: Optional[torch.Tensor] = None,
+        eps: float = 1e-6,
+        out: Optional[torch.Tensor] = None,
+        scale: Optional[torch.Tensor] = None,
+        rms: Optional[torch.Tensor] = None,
+        round_scale: bool = False,
+        ):
     """
     Fused RMSNorm forward and block quantization.
     Args:
@@ -94,10 +97,10 @@ def triton_rms_norm_and_block_quant(
         out = torch.empty((M, N), device=device, dtype=torch.float8_e4m3fn)
 
     if scale is None:
-        scale = torch.zeros((N//128, (M + 3) // 4 * 4), device=device, dtype=torch.float32)
+        scale = torch.zeros((N // 128, (M + 3) // 4 * 4), device=device, dtype=torch.float32)
 
     W = 8192 // N
-    T = 4 // W  
+    T = 4 // W
     grid = (triton.cdiv(M, 4),)
 
     rms_norm_and_block_quant_kernel[grid](
@@ -115,33 +118,32 @@ def triton_rms_norm_and_block_quant(
         round_scale,
         num_stages=3,
         num_warps=8
-    )
-    
-    return out, scale[:,:M].t(), residual
+        )
 
+    return out, scale[:, :M].t(), residual
 
 
 @triton.jit
 def residual_rms_norm_and_block_quant_kernel(
-    x_ptr,
-    weight_ptr,
-    residual_ptr,
-    out_ptr,
-    scale_ptr,
-    eps,
-    M,
-    PM,
-    N: tl.constexpr,
-    nb: tl.constexpr,
-    W: tl.constexpr,
-    ROUND: tl.constexpr
-):
+        x_ptr,
+        weight_ptr,
+        residual_ptr,
+        out_ptr,
+        scale_ptr,
+        eps,
+        M,
+        PM,
+        N: tl.constexpr,
+        nb: tl.constexpr,
+        W: tl.constexpr,
+        ROUND: tl.constexpr
+        ):
     pid = tl.program_id(axis=0)
 
     # row-wise read, row-wise write
     weight = tl.load(weight_ptr + tl.arange(0, N)).to(tl.float32)[None, :]
     offs = pid * W * N + tl.arange(0, W)[:, None] * N + tl.arange(0, N)[
-                                                            None, :]
+                                                        None, :]
     # PM = (M + 3) // 4 * 4
     indices = pid * W + tl.arange(0, W)
     x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
@@ -156,26 +158,26 @@ def residual_rms_norm_and_block_quant_kernel(
     tl.store(x_ptr + offs, x, mask=indices[:, None] < M)
 
     x = tl.reshape(x, [W, nb, 128], can_reorder=False)
-    
+
     scale = tl.max(tl.abs(x), 2) / 448.0
-    scale = tl.where(scale==0.0, 1.0, scale)
+    scale = tl.where(scale == 0.0, 1.0, scale)
     if ROUND:
         scale = tl.exp2(tl.ceil(tl.log2(scale)))
     tl.store(scale_ptr + tl.arange(0, nb)[:, None] * PM + indices[None, :], tl.trans(scale), mask=indices[None, :] < M)
 
-    x = x / scale[:,:, None]
+    x = x / scale[:, :, None]
     x = tl.reshape(x, [W, N], can_reorder=False)
 
     tl.store(out_ptr + offs, x, mask=indices[:, None] < M)
 
 
 def triton_residual_rms_norm_and_block_quant(
-    x: torch.Tensor,
-    weight: torch.Tensor,
-    residual: torch.Tensor,
-    eps: float = 1e-6,
-    round_scale: bool = False,
-):
+        x: torch.Tensor,
+        weight: torch.Tensor,
+        residual: torch.Tensor,
+        eps: float = 1e-6,
+        round_scale: bool = False,
+        ):
     """
     Fused RMSNorm forward and block quantization.
     Args:
@@ -195,13 +197,13 @@ def triton_residual_rms_norm_and_block_quant(
     """
     assert x.is_contiguous() and weight.is_contiguous() and residual.is_contiguous()
     M, N = x.shape
-    assert N <= 8192 and 8192 % N == 0 and N>=2048
+    assert N <= 8192 and 8192 % N == 0 and N >= 2048
     device = x.device
 
     out = torch.empty((M, N), device=device, dtype=torch.float8_e4m3fn)
 
     PM = (M + 3) // 4 * 4
-    scale = torch.zeros((N//128, PM), device=device, dtype=torch.float32)
+    scale = torch.zeros((N // 128, PM), device=device, dtype=torch.float32)
 
     W = 8192 // N
     grid = (triton.cdiv(M, W),)
@@ -221,7 +223,7 @@ def triton_residual_rms_norm_and_block_quant(
         round_scale,
         num_stages=3,
         num_warps=2
-    )
-    
-    return x, out, scale[:,:M].t(), residual
+        )
+
+    return x, out, scale[:, :M].t(), residual
     # return x, None, residual

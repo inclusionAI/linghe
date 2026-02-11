@@ -13,15 +13,18 @@ def embedding_forward_kernel(x_ptr,
                              y_ptr,
                              w_ptr,
                              dim,
-                             DIM: tl.constexpr):
+                             DIM: tl.constexpr
+                             ):
     pid = tl.program_id(axis=0).to(tl.int64)
     index = tl.load(x_ptr + pid)
     weight_ptr = w_ptr.to(tl.pointer_type(tl.bfloat16))
 
     w = tl.load(weight_ptr + index * dim + tl.arange(0, DIM),
-                mask=tl.arange(0, DIM) < dim)
+                mask=tl.arange(0, DIM) < dim
+                )
     tl.store(y_ptr + pid * dim + tl.arange(0, DIM), w,
-             mask=tl.arange(0, DIM) < dim)
+             mask=tl.arange(0, DIM) < dim
+             )
 
 
 def triton_embedding_forward(x, w_ptr, dim=4096, dtype=torch.bfloat16):
@@ -50,7 +53,7 @@ def triton_embedding_forward(x, w_ptr, dim=4096, dtype=torch.bfloat16):
         DIM,
         num_stages=num_stages,
         num_warps=num_warps
-    )
+        )
     return y
 
 
@@ -64,7 +67,7 @@ def atomic_embedding_backward_kernel(
         dim,
         DIM: tl.constexpr,
         T: tl.constexpr
-):
+        ):
     bid = tl.program_id(axis=0).to(tl.int64)
     lid = tl.program_id(axis=1)
     B = tl.num_programs(0)
@@ -79,9 +82,11 @@ def atomic_embedding_backward_kernel(
         grad_ptr = g_ptr.to(tl.pointer_type(tl.float16))
 
     y = tl.load(y_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0, DIM),
-                mask=tl.arange(0, DIM) < dim)
+                mask=tl.arange(0, DIM) < dim
+                )
     tl.atomic_add(grad_ptr + index * dim + tl.arange(0, DIM), y,
-                  mask=tl.arange(0, DIM) < dim)
+                  mask=tl.arange(0, DIM) < dim
+                  )
 
 
 def triton_atomic_embedding_backward(y, x, g_ptr, dtype=torch.bfloat16):
@@ -123,7 +128,7 @@ def triton_atomic_embedding_backward(y, x, g_ptr, dtype=torch.bfloat16):
         T,
         num_stages=num_stages,
         num_warps=num_warps
-    )
+        )
 
 
 @triton.jit
@@ -167,11 +172,14 @@ def sync_embedding_backward_kernel(grad_output_ptr,
         lid = pos % L
         g = tl.load(
             grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
-                                                                          DIM),
-            mask=tl.arange(0, DIM) < dim).to(tl.float32)
+                                                                          DIM
+                                                                          ),
+            mask=tl.arange(0, DIM) < dim
+            ).to(tl.float32)
         outputs += g
     tl.store(grad_ptr + input_id * dim + tl.arange(0, DIM), outputs,
-             mask=tl.arange(0, DIM) < dim)
+             mask=tl.arange(0, DIM) < dim
+             )
 
 
 def triton_sync_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
@@ -199,7 +207,8 @@ def triton_sync_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
 
     sorted_ids, sorted_indices = torch.sort(x.view(-1), stable=False)
     unique_ids, unique_counts = torch.unique_consecutive(sorted_ids,
-                                                         return_counts=True)
+                                                         return_counts=True
+                                                         )
     accum_counts = torch.cumsum(unique_counts, 0)
     DIM = triton.next_power_of_2(dim)
     num_stages = 3
@@ -221,7 +230,7 @@ def triton_sync_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
         T,
         num_stages=num_stages,
         num_warps=num_warps
-    )
+        )
 
 
 @triton.jit
@@ -230,7 +239,8 @@ def scan_and_count_split_kernel(id_ptr,
                                 unique_id_ptr,
                                 unique_count_ptr,
                                 L,
-                                B: tl.constexpr):
+                                B: tl.constexpr
+                                ):
     bid = tl.program_id(axis=0)
     sid = tl.program_id(axis=1)
     ns = tl.num_programs(1)
@@ -262,7 +272,8 @@ def scan_and_count_merge_kernel(
         accum_counts_ptr,
         L,
         B: tl.constexpr,
-        T: tl.constexpr):
+        T: tl.constexpr
+        ):
     bid = tl.program_id(axis=0)
     write_index = bid * (L + 1) + 1
     tl.store(accum_counts_ptr + bid * (L + 1), 0)
@@ -270,14 +281,17 @@ def scan_and_count_merge_kernel(
     for i in range(T):
         uc = tl.load(unique_count_ptr + bid * T + i)
         counts = tl.load(counts_ptr + bid * L + i * B + tl.arange(0, B),
-                         mask=tl.arange(0, B) < uc)
+                         mask=tl.arange(0, B) < uc
+                         )
         uids = tl.load(unique_id_ptr + bid * L + i * B + tl.arange(0, B),
-                       mask=tl.arange(0, B) < uc, other=2 ** 30)
+                       mask=tl.arange(0, B) < uc, other=2 ** 30
+                       )
         min_id = tl.min(uids)
         offset = tl.where(min_id == pre_id, -1, 0)
         pre_id = tl.max(tl.where(tl.arange(0, B) < uc, uids, -1))
         tl.atomic_add(accum_counts_ptr + write_index + offset + tl.arange(0, B),
-                      counts, mask=tl.arange(0, B) < uc)
+                      counts, mask=tl.arange(0, B) < uc
+                      )
         write_index += uc + offset
 
 
@@ -318,7 +332,7 @@ def triton_scan_and_count(ids):
         BLOCK,
         num_stages=num_stages,
         num_warps=num_warps
-    )
+        )
 
     num_stages = 3
     num_warps = 1
@@ -333,7 +347,7 @@ def triton_scan_and_count(ids):
         T,
         num_stages=num_stages,
         num_warps=num_warps
-    )
+        )
     accum_counts = torch.cumsum(accum_counts, -1)
 
     return accum_counts
@@ -343,7 +357,8 @@ def triton_scan_and_count(ids):
 def deprecated_scan_and_count_kernel(id_ptr,
                                      accum_counts_ptr,
                                      B: tl.constexpr,
-                                     T: tl.constexpr):
+                                     T: tl.constexpr
+                                     ):
     accum = 0
     write_index = 0
     last_min_id = -1
@@ -382,7 +397,7 @@ def triton_deprecated_scan_and_count(ids):
         T,
         num_stages=num_stages,
         num_warps=num_warps
-    )
+        )
     return accum_counts
 
 
@@ -417,8 +432,9 @@ def embedding_backward_kernel(grad_output_ptr,
         grad_ptr = g_ptr.to(tl.pointer_type(tl.float16))
 
     # outputs = tl.zeros((DIM,), dtype=tl.float32)
-    outputs = tl.load(grad_ptr + input_id * dim + tl.arange(0, DIM), 
-                      mask=tl.arange(0, DIM) < dim).to(tl.float32)
+    outputs = tl.load(grad_ptr + input_id * dim + tl.arange(0, DIM),
+                      mask=tl.arange(0, DIM) < dim
+                      ).to(tl.float32)
 
     for i in range(count):
         pos = tl.load(sorted_indices_ptr + c0 + i)
@@ -426,11 +442,14 @@ def embedding_backward_kernel(grad_output_ptr,
         lid = pos % L
         g = tl.load(
             grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
-                                                                          DIM),
-            mask=tl.arange(0, DIM) < dim).to(tl.float32)
+                                                                          DIM
+                                                                          ),
+            mask=tl.arange(0, DIM) < dim
+            ).to(tl.float32)
         outputs += g
     tl.store(grad_ptr + input_id * dim + tl.arange(0, DIM), outputs,
-             mask=tl.arange(0, DIM) < dim)
+             mask=tl.arange(0, DIM) < dim
+             )
 
 
 def triton_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
@@ -478,4 +497,4 @@ def triton_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
         T,
         num_stages=num_stages,
         num_warps=num_warps
-    )
+        )
