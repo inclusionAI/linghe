@@ -806,9 +806,9 @@ if __name__ == '__main__':
     test_silu_and_block_quant(M=4096, N=1536 * 8, coef=0.0, grad_coef=0.0,
                               bench=False)
 
-    test_silu_and_mxfp8_quant(M=16384, N=1024, bench=False)
-    test_silu_and_mxfp8_quant(M=2345, N=1024, bench=False)
-    test_silu_and_mxfp8_quant(M=2345, N=1536, bench=False)
+    test_silu_and_mxfp8_quant(M=16384, N=1024, coef=1.0, grad_coef=1e-8, bench=False)
+    test_silu_and_mxfp8_quant(M=2345, N=1024, coef=10.0, grad_coef=1.0, bench=False)
+    test_silu_and_mxfp8_quant(M=2345, N=1536, coef=10.0, grad_coef=1e-8,bench=False)
 
     test_triton_batch_weighted_silu_and_smooth_quant(M=0, N=2048, n_experts=32,
                                                      bench=False)

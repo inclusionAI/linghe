@@ -9,7 +9,7 @@ import torch
 
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
-from linghe.utils.unary import triton_calculate_smooth_scale, triton_batch_clip
+from linghe.utils.unary import triton_calculate_smooth_scale, triton_clip, triton_batch_clip
 
 
 def torch_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5,
@@ -23,6 +23,10 @@ def torch_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5,
             torch.ceil(torch.log2(weight_smooth_scales)))
     return weight_smooth_scales
 
+
+def torch_clip(x, clip_value):
+    x = torch.clamp(x, -clip_value, clip_value)
+    return x
 
 def torch_batch_clip(xs, clip_value):
     torch._foreach_clamp_min_(xs, -clip_value)
@@ -50,6 +54,36 @@ def test_calculate_smooth_scale(N=4096, bench=False):
                                   n_repeat=n_repeat)
         benchmark_func(torch_calculate_smooth_scale, x, n_repeat=n_repeat,
                        ref_time=ref_time, ref_bytes=N * 8)
+
+
+
+def test_clip(M=2048, N=1024, clip_value=1.0, inf=False,
+                    bench=False):
+
+    x = torch.randn(M, N, dtype=torch.float32, device='cuda:0')
+    x1 = x.clone().detach()
+    x2 = x.clone().detach()
+
+    if inf:
+        x1[0][:100] = float('inf')
+        x2[0][:100] = float('inf')
+
+    out_ref = torch_clip(x1, clip_value)
+    out = triton_clip(x2, clip_value)
+    output_check(out_ref, out, 'clip')
+
+    if bench:
+        ref_bytes = M * N * 8
+        x3 = x.clone().detach()
+        n_repeat = 1  # inplace update will speedup our triton op 
+        ref_time = benchmark_func(torch_clip, x3, clip_value,
+                                  ref_bytes=ref_bytes,
+                                  n_repeat=n_repeat,
+                                  n_warmup=0)
+        benchmark_func(triton_clip, x3, clip_value,
+                       ref_bytes=ref_bytes, ref_time=ref_time,
+                       n_repeat=n_repeat,
+                       n_warmup=0)
 
 
 def test_batch_clip(M=2048, N=1024, k=1024, clip_value=1.0, inf=False,
@@ -88,7 +122,10 @@ def test_batch_clip(M=2048, N=1024, k=1024, clip_value=1.0, inf=False,
 if __name__ == '__main__':
     test_calculate_smooth_scale(N=4096*32)
     test_calculate_smooth_scale(N=4096*32-1897)
+
+    test_clip(M=2048, N=8192, clip_value=0.1, bench=False)
+    test_clip(M=10000, N=8192, clip_value=100.0, inf=True, bench=False)
+
     test_batch_clip(M=2048, N=8192, k=128, clip_value=0.1, bench=False)
     test_batch_clip(M=2048, N=1024, k=128, clip_value=1.0, bench=False)
-    test_batch_clip(M=2048, N=1024, k=128, clip_value=100.0, inf=True,
-                    bench=False)
+    test_batch_clip(M=2048, N=1024, k=128, clip_value=100.0, inf=True, bench=False)

@@ -124,6 +124,33 @@ def torch_mxfp8_quant(x):
     return x_q, x_scale, xt_q, xt_scale
 
 
+def torch_batch_mxfp8_quant(x, token_count_per_expert_list):
+    M, DIM = x.shape
+    q_refs = []
+    s_refs = []
+    qt_refs = []
+    st_refs = []
+    s = 0
+    for i, c in enumerate(token_count_per_expert_list):
+        c = token_count_per_expert_list[i]
+        if c == 0:
+            continue
+        y = x[s:s + c]
+        y = y.float()
+
+        y_q, y_scale, yt_q, yt_scale = torch_mxfp8_quant(y)
+        q_refs.append(y_q)
+        s_refs.append(y_scale)
+        qt_refs.append(yt_q)
+        st_refs.append(yt_scale)
+        s += c
+    q_ref = torch.cat(q_refs, 0)
+    s_ref = torch.cat(s_refs, 0)
+    qt_ref = torch.cat(qt_refs, 0)
+    st_ref = torch.cat(st_refs, 0)
+    return q_ref, s_ref, qt_ref, st_ref
+
+
 def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
     x = x.float()
     # x_maxs = x.abs().amax(0)

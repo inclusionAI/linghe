@@ -22,7 +22,6 @@ def mxfp8_quant_kernel(
 ):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
-
     offs = (
         rid * 32 * N
         + cid * B

@@ -17,7 +17,11 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
     """"""
 
     @staticmethod
-    def forward(ctx, logits, labels, ignore_index=-100, inplace=False,
+    def forward(ctx,
+                logits,
+                labels,
+                ignore_index=-100,
+                inplace=False,
                 tp_group=None):
         shape = logits.shape
         logits_view = logits.view(-1, shape[-1]) if len(shape) == 3 else logits
@@ -87,23 +91,28 @@ def softmax_cross_entropy(logits: torch.Tensor, labels: torch.Tensor,
                                              inplace, tp_group)
 
 
-class GradScalingFunction(torch.autograd.Function):
+class GradientScalingFunction(torch.autograd.Function):
     """"""
 
     @staticmethod
-    def forward(ctx, x, coef=0.2):
+    def forward(ctx, x, coef=1.0):
         ctx.coef = coef
         return x
 
     @staticmethod
     def backward(ctx, grad_output):
-        shape = grad_output.shape
-        assert len(shape) == 2
-        bs, length = grad_output.shape
-        array = length - torch.arange(0, length, device=grad_output.device)
-        scale = 1 / torch.pow(array.float(), ctx.coef)
-        grad = grad_output * scale
+        grad = grad_output * ctx.coef
         return grad, None
+
+
+def gradient_scaling(x: torch.Tensor, coef: float = 1.0):
+    """
+    scale gradient
+    Args:
+        x: input tensor
+        coef: scale coefficient
+    """
+    return GradientScalingFunction.apply(x, coef)
 
 
 class MoeZLossFunction(torch.autograd.Function):
