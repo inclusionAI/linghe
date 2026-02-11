@@ -529,9 +529,8 @@ def tma_persistent_matmul_kernel(
             accumulator = tl.dot(a, b.T, accumulator)
 
         tid_c += SM
-        pid_m, pid_n = _compute_pid(
-            tid_c, num_pid_in_group, num_pid_m, GROUP_SIZE_M
-            )
+        pid_m, pid_n = _compute_pid(tid_c, num_pid_in_group, num_pid_m, GROUP_SIZE_M
+                                    )
         offs_a_acc = pid_m * BLOCK_SIZE_M
         offs_b_acc = pid_n * BLOCK_SIZE_N
 
@@ -569,12 +568,10 @@ def triton_tma_persistent_matmul(a, b):
 
     def grid(META):
         nonlocal a_desc, b_desc, c_desc
-        return (
-            min(
-                SM,
-                triton.cdiv(M, BLOCK_M) * triton.cdiv(N, BLOCK_N),
-                ),
-            )
+        return (min(SM,
+                    triton.cdiv(M, BLOCK_M) * triton.cdiv(N, BLOCK_N),
+                    ),
+                )
 
     tma_persistent_matmul_kernel[grid](
         a_desc,

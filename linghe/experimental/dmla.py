@@ -56,26 +56,23 @@ def deprecated_cp_mla_forward_kernel(
     offs_1 = tl.arange(0, 64)
 
     # [B, L, H, 192】
-    q_ptrs = (
-            Q
-            + (bid * L + mid * M) * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q_ptrs = (Q
+              + (bid * L + mid * M) * stride_q
+              + hid * 192
+              + (offs_m[:, None] * stride_q + offs_1[None, :])
+              )
 
-    k_ptrs = (
-            K
-            + bid * L * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k_ptrs = (K
+              + bid * L * stride_k
+              + hid * 192
+              + (offs_n[:, None] * stride_k + offs_1[None, :])
+              )
 
-    v_ptrs = (
-            V
-            + bid * L * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    v_ptrs = (V
+              + bid * L * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
 
     q0 = tl.load(q_ptrs)
     q1 = tl.load(q_ptrs + 64)
@@ -85,19 +82,17 @@ def deprecated_cp_mla_forward_kernel(
     DKV = (192 + 128) * 2
     buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.bfloat16))
     buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-    kb_ptrs = (
-            buffer_ptr +
-            bid * H * L * DKV
-            + hid * L * DKV
-            + (offs_n[:, None] * DKV + offs_1[None, :])
-    )
-    vb_ptrs = (
-            buffer_ptr +
-            bid * H * L * DKV
-            + hid * L * DKV
-            + 192
-            + (offs_n[:, None] * DKV + offs_0[None, :])
-    )
+    kb_ptrs = (buffer_ptr +
+               bid * H * L * DKV
+               + hid * L * DKV
+               + (offs_n[:, None] * DKV + offs_1[None, :])
+               )
+    vb_ptrs = (buffer_ptr +
+               bid * H * L * DKV
+               + hid * L * DKV
+               + 192
+               + (offs_n[:, None] * DKV + offs_0[None, :])
+               )
 
     acc_o = tl.zeros((M, 128), dtype=tl.float32)
     if SAFE:
@@ -170,22 +165,19 @@ def deprecated_cp_mla_forward_kernel(
 
         if src_idx != RANK:
 
-            buffer_ptr = tl.load(buffer_ptrs + src_idx).to(
-                tl.pointer_type(tl.bfloat16))
+            buffer_ptr = tl.load(buffer_ptrs + src_idx).to(tl.pointer_type(tl.bfloat16))
             buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-            kb_ptrs = (
-                    buffer_ptr +
-                    bid * H * L * DKV
-                    + hid * L * DKV
-                    + (offs_n[:, None] * DKV + offs_1[None, :])
-            )
-            vb_ptrs = (
-                    buffer_ptr +
-                    bid * H * L * DKV
-                    + hid * L * DKV
-                    + 192
-                    + (offs_n[:, None] * DKV + offs_0[None, :])
-            )
+            kb_ptrs = (buffer_ptr +
+                       bid * H * L * DKV
+                       + hid * L * DKV
+                       + (offs_n[:, None] * DKV + offs_1[None, :])
+                       )
+            vb_ptrs = (buffer_ptr +
+                       bid * H * L * DKV
+                       + hid * L * DKV
+                       + 192
+                       + (offs_n[:, None] * DKV + offs_0[None, :])
+                       )
 
             # chunk 0
             if cid == 0:
@@ -299,12 +291,11 @@ def deprecated_cp_mla_forward_kernel(
     acc_o = acc_o / lse[:, None]
 
     # [B, L, H, 128]
-    out_ptrs = (
-            Out
-            + (bid * L + mid * M) * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_0[None, :])
-    )
+    out_ptrs = (Out
+                + (bid * L + mid * M) * H * 128
+                + hid * 128
+                + (offs_m[:, None] * 128 * H + offs_0[None, :])
+                )
 
     tl.store(out_ptrs, acc_o)
     tl.store(LSE + bid * H * L + hid * L + mid * M + tl.arange(0, M), lse)
@@ -352,34 +343,30 @@ def cp_mla_forward_kernel(
     offs_1 = tl.arange(0, 64)
 
     # [B, L, H, 192】
-    q_ptrs = (
-            Q
-            + (bid * L + mid * M) * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q_ptrs = (Q
+              + (bid * L + mid * M) * stride_q
+              + hid * 192
+              + (offs_m[:, None] * stride_q + offs_1[None, :])
+              )
 
-    k_ptrs = (
-            K
-            + bid * L * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k_ptrs = (K
+              + bid * L * stride_k
+              + hid * 192
+              + (offs_n[:, None] * stride_k + offs_1[None, :])
+              )
 
-    v_ptrs = (
-            V
-            + bid * L * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    v_ptrs = (V
+              + bid * L * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
 
     # [B, L, H, 128]
-    out_ptrs = (
-            Out
-            + (bid * L + mid * M) * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_0[None, :])
-    )
+    out_ptrs = (Out
+                + (bid * L + mid * M) * H * 128
+                + hid * 128
+                + (offs_m[:, None] * 128 * H + offs_0[None, :])
+                )
     lse_ptrs = LSE + bid * H * L + hid * L + mid * M + tl.arange(0, M)
 
     # (B, H, L, (192 + 128) * 2)
@@ -387,20 +374,18 @@ def cp_mla_forward_kernel(
     DKV = (192 + 128) * 2
     buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.bfloat16))
     buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-    qb_ptrs = (
-            buffer_ptr +
-            bid * H * L * DKV
-            + hid * L * DKV
-            + mid * M * DKV
-            + (offs_m[:, None] * DKV + offs_1[None, :])
-    )
-    lseb_ptrs = (
-            buffer_ptr +
-            bid * H * L * DKV
-            + hid * L * DKV
-            + mid * DKV
-            + offs_m
-    )
+    qb_ptrs = (buffer_ptr +
+               bid * H * L * DKV
+               + hid * L * DKV
+               + mid * M * DKV
+               + (offs_m[:, None] * DKV + offs_1[None, :])
+               )
+    lseb_ptrs = (buffer_ptr +
+                 bid * H * L * DKV
+                 + hid * L * DKV
+                 + mid * DKV
+                 + offs_m
+                 )
 
     # load q0
     q0 = tl.load(q_ptrs)
@@ -492,33 +477,29 @@ def cp_mla_forward_kernel(
 
         if src_idx > RANK:
 
-            src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(
-                tl.pointer_type(tl.bfloat16))
+            src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(tl.pointer_type(tl.bfloat16))
             src_buffer_ptr = tl.multiple_of(src_buffer_ptr, 16)
-            src_qb_ptrs = (
-                    src_buffer_ptr +
-                    bid * H * L * DKV
-                    + hid * L * DKV
-                    + mid * M * DKV
-                    + (offs_m[:, None] * DKV + offs_1[None, :])
-            )
-            src_ob_ptrs = (
-                    src_buffer_ptr +
-                    bid * H * L * DKV
-                    + hid * L * DKV
-                    + mid * M * DKV
-                    + 192
-                    + (offs_m[:, None] * DKV + offs_0[None, :])
-            )
+            src_qb_ptrs = (src_buffer_ptr +
+                           bid * H * L * DKV
+                           + hid * L * DKV
+                           + mid * M * DKV
+                           + (offs_m[:, None] * DKV + offs_1[None, :])
+                           )
+            src_ob_ptrs = (src_buffer_ptr +
+                           bid * H * L * DKV
+                           + hid * L * DKV
+                           + mid * M * DKV
+                           + 192
+                           + (offs_m[:, None] * DKV + offs_0[None, :])
+                           )
             # note that M <= 320
-            src_lseb_ptrs = (
-                    src_buffer_ptr +
-                    bid * H * L * DKV
-                    + hid * L * DKV
-                    + 320
-                    + mid * DKV
-                    + offs_m
-            )
+            src_lseb_ptrs = (src_buffer_ptr +
+                             bid * H * L * DKV
+                             + hid * L * DKV
+                             + 320
+                             + mid * DKV
+                             + offs_m
+                             )
             q0 = tl.load(src_qb_ptrs)
             q1 = tl.load(src_qb_ptrs + 64)
             q2 = tl.load(src_qb_ptrs + 128)
@@ -617,10 +598,9 @@ def cp_mla_forward_kernel(
         qk = tl.dot(q2, tl.trans(k2), qk)
 
         if CAUSAL:
-            qk += tl.where(
-                (L // 2 + mid * M + offs_m)[:, None] >= (n + offs_n)[None, :],
-                0.0, -1e9
-                )
+            qk += tl.where((L // 2 + mid * M + offs_m)[:, None] >= (n + offs_n)[None, :],
+                           0.0, -1e9
+                           )
 
         qk *= softmax_scale
 
@@ -701,35 +681,31 @@ def cp_mla_forward_kernel(
     # q1 
     for src_idx in range(SIZE):
 
-        src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(
-            tl.pointer_type(tl.bfloat16))
+        src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(tl.pointer_type(tl.bfloat16))
         src_buffer_ptr = tl.multiple_of(src_buffer_ptr, 16)
-        src_qb_ptrs = (
-                src_buffer_ptr +
-                bid * H * L * DKV
-                + hid * L * DKV
-                + L // 2 * DKV
-                + mid * M * DKV
-                + (offs_m[:, None] * DKV + offs_1[None, :])
-        )
-        src_ob_ptrs = (
-                src_buffer_ptr +
-                bid * H * L * DKV
-                + hid * L * DKV
-                + L // 2 * DKV
-                + mid * M * DKV
-                + 192
-                + (offs_m[:, None] * DKV + offs_0[None, :])
-        )
-        src_lseb_ptrs = (
-                src_buffer_ptr +
-                bid * H * L * DKV
-                + hid * L * DKV
-                + L // 2 * DKV
-                + 320
-                + mid * DKV
-                + offs_m
-        )
+        src_qb_ptrs = (src_buffer_ptr +
+                       bid * H * L * DKV
+                       + hid * L * DKV
+                       + L // 2 * DKV
+                       + mid * M * DKV
+                       + (offs_m[:, None] * DKV + offs_1[None, :])
+                       )
+        src_ob_ptrs = (src_buffer_ptr +
+                       bid * H * L * DKV
+                       + hid * L * DKV
+                       + L // 2 * DKV
+                       + mid * M * DKV
+                       + 192
+                       + (offs_m[:, None] * DKV + offs_0[None, :])
+                       )
+        src_lseb_ptrs = (src_buffer_ptr +
+                         bid * H * L * DKV
+                         + hid * L * DKV
+                         + L // 2 * DKV
+                         + 320
+                         + mid * DKV
+                         + offs_m
+                         )
         q0 = tl.load(src_qb_ptrs)
         q1 = tl.load(src_qb_ptrs + 64)
         q2 = tl.load(src_qb_ptrs + 128)
@@ -826,22 +802,20 @@ def cp_mla_forward_kernel(
         hasSubsequentMemAccess=True,
         )
 
-    ob_ptrs = (
-            buffer_ptr +
-            bid * H * L * DKV
-            + hid * L * DKV
-            + mid * M * DKV
-            + 192
-            + (offs_m[:, None] * DKV + offs_0[None, :])
-    )
-    lseb_ptrs = (
-            buffer_ptr +
-            bid * H * L * DKV
-            + hid * L * DKV
-            + 320
-            + mid * DKV
-            + offs_m
-    )
+    ob_ptrs = (buffer_ptr +
+               bid * H * L * DKV
+               + hid * L * DKV
+               + mid * M * DKV
+               + 192
+               + (offs_m[:, None] * DKV + offs_0[None, :])
+               )
+    lseb_ptrs = (buffer_ptr +
+                 bid * H * L * DKV
+                 + hid * L * DKV
+                 + 320
+                 + mid * DKV
+                 + offs_m
+                 )
 
     o = tl.load(out_ptrs)
     ob = tl.load(ob_ptrs)
@@ -972,39 +946,34 @@ def cp_mla_backward_kernel(
     offs_1 = tl.arange(0, 64)  # pe
 
     # [B, L, H, 192]
-    q0_ptrs = (
-            Q
-            + bid * L * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_0[None, :])
-    )
-    q1_ptrs = (
-            Q
-            + bid * L * stride_q
-            + hid * 192
-            + 128
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q0_ptrs = (Q
+               + bid * L * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_0[None, :])
+               )
+    q1_ptrs = (Q
+               + bid * L * stride_q
+               + hid * 192
+               + 128
+               + (offs_m[:, None] * stride_q + offs_1[None, :])
+               )
 
-    k0_ptrs = (
-            K
-            + (bid * L + nid * N) * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_0[None, :])
-    )
-    k1_ptrs = (
-            K
-            + (bid * L + nid * N) * stride_k
-            + hid * 192
-            + 128
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
-    v_ptrs = (
-            V
-            + (bid * L + nid * N) * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    k0_ptrs = (K
+               + (bid * L + nid * N) * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_0[None, :])
+               )
+    k1_ptrs = (K
+               + (bid * L + nid * N) * stride_k
+               + hid * 192
+               + 128
+               + (offs_n[:, None] * stride_k + offs_1[None, :])
+               )
+    v_ptrs = (V
+              + (bid * L + nid * N) * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
 
     k0 = tl.load(k0_ptrs)
     k1 = tl.load(k1_ptrs)
@@ -1013,21 +982,19 @@ def cp_mla_backward_kernel(
     DKV = (192 + 128) * 2
     buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.bfloat16))
     buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-    kb0_ptrs = (
-            buffer_ptr
-            + bid * H * L * DKV
-            + hid * L * DKV
-            + nid * N * DKV
-            + (offs_n[:, None] * DKV + offs_0[None, :])
-    )
-    kb1_ptrs = (
-            buffer_ptr
-            + bid * H * L * DKV
-            + hid * L * DKV
-            + nid * N * DKV
-            + 128
-            + (offs_n[:, None] * DKV + offs_1[None, :])
-    )
+    kb0_ptrs = (buffer_ptr
+                + bid * H * L * DKV
+                + hid * L * DKV
+                + nid * N * DKV
+                + (offs_n[:, None] * DKV + offs_0[None, :])
+                )
+    kb1_ptrs = (buffer_ptr
+                + bid * H * L * DKV
+                + hid * L * DKV
+                + nid * N * DKV
+                + 128
+                + (offs_n[:, None] * DKV + offs_1[None, :])
+                )
 
     # store kv 0 to buffer
     tl.store(kb0_ptrs, k0)
@@ -1046,49 +1013,43 @@ def cp_mla_backward_kernel(
 
     tl.debug_barrier()
 
-    go_ptrs = (
-            GO
-            + bid * L * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_0[None, :])
-    )
+    go_ptrs = (GO
+               + bid * L * H * 128
+               + hid * 128
+               + (offs_m[:, None] * 128 * H + offs_0[None, :])
+               )
 
     # [B, L, H, 192]
-    dq0_ptrs = (
-            GQ
-            + bid * L * H * 192
-            + hid * 192
-            + (offs_m[:, None] * H * 192 + offs_0[None, :])
-    )
-    dq1_ptrs = (
-            GQ
-            + bid * L * H * 192
-            + hid * 192
-            + 128
-            + (offs_m[:, None] * H * 192 + offs_1[None, :])
-    )
+    dq0_ptrs = (GQ
+                + bid * L * H * 192
+                + hid * 192
+                + (offs_m[:, None] * H * 192 + offs_0[None, :])
+                )
+    dq1_ptrs = (GQ
+                + bid * L * H * 192
+                + hid * 192
+                + 128
+                + (offs_m[:, None] * H * 192 + offs_1[None, :])
+                )
 
-    gk0_ptrs = (
-            GK
-            + (bid * L + nid * N) * H * 192
-            + hid * 192
-            + (offs_n[:, None] * 192 * H + offs_0[None, :])
-    )
+    gk0_ptrs = (GK
+                + (bid * L + nid * N) * H * 192
+                + hid * 192
+                + (offs_n[:, None] * 192 * H + offs_0[None, :])
+                )
 
-    gk1_ptrs = (
-            GK
-            + (bid * L + nid * N) * H * 192
-            + hid * 192
-            + 128
-            + (offs_n[:, None] * 192 * H + offs_1[None, :])
-    )
+    gk1_ptrs = (GK
+                + (bid * L + nid * N) * H * 192
+                + hid * 192
+                + 128
+                + (offs_n[:, None] * 192 * H + offs_1[None, :])
+                )
 
-    gv_ptrs = (
-            GV
-            + (bid * L + nid * N) * H * 128
-            + hid * 128
-            + (offs_n[:, None] * 128 * H + offs_0[None, :])
-    )
+    gv_ptrs = (GV
+               + (bid * L + nid * N) * H * 128
+               + hid * 128
+               + (offs_n[:, None] * 128 * H + offs_0[None, :])
+               )
 
     dv = tl.zeros((N, 128), dtype=tl.float32)
     dk0 = tl.zeros((N, 128), dtype=tl.float32)
@@ -1104,9 +1065,8 @@ def cp_mla_backward_kernel(
         m = step + (n_steps - 1 - i) * M
         lse = 1 / tl.load(LSE + bid * H * L + hid * L + m + tl.arange(0, M))
         if SAFE:
-            max_logits = tl.load(
-                ML + bid * H * L + hid * L + m + tl.arange(0, M)
-                )
+            max_logits = tl.load(ML + bid * H * L + hid * L + m + tl.arange(0, M)
+                                 )
         ds = tl.load(DS + bid * H * L + hid * L + m + tl.arange(0, M))
 
         q0 = tl.load(q0_ptrs + m * stride_q)
@@ -1171,24 +1131,21 @@ def cp_mla_backward_kernel(
 
         if src_idx != RANK:
 
-            src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(
-                tl.pointer_type(tl.bfloat16))
+            src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(tl.pointer_type(tl.bfloat16))
             src_buffer_ptr = tl.multiple_of(src_buffer_ptr, 16)
-            src_kb0_ptrs = (
-                    src_buffer_ptr
-                    + bid * H * L * DKV
-                    + hid * L * DKV
-                    + nid * N * DKV
-                    + (offs_n[:, None] * DKV + offs_0[None, :])
-            )
-            src_kb1_ptrs = (
-                    src_buffer_ptr
-                    + bid * H * L * DKV
-                    + hid * L * DKV
-                    + nid * N * DKV
-                    + 128
-                    + (offs_n[:, None] * DKV + offs_1[None, :])
-            )
+            src_kb0_ptrs = (src_buffer_ptr
+                            + bid * H * L * DKV
+                            + hid * L * DKV
+                            + nid * N * DKV
+                            + (offs_n[:, None] * DKV + offs_0[None, :])
+                            )
+            src_kb1_ptrs = (src_buffer_ptr
+                            + bid * H * L * DKV
+                            + hid * L * DKV
+                            + nid * N * DKV
+                            + 128
+                            + (offs_n[:, None] * DKV + offs_1[None, :])
+                            )
 
             dk0 = tl.zeros((N, 128), dtype=tl.float32)
             dk1 = tl.zeros((N, 64), dtype=tl.float32)
@@ -1202,14 +1159,11 @@ def cp_mla_backward_kernel(
             # q: chunk 0
             if src_idx < RANK:
                 for m in range(0, L // 2, M):
-                    lse = 1 / tl.load(
-                        LSE + bid * H * L + hid * L + m + tl.arange(0, M))
+                    lse = 1 / tl.load(LSE + bid * H * L + hid * L + m + tl.arange(0, M))
                     if SAFE:
-                        max_logits = tl.load(
-                            ML + bid * H * L + hid * L + m + tl.arange(0, M)
-                            )
-                    ds = tl.load(
-                        DS + bid * H * L + hid * L + m + tl.arange(0, M))
+                        max_logits = tl.load(ML + bid * H * L + hid * L + m + tl.arange(0, M)
+                                             )
+                    ds = tl.load(DS + bid * H * L + hid * L + m + tl.arange(0, M))
 
                     q0 = tl.load(q0_ptrs + m * stride_q)
                     q1 = tl.load(q1_ptrs + m * stride_q)
@@ -1251,12 +1205,10 @@ def cp_mla_backward_kernel(
             # kv: chunk 0
             # q: chunk 1
             for m in range(L // 2, L, M):
-                lse = 1 / tl.load(
-                    LSE + bid * H * L + hid * L + m + tl.arange(0, M))
+                lse = 1 / tl.load(LSE + bid * H * L + hid * L + m + tl.arange(0, M))
                 if SAFE:
-                    max_logits = tl.load(
-                        ML + bid * H * L + hid * L + m + tl.arange(0, M)
-                        )
+                    max_logits = tl.load(ML + bid * H * L + hid * L + m + tl.arange(0, M)
+                                         )
                 ds = tl.load(DS + bid * H * L + hid * L + m + tl.arange(0, M))
 
                 q0 = tl.load(q0_ptrs + m * stride_q)
@@ -1355,9 +1307,8 @@ def cp_mla_backward_kernel(
         m = step + (n_steps - 1 - i) * M
         lse = 1 / tl.load(LSE + bid * H * L + hid * L + m + tl.arange(0, M))
         if SAFE:
-            max_logits = tl.load(
-                ML + bid * H * L + hid * L + m + tl.arange(0, M)
-                )
+            max_logits = tl.load(ML + bid * H * L + hid * L + m + tl.arange(0, M)
+                                 )
         ds = tl.load(DS + bid * H * L + hid * L + m + tl.arange(0, M))
 
         q0 = tl.load(q0_ptrs + m * stride_q)
@@ -1365,10 +1316,9 @@ def cp_mla_backward_kernel(
         go = tl.load(go_ptrs + m * H * 128)
 
         if CAUSAL:
-            qk = tl.where(
-                (m + offs_m)[:, None] >= (L // 2 + nid * N + offs_n)[None, :],
-                0.0, -10000.0
-                )
+            qk = tl.where((m + offs_m)[:, None] >= (L // 2 + nid * N + offs_n)[None, :],
+                          0.0, -10000.0
+                          )
             qk = tl.dot(q1, tl.trans(k1), qk)
             qk = tl.dot(q0, tl.trans(k0), qk)
         else:
@@ -1410,26 +1360,23 @@ def cp_mla_backward_kernel(
     tl.atomic_add(gv_ptrs + L // 2 * H * 128, dv, sem='relaxed')
 
     for src_idx in range(SIZE):
-        src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(
-            tl.pointer_type(tl.bfloat16))
+        src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(tl.pointer_type(tl.bfloat16))
         src_buffer_ptr = tl.multiple_of(src_buffer_ptr, 16)
-        src_kb0_ptrs = (
-                src_buffer_ptr
-                + bid * H * L * DKV
-                + hid * L * DKV
-                + L // 2 * DKV
-                + nid * N * DKV
-                + (offs_n[:, None] * DKV + offs_0[None, :])
-        )
-        src_kb1_ptrs = (
-                src_buffer_ptr
-                + bid * H * L * DKV
-                + hid * L * DKV
-                + L // 2 * DKV
-                + nid * N * DKV
-                + 128
-                + (offs_n[:, None] * DKV + offs_1[None, :])
-        )
+        src_kb0_ptrs = (src_buffer_ptr
+                        + bid * H * L * DKV
+                        + hid * L * DKV
+                        + L // 2 * DKV
+                        + nid * N * DKV
+                        + (offs_n[:, None] * DKV + offs_0[None, :])
+                        )
+        src_kb1_ptrs = (src_buffer_ptr
+                        + bid * H * L * DKV
+                        + hid * L * DKV
+                        + L // 2 * DKV
+                        + nid * N * DKV
+                        + 128
+                        + (offs_n[:, None] * DKV + offs_1[None, :])
+                        )
 
         if src_idx != RANK:
 
@@ -1444,14 +1391,11 @@ def cp_mla_backward_kernel(
             # second chunk
             if src_idx > RANK:
                 for m in range(L // 2, L, M):
-                    lse = 1 / tl.load(
-                        LSE + bid * H * L + hid * L + m + tl.arange(0, M))
+                    lse = 1 / tl.load(LSE + bid * H * L + hid * L + m + tl.arange(0, M))
                     if SAFE:
-                        max_logits = tl.load(
-                            ML + bid * H * L + hid * L + m + tl.arange(0, M)
-                            )
-                    ds = tl.load(
-                        DS + bid * H * L + hid * L + m + tl.arange(0, M))
+                        max_logits = tl.load(ML + bid * H * L + hid * L + m + tl.arange(0, M)
+                                             )
+                    ds = tl.load(DS + bid * H * L + hid * L + m + tl.arange(0, M))
 
                     q0 = tl.load(q0_ptrs + m * stride_q)
                     q1 = tl.load(q1_ptrs + m * stride_q)

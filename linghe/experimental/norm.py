@@ -254,9 +254,8 @@ def parallel_rms_norm_and_block_quant_forward_kernel(x_ptr,
                                         None] * M + tl.arange(0, H)[
                                                     None, :]
     for i in range(K):
-        weight = tl.load(weight_ptr + cid * K * B + i * B + tl.arange(0, B)).to(
-            tl.float32
-            )
+        weight = tl.load(weight_ptr + cid * K * B + i * B + tl.arange(0, B)).to(tl.float32
+                                                                                )
         x = tl.load(x_ptr + i * B + offs, mask=masks).to(tl.float32)
         x = x * rms[:, None] * weight[None, :]
         scale = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
@@ -272,12 +271,11 @@ def parallel_rms_norm_and_block_quant_forward_kernel(x_ptr,
         scale = tl.maximum(tl.max(x.abs(), 0) / 448.0, 1e-30)
         if ROUND:
             scale = tl.exp2(tl.ceil(tl.log2(scale)))
-        tl.store(
-            transpose_scale_ptr + rid * n + cid * B * K + i * B + tl.arange(0,
-                                                                            B
-                                                                            ),
-            scale
-            )
+        tl.store(transpose_scale_ptr + rid * n + cid * B * K + i * B + tl.arange(0,
+                                                                                 B
+                                                                                 ),
+                 scale
+                 )
 
         q = (tl.trans(x / scale)).to(transpose_output_ptr.dtype.element_ty)
         tl.store(transpose_output_ptr + i * B * M + toffs, q,

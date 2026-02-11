@@ -37,8 +37,7 @@ def rms_norm_and_block_quant_kernel(
         x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
 
         if residual_ptr is not None:
-            r = tl.load(residual_ptr + offs, mask=indices[:, None] < M).to(
-                tl.float32)
+            r = tl.load(residual_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
             x = x + r
             tl.debug_barrier()
             tl.store(residual_ptr + offs, x, mask=indices[:, None] < M)
@@ -91,8 +90,7 @@ def triton_rms_norm_and_block_quant(
         - scale: quantization scale.
         - residual: residual tensor.
     """
-    assert x.is_contiguous() and weight.is_contiguous() and (
-            residual is None or residual.is_contiguous())
+    assert x.is_contiguous() and weight.is_contiguous() and (residual is None or residual.is_contiguous())
     M, N = x.shape
     assert N <= 8192 and 8192 % N == 0
     device = x.device

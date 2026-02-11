@@ -108,9 +108,8 @@ def torch_mxfp8_quant(x):
     assert N % 128 == 0
     if m % 128 != 0:
         M = (m + 127) // 128 * 128
-        x = torch.cat(
-            [x, torch.zeros((M - m, N), dtype=x.dtype, device=x.device)], 0
-            )
+        x = torch.cat([x, torch.zeros((M - m, N), dtype=x.dtype, device=x.device)], 0
+                      )
     else:
         M = m
     xs = x.view(M, N // 32, 32)

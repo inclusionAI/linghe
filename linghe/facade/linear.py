@@ -17,13 +17,12 @@ from linghe.utils.transpose import triton_pad_transpose
 
 class _HadamardQuantLinear(torch.autograd.Function):
     @staticmethod
-    def forward(
-            ctx,
-            input: torch.Tensor,
-            weight: torch.Tensor,
-            bias: Optional[torch.Tensor],
-            hadamard_matrix: torch.Tensor
-            ):
+    def forward(ctx,
+                input: torch.Tensor,
+                weight: torch.Tensor,
+                bias: Optional[torch.Tensor],
+                hadamard_matrix: torch.Tensor
+                ):
         ctx.input_requires_grad = input.requires_grad
         ctx.weight_requires_grad = weight.requires_grad
         ctx.bias_requires_grad = bias is not None and bias.requires_grad
@@ -63,10 +62,9 @@ class _HadamardQuantLinear(torch.autograd.Function):
         return output.view(out_shape)
 
     @staticmethod
-    def backward(
-            ctx,
-            output_grad: torch.Tensor,
-            ):
+    def backward(ctx,
+                 output_grad: torch.Tensor,
+                 ):
         xt_q, xt_scale, wt_q, wt_scale, hadamard_matrix = ctx.saved_tensors
 
         output_grad = output_grad.view(-1, output_grad.shape[-1])
@@ -105,14 +103,13 @@ class HadamardQuantLinear(torch.nn.Module):
     a naive implementation of hadamard transformation and quantization
     """
 
-    def __init__(
-            self,
-            in_features: int,
-            out_features: int,
-            bias: bool = True,
-            device=None,
-            dtype=None
-            ):
+    def __init__(self,
+                 in_features: int,
+                 out_features: int,
+                 bias: bool = True,
+                 device=None,
+                 dtype=None
+                 ):
         """
         Args:
             in_features: in feature number
@@ -124,15 +121,13 @@ class HadamardQuantLinear(torch.nn.Module):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight = torch.nn.parameter.Parameter(
-            torch.empty((out_features, in_features), device=device,
-                        dtype=dtype
-                        )
-            )
+        self.weight = torch.nn.parameter.Parameter(torch.empty((out_features, in_features), device=device,
+                                                               dtype=dtype
+                                                               )
+                                                   )
         if bias:
-            self.bias = torch.nn.parameter.Parameter(
-                torch.empty(out_features, device=device, dtype=dtype)
-                )
+            self.bias = torch.nn.parameter.Parameter(torch.empty(out_features, device=device, dtype=dtype)
+                                                     )
         else:
             self.bias = None
 
@@ -182,13 +177,12 @@ class HadamardQuantLinear(torch.nn.Module):
 
 class _SmoothQuantLinear(torch.autograd.Function):
     @staticmethod
-    def forward(
-            ctx,
-            input: torch.Tensor,
-            weight: torch.Tensor,
-            bias: Optional[torch.Tensor],
-            smooth_scale: torch.Tensor,
-            ):
+    def forward(ctx,
+                input: torch.Tensor,
+                weight: torch.Tensor,
+                bias: Optional[torch.Tensor],
+                smooth_scale: torch.Tensor,
+                ):
         ctx.input_requires_grad = input.requires_grad
         ctx.weight_requires_grad = weight.requires_grad
         ctx.bias_requires_grad = bias is not None and bias.requires_grad
@@ -231,10 +225,9 @@ class _SmoothQuantLinear(torch.autograd.Function):
         return output.view(out_shape)
 
     @staticmethod
-    def backward(
-            ctx,
-            output_grad: torch.Tensor
-            ):
+    def backward(ctx,
+                 output_grad: torch.Tensor
+                 ):
 
         x_q, x_s, w_q, w_s, smooth_scale = ctx.saved_tensors
 
@@ -282,14 +275,13 @@ class SmoothQuantLinear(torch.nn.Module):
     a naive implementation of smooth quantization linear
     """
 
-    def __init__(
-            self,
-            in_features: int,
-            out_features: int,
-            bias: bool = True,
-            device=None,
-            dtype=None
-            ):
+    def __init__(self,
+                 in_features: int,
+                 out_features: int,
+                 bias: bool = True,
+                 device=None,
+                 dtype=None
+                 ):
         """
         Args:
             in_features: in feature number
@@ -301,15 +293,13 @@ class SmoothQuantLinear(torch.nn.Module):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight = torch.nn.parameter.Parameter(
-            torch.empty((out_features, in_features), device=device,
-                        dtype=dtype
-                        )
-            )
+        self.weight = torch.nn.parameter.Parameter(torch.empty((out_features, in_features), device=device,
+                                                               dtype=dtype
+                                                               )
+                                                   )
         if bias:
-            self.bias = torch.nn.parameter.Parameter(
-                torch.empty(out_features, device=device, dtype=dtype)
-                )
+            self.bias = torch.nn.parameter.Parameter(torch.empty(out_features, device=device, dtype=dtype)
+                                                     )
         else:
             self.bias = None
 

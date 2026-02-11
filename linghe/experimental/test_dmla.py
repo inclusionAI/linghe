@@ -30,10 +30,9 @@ def torch_attn(q, k, v, causal=True, mask=None, safe=True, clip_value=0.0,
     k_len = k.shape[1]
     if mask is None:
         if causal:
-            mask = -10000 * torch.triu(
-                torch.ones((q_len, k_len), dtype=q.dtype, device="cuda"),
-                k_len - q_len + 1,
-                )
+            mask = -10000 * torch.triu(torch.ones((q_len, k_len), dtype=q.dtype, device="cuda"),
+                                       k_len - q_len + 1,
+                                       )
         else:
             mask = torch.zeros((q_len, k_len), dtype=q.dtype, device="cuda")
 
@@ -94,8 +93,7 @@ def torch_varlen_attn(qs, ks, vs, cu_seqlens, padded_cu_seqlens=None,
         lses.append(lse[0])
         logits.append(logit[0])
         if padded_cu_seqlens is not None:
-            gap = (padded_cu_seqlens[i + 1] - padded_cu_seqlens[i]) - (
-                    cu_seqlens[i + 1] - cu_seqlens[i])
+            gap = (padded_cu_seqlens[i + 1] - padded_cu_seqlens[i]) - (cu_seqlens[i + 1] - cu_seqlens[i])
             outputs.append(torch.zeros_like(out[0][:gap]))
             lses.append(torch.zeros_like(lse[0][:, :gap]))
             logits.append(torch.zeros_like(logit[0][:, :gap]))
@@ -127,8 +125,7 @@ def select(x, group):
     B, L, H, D = x.shape
     l = L // (2 * group_size)
     x1 = x[:, group_rank * l:(group_rank + 1) * l]
-    x2 = x[:, (group_size * 2 - group_rank - 1) * l:(
-                                                            group_size * 2 - group_rank) * l]
+    x2 = x[:, (group_size * 2 - group_rank - 1) * l:(group_size * 2 - group_rank) * l]
     return torch.cat([x1, x2], 1)
 
 
@@ -138,8 +135,7 @@ def select_stat(x, group):
     B, H, L = x.shape
     l = L // (2 * group_size)
     x1 = x[:, :, group_rank * l:(group_rank + 1) * l]
-    x2 = x[:, :, (group_size * 2 - group_rank - 1) * l:(
-                                                               group_size * 2 - group_rank) * l]
+    x2 = x[:, :, (group_size * 2 - group_rank - 1) * l:(group_size * 2 - group_rank) * l]
     return torch.cat([x1, x2], 2)
 
 
@@ -224,14 +220,12 @@ def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False,
                      name=f'gq:{group_rank}')
 
     if bench:
-        ref_flops = B * L * L * H * (192 + 128) * (
-            1 if causal else 2) * group_size
+        ref_flops = B * L * L * H * (192 + 128) * (1 if causal else 2) * group_size
         benchmark_func(triton_cp_mla_forward, q, k, v, hdl, group,
                        causal=causal, safe=safe,
                        clip_value=clip_value, ref_flops=ref_flops
                        )
-        ref_flops = B * L * L * H * (192 + 128 * 2 + 192 * 2) * (
-            1 if causal else 2) * group_size
+        ref_flops = B * L * L * H * (192 + 128 * 2 + 192 * 2) * (1 if causal else 2) * group_size
         benchmark_func(triton_cp_mla_backward, g, output, q, k, v, lse,
                        max_logits,
                        hdl, group,

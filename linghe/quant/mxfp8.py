@@ -22,12 +22,11 @@ def mxfp8_quant_kernel(
         ):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
-    offs = (
-            rid * 32 * N
+    offs = (rid * 32 * N
             + cid * B
             + tl.arange(0, 32)[:, None] * N
             + tl.arange(0, B)[None, :]
-    )
+            )
     indices = rid * 32 + tl.arange(0, 32)
     mask = indices[:, None] < m
     b = N // 32
@@ -40,25 +39,22 @@ def mxfp8_quant_kernel(
         scale = tl.maximum(tl.max(xr.abs(), 2) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        tl.store(
-            x_s_ptr
-            + rid * 32 * b
-            + cid * B // 32
-            + tl.arange(0, 32)[:, None] * b
-            + tl.arange(0, sb),
-            log_scale + 127,
-            )
-        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(
-            x_q_ptr.dtype.element_ty)
-        tl.store(
-            x_q_ptr
-            + rid * 32 * N
-            + cid * B
-            + tl.arange(0, 32)[:, None] * N
-            + tl.arange(0, B)[None, :],
-            xq,
-            mask=mask,
-            )
+        tl.store(x_s_ptr
+                 + rid * 32 * b
+                 + cid * B // 32
+                 + tl.arange(0, 32)[:, None] * b
+                 + tl.arange(0, sb),
+                 log_scale + 127,
+                 )
+        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(x_q_ptr.dtype.element_ty)
+        tl.store(x_q_ptr
+                 + rid * 32 * N
+                 + cid * B
+                 + tl.arange(0, 32)[:, None] * N
+                 + tl.arange(0, B)[None, :],
+                 xq,
+                 mask=mask,
+                 )
 
     if OUTPUT_MODE > 0:
         scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
@@ -67,15 +63,14 @@ def mxfp8_quant_kernel(
         tl.store(xt_s_ptr + rid * N + cid * B + tl.arange(0, B),
                  log_scale + 127)
         xq = (x / scale).to(xt_q_ptr.dtype.element_ty)
-        tl.store(
-            xt_q_ptr
-            + rid * 32 * N
-            + cid * B
-            + tl.arange(0, 32)[:, None] * N
-            + tl.arange(0, B)[None, :],
-            xq,
-            mask=mask,
-            )
+        tl.store(xt_q_ptr
+                 + rid * 32 * N
+                 + cid * B
+                 + tl.arange(0, 32)[:, None] * N
+                 + tl.arange(0, B)[None, :],
+                 xq,
+                 mask=mask,
+                 )
 
 
 def triton_mxfp8_quant(x, output_mode=2):
@@ -141,13 +136,12 @@ def batch_mxfp8_quant_kernel(
         tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 128), 0)) * 4
     si = tl.sum(tl.where(tl.arange(0, E) < eid, counts, 0))
 
-    offs = (
-            si * N
+    offs = (si * N
             + rid * 32 * N
             + cid * B
             + tl.arange(0, 32)[:, None] * N
             + tl.arange(0, B)[None, :]
-    )
+            )
     indices = rid * 32 + tl.arange(0, 32)
     mask = indices[:, None] < count
     b = N // 32
@@ -160,27 +154,24 @@ def batch_mxfp8_quant_kernel(
         scale = tl.maximum(tl.max(xr.abs(), 2) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        tl.store(
-            xs_ptr
-            + m_block * N
-            + rid * 32 * b
-            + cid * B // 32
-            + tl.arange(0, 32)[:, None] * b
-            + tl.arange(0, sb),
-            log_scale + 127,
-            )
-        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(
-            xq_ptr.dtype.element_ty)
+        tl.store(xs_ptr
+                 + m_block * N
+                 + rid * 32 * b
+                 + cid * B // 32
+                 + tl.arange(0, 32)[:, None] * b
+                 + tl.arange(0, sb),
+                 log_scale + 127,
+                 )
+        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(xq_ptr.dtype.element_ty)
         tl.store(xq_ptr + offs, xq, mask=mask)
 
     if OUTPUT_MODE > 0:
         scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        tl.store(
-            xts_ptr + m_block * N + rid * N + cid * B + tl.arange(0, B),
-            log_scale + 127
-            )
+        tl.store(xts_ptr + m_block * N + rid * N + cid * B + tl.arange(0, B),
+                 log_scale + 127
+                 )
         xq = (x / scale).to(xtq_ptr.dtype.element_ty)
         tl.store(xtq_ptr + offs, xq, mask=mask)
 

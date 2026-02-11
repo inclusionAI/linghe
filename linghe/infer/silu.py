@@ -20,12 +20,11 @@ def silu_and_block_quant_kernel(
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
 
-    offs = (
-            rid * 128 * n * 2
+    offs = (rid * 128 * n * 2
             + cid * 128
             + tl.arange(0, 128)[:, None] * n * 2
             + tl.arange(0, 128)[None, :]
-    )
+            )
     indices = rid * 128 + tl.arange(0, 128)
     mask = indices[:, None] < M
 

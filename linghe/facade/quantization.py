@@ -52,17 +52,16 @@ class SmoothQuantize(torch.autograd.Function):
                                            reverse=False,
                                            round_scale=quantizer.force_pow_2_scales
                                            )
-        output = cls(
-            shape=shape,
-            dtype=hidden_states.dtype,
-            fp8_dtype=quantizer.dtype,
-            rowwise_data=x_q,
-            rowwise_scale_inv=x_scale,
-            columnwise_data=None,
-            columnwise_scale_inv=quantizer.smooth_scale,
-            quantizer=quantizer,
-            requires_grad=hidden_states.requires_grad,
-            )
+        output = cls(shape=shape,
+                     dtype=hidden_states.dtype,
+                     fp8_dtype=quantizer.dtype,
+                     rowwise_data=x_q,
+                     rowwise_scale_inv=x_scale,
+                     columnwise_data=None,
+                     columnwise_scale_inv=quantizer.smooth_scale,
+                     quantizer=quantizer,
+                     requires_grad=hidden_states.requires_grad,
+                     )
         return output
 
     @staticmethod
@@ -88,17 +87,16 @@ class SmoothQuantize(torch.autograd.Function):
         # import math
         # if math.isnan(y_q.float().max()) or math.isnan(yt_q.float().max()):
         #     print(f'ReverseSmoothQuantize {grad_output.max()=} {y_scale.max()=} {yt_scale.max()=}')
-        output = ctx.cls(
-            shape=shape,
-            dtype=grad_output.dtype,
-            fp8_dtype=grad_quantizer.dtype,
-            rowwise_data=y_q,
-            rowwise_scale_inv=y_scale,
-            columnwise_data=yt_q,
-            columnwise_scale_inv=yt_scale,
-            quantizer=grad_quantizer,
-            requires_grad=False
-            )
+        output = ctx.cls(shape=shape,
+                         dtype=grad_output.dtype,
+                         fp8_dtype=grad_quantizer.dtype,
+                         rowwise_data=y_q,
+                         rowwise_scale_inv=y_scale,
+                         columnwise_data=yt_q,
+                         columnwise_scale_inv=yt_scale,
+                         quantizer=grad_quantizer,
+                         requires_grad=False
+                         )
         return output, None, None, None
 
 
@@ -123,17 +121,15 @@ class BatchSmoothQuantize(torch.autograd.Function):
             hidden_states = hidden_states.view(-1, shape[-1])
 
         if token_count_per_expert is None:
-            token_count_per_expert = torch.tensor(splits).cuda(
-                non_blocking=True)
+            token_count_per_expert = torch.tensor(splits).cuda(non_blocking=True)
             ctx.token_count_per_expert = token_count_per_expert
 
         smooth_scales = [x.smooth_scale for x in quantizers]
         if any([x is None for x in smooth_scales]):
-            smooth_scales = torch.ones(
-                (len(smooth_scales), hidden_states.shape[-1]),
-                dtype=torch.float32,
-                device=hidden_states.device
-                )
+            smooth_scales = torch.ones((len(smooth_scales), hidden_states.shape[-1]),
+                                       dtype=torch.float32,
+                                       device=hidden_states.device
+                                       )
             for i, x in enumerate(quantizers):
                 x.smooth_scale = smooth_scales[i]
         else:
@@ -145,17 +141,16 @@ class BatchSmoothQuantize(torch.autograd.Function):
                                                  round_scale=quantizers[
                                                      0].force_pow_2_scales
                                                  )
-        output = cls(
-            shape=shape,
-            dtype=hidden_states.dtype,
-            fp8_dtype=quantizers[0].dtype,
-            rowwise_data=x_q,
-            rowwise_scale_inv=x_scale,
-            columnwise_data=None,
-            columnwise_scale_inv=smooth_scales,
-            quantizer=quantizers,
-            requires_grad=hidden_states.requires_grad,
-            )
+        output = cls(shape=shape,
+                     dtype=hidden_states.dtype,
+                     fp8_dtype=quantizers[0].dtype,
+                     rowwise_data=x_q,
+                     rowwise_scale_inv=x_scale,
+                     columnwise_data=None,
+                     columnwise_scale_inv=smooth_scales,
+                     quantizer=quantizers,
+                     requires_grad=hidden_states.requires_grad,
+                     )
         return output
 
     @staticmethod
@@ -165,8 +160,7 @@ class BatchSmoothQuantize(torch.autograd.Function):
 
         token_count_per_expert = ctx.token_count_per_expert
         if token_count_per_expert is None:
-            token_count_per_expert = torch.tensor(ctx.splits).cuda(
-                non_blocking=True)
+            token_count_per_expert = torch.tensor(ctx.splits).cuda(non_blocking=True)
 
         shape = grad_output.shape  # rank-3 tensor
         grad_output = grad_output.view(-1, shape[-1])
@@ -202,17 +196,16 @@ class BatchSmoothQuantize(torch.autograd.Function):
         # import math
         # if math.isnan(yt_q.float().max()):
         #     print(f'BatchReverseSmoothQuantize {grad_output.max()=} {yt_scale.max()=}')
-        output = ctx.cls(
-            shape=shape,
-            dtype=grad_output.dtype,
-            fp8_dtype=ctx.grad_quantizers[0].dtype,
-            rowwise_data=y_q,
-            rowwise_scale_inv=y_scale,
-            columnwise_data=yt_q,
-            columnwise_scale_inv=yt_scale,
-            quantizer=ctx.grad_quantizers,
-            requires_grad=False
-            )
+        output = ctx.cls(shape=shape,
+                         dtype=grad_output.dtype,
+                         fp8_dtype=ctx.grad_quantizers[0].dtype,
+                         rowwise_data=y_q,
+                         rowwise_scale_inv=y_scale,
+                         columnwise_data=yt_q,
+                         columnwise_scale_inv=yt_scale,
+                         quantizer=ctx.grad_quantizers,
+                         requires_grad=False
+                         )
         return output, None, None, None, None, None
 
 

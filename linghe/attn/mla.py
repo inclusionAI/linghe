@@ -39,41 +39,36 @@ def deprecated_mla_forward_kernel(
     offs_1 = tl.arange(0, 64)  # pe
 
     # [B, L, H, 192】
-    q0_ptrs = (
-            Q
-            + (bid * L + mid * M) * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_0[None, :])
-    )
-    q1_ptrs = (
-            Q
-            + (bid * L + mid * M) * stride_q
-            + hid * 192
-            + 128
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q0_ptrs = (Q
+               + (bid * L + mid * M) * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_0[None, :])
+               )
+    q1_ptrs = (Q
+               + (bid * L + mid * M) * stride_q
+               + hid * 192
+               + 128
+               + (offs_m[:, None] * stride_q + offs_1[None, :])
+               )
 
-    k0_ptrs = (
-            K
-            + bid * L * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_0[None, :])
-    )
+    k0_ptrs = (K
+               + bid * L * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_0[None, :])
+               )
 
-    k1_ptrs = (
-            K
-            + bid * L * stride_k
-            + hid * 192
-            + 128
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k1_ptrs = (K
+               + bid * L * stride_k
+               + hid * 192
+               + 128
+               + (offs_n[:, None] * stride_k + offs_1[None, :])
+               )
 
-    v_ptrs = (
-            V
-            + bid * L * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    v_ptrs = (V
+              + bid * L * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
 
     q0 = tl.load(q0_ptrs)
     q1 = tl.load(q1_ptrs)
@@ -110,12 +105,11 @@ def deprecated_mla_forward_kernel(
     acc_o = acc_o / lse[:, None]
 
     # [B, L, H, 128]
-    out_ptrs = (
-            Out
-            + (bid * L + mid * M) * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_0[None, :])
-    )
+    out_ptrs = (Out
+                + (bid * L + mid * M) * H * 128
+                + hid * 128
+                + (offs_m[:, None] * 128 * H + offs_0[None, :])
+                )
 
     tl.store(out_ptrs, acc_o)
     tl.store(LSE + bid * H * L + hid * L + mid * M + tl.arange(0, M), lse)
@@ -153,26 +147,23 @@ def mla_forward_kernel(
     offs_1 = tl.arange(0, 64)
 
     # [B, L, H, 192】
-    q0_ptrs = (
-            Q
-            + (bid * L + mid * M) * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q0_ptrs = (Q
+               + (bid * L + mid * M) * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_1[None, :])
+               )
 
-    k0_ptrs = (
-            K
-            + bid * L * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k0_ptrs = (K
+               + bid * L * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_1[None, :])
+               )
 
-    v_ptrs = (
-            V
-            + bid * L * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    v_ptrs = (V
+              + bid * L * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
 
     q0 = tl.load(q0_ptrs)
     q1 = tl.load(q0_ptrs + 64)
@@ -232,12 +223,11 @@ def mla_forward_kernel(
     acc_o = acc_o / lse[:, None]
 
     # [B, L, H, 128]
-    out_ptrs = (
-            Out
-            + (bid * L + mid * M) * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_0[None, :])
-    )
+    out_ptrs = (Out
+                + (bid * L + mid * M) * H * 128
+                + hid * 128
+                + (offs_m[:, None] * 128 * H + offs_0[None, :])
+                )
 
     tl.store(out_ptrs, acc_o)
     tl.store(LSE + bid * H * L + hid * L + mid * M + tl.arange(0, M), lse)
@@ -329,33 +319,29 @@ def naive_mla_ds_kernel(
     offs_1 = tl.arange(0, 64)  # pe
 
     # [B, L, H, 192】
-    q0_ptrs = (
-            Q
-            + (bid * L + mid * M) * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q0_ptrs = (Q
+               + (bid * L + mid * M) * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_1[None, :])
+               )
 
-    k0_ptrs = (
-            K
-            + bid * L * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k0_ptrs = (K
+               + bid * L * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_1[None, :])
+               )
 
-    v_ptrs = (
-            V
-            + bid * L * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    v_ptrs = (V
+              + bid * L * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
 
-    go_ptrs = (
-            GO
-            + (bid * L + mid * M) * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_0[None, :])
-    )
+    go_ptrs = (GO
+               + (bid * L + mid * M) * H * 128
+               + hid * 128
+               + (offs_m[:, None] * 128 * H + offs_0[None, :])
+               )
 
     ds = tl.zeros((M,), dtype=tl.float32)
 
@@ -465,47 +451,42 @@ def deprecated_mla_backward_kernel(
     offs_1 = tl.arange(0, 64)  # pe
 
     # [B, L, H, 192】
-    q0_ptrs = (
-            Q
-            + bid * L * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q0_ptrs = (Q
+               + bid * L * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_1[None, :])
+               )
 
-    k0_ptrs = (
-            K
-            + (bid * L + nid * N) * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k0_ptrs = (K
+               + (bid * L + nid * N) * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_1[None, :])
+               )
 
     k0 = tl.load(k0_ptrs)
     k1 = tl.load(k0_ptrs + 64)
     k2 = tl.load(k0_ptrs + 128)
 
-    v0_ptrs = (
-            V
-            + (bid * L + nid * N) * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_1[None, :])
-    )
+    v0_ptrs = (V
+               + (bid * L + nid * N) * stride_v
+               + hid * 128
+               + (offs_n[:, None] * stride_v + offs_1[None, :])
+               )
     v0 = tl.load(v0_ptrs)
     v1 = tl.load(v0_ptrs + 64)
 
-    go_ptrs = (
-            GO
-            + bid * L * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_1[None, :])
-    )
+    go_ptrs = (GO
+               + bid * L * H * 128
+               + hid * 128
+               + (offs_m[:, None] * 128 * H + offs_1[None, :])
+               )
 
-    dq0_ptrs = (
-            GQ
-            + nid * B * L * H * 192
-            + bid * L * H * 192
-            + hid * 192
-            + (offs_m[:, None] * H * 192 + offs_1[None, :])
-    )
+    dq0_ptrs = (GQ
+                + nid * B * L * H * 192
+                + bid * L * H * 192
+                + hid * 192
+                + (offs_m[:, None] * H * 192 + offs_1[None, :])
+                )
 
     dv0 = tl.zeros((N, 64), dtype=tl.float32)
     dv1 = tl.zeros((N, 64), dtype=tl.float32)
@@ -560,22 +541,20 @@ def deprecated_mla_backward_kernel(
         dq2 = tl.dot(dp, k2)  # [M, N]@[N, 64]=[M, 64]
         tl.store(dq0_ptrs + m * H * 192 + 128, dq2)
 
-    gv_ptrs = (
-            GV
-            + (bid * L + nid * N) * H * 128
-            + hid * 128
-            + (offs_n[:, None] * 128 * H + offs_1[None, :])
-    )
+    gv_ptrs = (GV
+               + (bid * L + nid * N) * H * 128
+               + hid * 128
+               + (offs_n[:, None] * 128 * H + offs_1[None, :])
+               )
 
     tl.store(gv_ptrs, dv0)
     tl.store(gv_ptrs + 64, dv1)
 
-    gk0_ptrs = (
-            GK
-            + (bid * L + nid * N) * H * 192
-            + hid * 192
-            + (offs_n[:, None] * 192 * H + offs_1[None, :])
-    )
+    gk0_ptrs = (GK
+                + (bid * L + nid * N) * H * 192
+                + hid * 192
+                + (offs_n[:, None] * 192 * H + offs_1[None, :])
+                )
     tl.store(gk0_ptrs, dk0)
     tl.store(gk0_ptrs + 64, dk1)
     tl.store(gk0_ptrs + 128, dk2)
@@ -619,82 +598,72 @@ def mla_backward_kernel(
     offs_1 = tl.arange(0, 64)  # pe
 
     # [B, L, H, 192】
-    q0_ptrs = (
-            Q
-            + bid * L * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_0[None, :])
-    )
-    q1_ptrs = (
-            Q
-            + bid * L * stride_q
-            + hid * 192
-            + 128
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q0_ptrs = (Q
+               + bid * L * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_0[None, :])
+               )
+    q1_ptrs = (Q
+               + bid * L * stride_q
+               + hid * 192
+               + 128
+               + (offs_m[:, None] * stride_q + offs_1[None, :])
+               )
 
-    k0_ptrs = (
-            K
-            + (bid * L + nid * N) * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_0[None, :])
-    )
-    k1_ptrs = (
-            K
-            + (bid * L + nid * N) * stride_k
-            + hid * 192
-            + 128
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k0_ptrs = (K
+               + (bid * L + nid * N) * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_0[None, :])
+               )
+    k1_ptrs = (K
+               + (bid * L + nid * N) * stride_k
+               + hid * 192
+               + 128
+               + (offs_n[:, None] * stride_k + offs_1[None, :])
+               )
     k0 = tl.load(k0_ptrs)
     k1 = tl.load(k1_ptrs)
 
-    v_ptrs = (
-            V
-            + (bid * L + nid * N) * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    v_ptrs = (V
+              + (bid * L + nid * N) * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
     v = tl.load(v_ptrs)
 
-    go_ptrs = (
-            GO
-            + bid * L * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_0[None, :])
-    )
+    go_ptrs = (GO
+               + bid * L * H * 128
+               + hid * 128
+               + (offs_m[:, None] * 128 * H + offs_0[None, :])
+               )
 
     if ATOMIC:
         # [B, L, H, 192]
-        dq0_ptrs = (
-                GQ
-                + bid * L * H * 192
-                + hid * 192
-                + (offs_m[:, None] * H * 192 + offs_0[None, :])
-        )
-        dq1_ptrs = (
-                GQ
-                + bid * L * H * 192
-                + hid * 192
-                + 128
-                + (offs_m[:, None] * H * 192 + offs_1[None, :])
-        )
+        dq0_ptrs = (GQ
+                    + bid * L * H * 192
+                    + hid * 192
+                    + (offs_m[:, None] * H * 192 + offs_0[None, :])
+                    )
+        dq1_ptrs = (GQ
+                    + bid * L * H * 192
+                    + hid * 192
+                    + 128
+                    + (offs_m[:, None] * H * 192 + offs_1[None, :])
+                    )
     else:
-        dq0_ptrs = (
-                GQ
-                + nid * B * L * H * 192
-                + bid * L * H * 192
-                + hid * 192
-                + (offs_m[:, None] * H * 192 + offs_0[None, :])
-        )
-        dq1_ptrs = (
-                GQ
-                + nid * B * L * H * 192
-                + bid * L * H * 192
-                + hid * 192
-                + 128
-                + (offs_m[:, None] * H * 192 + offs_1[None, :])
-        )
+        dq0_ptrs = (GQ
+                    + nid * B * L * H * 192
+                    + bid * L * H * 192
+                    + hid * 192
+                    + (offs_m[:, None] * H * 192 + offs_0[None, :])
+                    )
+        dq1_ptrs = (GQ
+                    + nid * B * L * H * 192
+                    + bid * L * H * 192
+                    + hid * 192
+                    + 128
+                    + (offs_m[:, None] * H * 192 + offs_1[None, :])
+                    )
 
     dv = tl.zeros((N, 128), dtype=tl.float32)
     dk0 = tl.zeros((N, 128), dtype=tl.float32)
@@ -710,9 +679,8 @@ def mla_backward_kernel(
         m = step + (n_steps - 1 - i) * M
         lse = 1 / tl.load(LSE + bid * H * L + hid * L + m + tl.arange(0, M))
         if SAFE:
-            max_logits = tl.load(
-                ML + bid * H * L + hid * L + m + tl.arange(0, M)
-                )
+            max_logits = tl.load(ML + bid * H * L + hid * L + m + tl.arange(0, M)
+                                 )
         ds = tl.load(DS + bid * H * L + hid * L + m + tl.arange(0, M))
 
         q0 = tl.load(q0_ptrs + m * stride_q)
@@ -763,30 +731,27 @@ def mla_backward_kernel(
         dk0 = tl.dot(dp, q0, dk0)  # [N, M]@[M, 128]=[N, 128]
         dk1 = tl.dot(dp, q1, dk1)  # [N, M]@[M, 64]=[N, 64]
 
-    gv_ptrs = (
-            GV
-            + (bid * L + nid * N) * H * 128
-            + hid * 128
-            + (offs_n[:, None] * 128 * H + offs_0[None, :])
-    )
+    gv_ptrs = (GV
+               + (bid * L + nid * N) * H * 128
+               + hid * 128
+               + (offs_n[:, None] * 128 * H + offs_0[None, :])
+               )
 
     tl.store(gv_ptrs, dv)
 
-    gk0_ptrs = (
-            GK
-            + (bid * L + nid * N) * H * 192
-            + hid * 192
-            + (offs_n[:, None] * 192 * H + offs_0[None, :])
-    )
+    gk0_ptrs = (GK
+                + (bid * L + nid * N) * H * 192
+                + hid * 192
+                + (offs_n[:, None] * 192 * H + offs_0[None, :])
+                )
     tl.store(gk0_ptrs, dk0)
 
-    gk1_ptrs = (
-            GK
-            + (bid * L + nid * N) * H * 192
-            + hid * 192
-            + 128
-            + (offs_n[:, None] * 192 * H + offs_1[None, :])
-    )
+    gk1_ptrs = (GK
+                + (bid * L + nid * N) * H * 192
+                + hid * 192
+                + 128
+                + (offs_n[:, None] * 192 * H + offs_1[None, :])
+                )
     tl.store(gk1_ptrs, dk1)
 
 
@@ -809,13 +774,12 @@ def mla_rs_kernel(
     offs_n = tl.arange(0, BLOCK)
 
     # [L//N, B, L, H, 192】
-    q_ptrs = (
-            Q
-            + bid * L * H * 192
-            + lid * H * 192
-            + kid * BLOCK
-            + offs_n
-    )
+    q_ptrs = (Q
+              + bid * L * H * 192
+              + lid * H * 192
+              + kid * BLOCK
+              + offs_n
+              )
     o = tl.zeros((BLOCK,), dtype=tl.float32)
     if CAUSAL:
         steps = tl.cdiv(lid + 1, N)
@@ -825,13 +789,12 @@ def mla_rs_kernel(
     for i in range(steps):
         o += tl.load(q_ptrs + i * B * L * H * 192).to(tl.float32)
 
-    o_ptrs = (
-            O
-            + bid * L * H * 192
-            + lid * H * 192
-            + kid * BLOCK
-            + offs_n
-    )
+    o_ptrs = (O
+              + bid * L * H * 192
+              + lid * H * 192
+              + kid * BLOCK
+              + offs_n
+              )
 
     tl.store(o_ptrs, o)
 
@@ -992,26 +955,23 @@ def varlen_mla_forward_kernel(
     offs_1 = tl.arange(0, 64)
 
     # [T, H, 192】
-    q0_ptrs = (
-            Q
-            + (c0 + mid * M) * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q0_ptrs = (Q
+               + (c0 + mid * M) * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_1[None, :])
+               )
 
-    k0_ptrs = (
-            K
-            + c0 * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k0_ptrs = (K
+               + c0 * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_1[None, :])
+               )
 
-    v_ptrs = (
-            V
-            + c0 * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    v_ptrs = (V
+              + c0 * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
 
     m_mask = (mid * M + offs_m) < length
 
@@ -1045,10 +1005,8 @@ def varlen_mla_forward_kernel(
         qk = tl.dot(q2, tl.trans(k2), qk)
 
         if CAUSAL:
-            qk += tl.where(
-                ((mid * M + offs_m)[:, None] >= (n + offs_n)[None, :]) & (
-                    n_mask[None, :]), 0.0, -1e9
-                )
+            qk += tl.where(((mid * M + offs_m)[:, None] >= (n + offs_n)[None, :]) & (n_mask[None, :]), 0.0, -1e9
+                           )
         else:
             qk += tl.where(n_mask[None, :], 0.0, -1e9)
 
@@ -1077,12 +1035,11 @@ def varlen_mla_forward_kernel(
     acc_o = acc_o / lse[:, None]
 
     # [T, H, 128]
-    out_ptrs = (
-            Out
-            + (c0 + mid * M) * H * 128
-            + hid * 128
-            + (offs_m[:, None] * H * 128 + offs_0[None, :])
-    )
+    out_ptrs = (Out
+                + (c0 + mid * M) * H * 128
+                + hid * 128
+                + (offs_m[:, None] * H * 128 + offs_0[None, :])
+                )
 
     tl.store(out_ptrs, acc_o, mask=m_mask[:, None])
     # [H, T]
@@ -1207,83 +1164,73 @@ def varlen_mla_backward_kernel(
     n_mask = (nid * N + offs_n) < length
 
     # [B, L, H, 192】
-    q0_ptrs = (
-            Q
-            + c0 * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_0[None, :])
-    )
-    q1_ptrs = (
-            Q
-            + c0 * stride_q
-            + hid * 192
-            + 128
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q0_ptrs = (Q
+               + c0 * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_0[None, :])
+               )
+    q1_ptrs = (Q
+               + c0 * stride_q
+               + hid * 192
+               + 128
+               + (offs_m[:, None] * stride_q + offs_1[None, :])
+               )
 
-    k0_ptrs = (
-            K
-            + (c0 + nid * N) * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_0[None, :])
-    )
-    k1_ptrs = (
-            K
-            + (c0 + nid * N) * stride_k
-            + hid * 192
-            + 128
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k0_ptrs = (K
+               + (c0 + nid * N) * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_0[None, :])
+               )
+    k1_ptrs = (K
+               + (c0 + nid * N) * stride_k
+               + hid * 192
+               + 128
+               + (offs_n[:, None] * stride_k + offs_1[None, :])
+               )
     k0 = tl.load(k0_ptrs, mask=n_mask[:, None])
     k1 = tl.load(k1_ptrs, mask=n_mask[:, None])
 
-    v_ptrs = (
-            V
-            + (c0 + nid * N) * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    v_ptrs = (V
+              + (c0 + nid * N) * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
     v = tl.load(v_ptrs, mask=n_mask[:, None])
 
-    go_ptrs = (
-            GO
-            + c0 * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_0[None, :])
-    )
+    go_ptrs = (GO
+               + c0 * H * 128
+               + hid * 128
+               + (offs_m[:, None] * 128 * H + offs_0[None, :])
+               )
 
     if ATOMIC:
         # [B, L, H, 192]
-        dq0_ptrs = (
-                GQ
-                + c0 * H * 192
-                + hid * 192
-                + (offs_m[:, None] * H * 192 + offs_0[None, :])
-        )
-        dq1_ptrs = (
-                GQ
-                + c0 * H * 192
-                + hid * 192
-                + 128
-                + (offs_m[:, None] * H * 192 + offs_1[None, :])
-        )
+        dq0_ptrs = (GQ
+                    + c0 * H * 192
+                    + hid * 192
+                    + (offs_m[:, None] * H * 192 + offs_0[None, :])
+                    )
+        dq1_ptrs = (GQ
+                    + c0 * H * 192
+                    + hid * 192
+                    + 128
+                    + (offs_m[:, None] * H * 192 + offs_1[None, :])
+                    )
 
     else:
-        dq0_ptrs = (
-                GQ
-                + nid * T * H * 192
-                + c0 * H * 192
-                + hid * 192
-                + (offs_m[:, None] * H * 192 + offs_0[None, :])
-        )
-        dq1_ptrs = (
-                GQ
-                + nid * T * H * 192
-                + c0 * H * 192
-                + hid * 192
-                + 128
-                + (offs_m[:, None] * H * 192 + offs_1[None, :])
-        )
+        dq0_ptrs = (GQ
+                    + nid * T * H * 192
+                    + c0 * H * 192
+                    + hid * 192
+                    + (offs_m[:, None] * H * 192 + offs_0[None, :])
+                    )
+        dq1_ptrs = (GQ
+                    + nid * T * H * 192
+                    + c0 * H * 192
+                    + hid * 192
+                    + 128
+                    + (offs_m[:, None] * H * 192 + offs_1[None, :])
+                    )
 
     dv = tl.zeros((N, 128), dtype=tl.float32)
     dk0 = tl.zeros((N, 128), dtype=tl.float32)
@@ -1314,10 +1261,8 @@ def varlen_mla_backward_kernel(
         go = tl.load(go_ptrs + m * H * 128, mask=m_mask[:, None])
 
         if CAUSAL:
-            qk = tl.where(
-                ((m + offs_m)[:, None] >= (nid * N + offs_n)[None, :]) & (
-                    n_mask[None, :]), 0.0, -1e9
-                )
+            qk = tl.where(((m + offs_m)[:, None] >= (nid * N + offs_n)[None, :]) & (n_mask[None, :]), 0.0, -1e9
+                          )
             qk = tl.dot(q1, tl.trans(k1), qk)
             qk = tl.dot(q0, tl.trans(k0), qk)
         else:
@@ -1363,29 +1308,26 @@ def varlen_mla_backward_kernel(
         dk0 = tl.dot(dp, q0, dk0)  # [N, M]@[M, 128]=[N, 128]
         dk1 = tl.dot(dp, q1, dk1)  # [N, M]@[M, 64]=[N, 64]
 
-    gv_ptrs = (
-            GV
-            + (c0 + nid * N) * H * 128
-            + hid * 128
-            + (offs_n[:, None] * 128 * H + offs_0[None, :])
-    )
+    gv_ptrs = (GV
+               + (c0 + nid * N) * H * 128
+               + hid * 128
+               + (offs_n[:, None] * 128 * H + offs_0[None, :])
+               )
     tl.store(gv_ptrs, dv, mask=n_mask[:, None])
 
-    gk0_ptrs = (
-            GK
-            + (c0 + nid * N) * H * 192
-            + hid * 192
-            + (offs_n[:, None] * 192 * H + offs_0[None, :])
-    )
+    gk0_ptrs = (GK
+                + (c0 + nid * N) * H * 192
+                + hid * 192
+                + (offs_n[:, None] * 192 * H + offs_0[None, :])
+                )
     tl.store(gk0_ptrs, dk0, mask=n_mask[:, None])
 
-    gk1_ptrs = (
-            GK
-            + (c0 + nid * N) * H * 192
-            + hid * 192
-            + 128
-            + (offs_n[:, None] * 192 * H + offs_1[None, :])
-    )
+    gk1_ptrs = (GK
+                + (c0 + nid * N) * H * 192
+                + hid * 192
+                + 128
+                + (offs_n[:, None] * 192 * H + offs_1[None, :])
+                )
     tl.store(gk1_ptrs, dk1, mask=n_mask[:, None])
 
 
@@ -1429,12 +1371,11 @@ def varlen_mla_rs_kernel(
     offs_n = tl.arange(0, BLOCK)
 
     # [max_q_length//N, T, H, 192]
-    q_ptrs = (
-            Q
-            + tid * H * 192
-            + kid * BLOCK
-            + offs_n
-    )
+    q_ptrs = (Q
+              + tid * H * 192
+              + kid * BLOCK
+              + offs_n
+              )
     o = tl.zeros((BLOCK,), dtype=tl.float32)
     if CAUSAL:
         steps = tl.cdiv(pid + 1, N)
@@ -1445,12 +1386,11 @@ def varlen_mla_rs_kernel(
         o += tl.load(q_ptrs + i * T * H * 192).to(tl.float32)
 
     # [T, H, 192]
-    o_ptrs = (
-            O
-            + tid * H * 192
-            + kid * BLOCK
-            + offs_n
-    )
+    o_ptrs = (O
+              + tid * H * 192
+              + kid * BLOCK
+              + offs_n
+              )
 
     tl.store(o_ptrs, o)
 
@@ -1601,58 +1541,51 @@ def deprecated_fp8_mla_forward_kernel(
     offs_1 = tl.arange(0, 64)  # pe
 
     # [B, L, H, 192】
-    q0_ptrs = (
-            Q
-            + (bid * L + mid * M) * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_0[None, :])
-    )
-    q1_ptrs = (
-            Q
-            + (bid * L + mid * M) * stride_q
-            + hid * 192
-            + 128
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q0_ptrs = (Q
+               + (bid * L + mid * M) * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_0[None, :])
+               )
+    q1_ptrs = (Q
+               + (bid * L + mid * M) * stride_q
+               + hid * 192
+               + 128
+               + (offs_m[:, None] * stride_q + offs_1[None, :])
+               )
 
     # [B, H, L]
-    qs_ptrs = (
-            QS
-            + bid * H * L
-            + hid * L
-            + mid * M
-            + offs_m
-    )
+    qs_ptrs = (QS
+               + bid * H * L
+               + hid * L
+               + mid * M
+               + offs_m
+               )
 
-    k0_ptrs = (
-            K
-            + bid * L * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_0[None, :])
-    )
+    k0_ptrs = (K
+               + bid * L * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_0[None, :])
+               )
 
-    k1_ptrs = (
-            K
-            + bid * L * stride_k
-            + hid * 192
-            + 128
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k1_ptrs = (K
+               + bid * L * stride_k
+               + hid * 192
+               + 128
+               + (offs_n[:, None] * stride_k + offs_1[None, :])
+               )
 
     # [B, H, L]
-    ks_ptrs = (
-            KS
-            + bid * H * L
-            + hid * L
-            + offs_n
-    )
+    ks_ptrs = (KS
+               + bid * H * L
+               + hid * L
+               + offs_n
+               )
 
-    v_ptrs = (
-            V
-            + bid * L * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    v_ptrs = (V
+              + bid * L * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
 
     q0 = tl.load(q0_ptrs)
     q1 = tl.load(q1_ptrs)
@@ -1692,12 +1625,11 @@ def deprecated_fp8_mla_forward_kernel(
     acc_o = acc_o / lse[:, None]
 
     # [B, L, H, 128]
-    out_ptrs = (
-            Out
-            + (bid * L + mid * M) * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_0[None, :])
-    )
+    out_ptrs = (Out
+                + (bid * L + mid * M) * H * 128
+                + hid * 128
+                + (offs_m[:, None] * 128 * H + offs_0[None, :])
+                )
 
     tl.store(out_ptrs, acc_o)
     tl.store(LSE + bid * H * L + hid * L + mid * M + tl.arange(0, M), lse)
@@ -1735,43 +1667,38 @@ def padding_fp8_mla_forward_kernel(
     offs_1 = tl.arange(0, 128)
 
     # [B, L, H, 192】
-    q0_ptrs = (
-            Q
-            + (bid * L + mid * M) * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_0[None, :])
-    )
+    q0_ptrs = (Q
+               + (bid * L + mid * M) * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_0[None, :])
+               )
 
     # [B, H, L]
-    qs_ptrs = (
-            QS
-            + bid * H * L
-            + hid * L
-            + mid * M
-            + offs_m
-    )
+    qs_ptrs = (QS
+               + bid * H * L
+               + hid * L
+               + mid * M
+               + offs_m
+               )
 
-    k0_ptrs = (
-            K
-            + bid * L * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_0[None, :])
-    )
+    k0_ptrs = (K
+               + bid * L * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_0[None, :])
+               )
 
     # [B, H, L]
-    ks_ptrs = (
-            KS
-            + bid * H * L
-            + hid * L
-            + offs_n
-    )
+    ks_ptrs = (KS
+               + bid * H * L
+               + hid * L
+               + offs_n
+               )
 
-    v_ptrs = (
-            V
-            + bid * L * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_1[None, :])
-    )
+    v_ptrs = (V
+              + bid * L * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_1[None, :])
+              )
     mask = offs_0 < 192
     q0 = tl.load(q0_ptrs, mask=mask[None, :])
     qs = tl.load(qs_ptrs)
@@ -1807,12 +1734,11 @@ def padding_fp8_mla_forward_kernel(
     acc_o = acc_o / lse[:, None]
 
     # [B, L, H, 128]
-    out_ptrs = (
-            Out
-            + (bid * L + mid * M) * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_1[None, :])
-    )
+    out_ptrs = (Out
+                + (bid * L + mid * M) * H * 128
+                + hid * 128
+                + (offs_m[:, None] * 128 * H + offs_1[None, :])
+                )
 
     tl.store(out_ptrs, acc_o)
     tl.store(LSE + bid * H * L + hid * L + mid * M + tl.arange(0, M), lse)
@@ -1850,52 +1776,46 @@ def fp8_mla_forward_kernel(
     offs_1 = tl.arange(0, 64)
 
     # [B, L, H, 192]
-    q0_ptrs = (
-            Q
-            + (bid * L + mid * M) * stride_q
-            + hid * 192
-            + (offs_m[:, None] * stride_q + offs_1[None, :])
-    )
+    q0_ptrs = (Q
+               + (bid * L + mid * M) * stride_q
+               + hid * 192
+               + (offs_m[:, None] * stride_q + offs_1[None, :])
+               )
 
     # [B, H, L]
-    qs_ptrs = (
-            QS
-            + bid * H * L
-            + hid * L
-            + mid * M
-            + offs_m
-    )
+    qs_ptrs = (QS
+               + bid * H * L
+               + hid * L
+               + mid * M
+               + offs_m
+               )
 
-    k0_ptrs = (
-            K
-            + bid * L * stride_k
-            + hid * 192
-            + (offs_n[:, None] * stride_k + offs_1[None, :])
-    )
+    k0_ptrs = (K
+               + bid * L * stride_k
+               + hid * 192
+               + (offs_n[:, None] * stride_k + offs_1[None, :])
+               )
 
     # [B, H, L]
-    ks_ptrs = (
-            KS
-            + bid * H * L
-            + hid * L
-            + offs_n
-    )
+    ks_ptrs = (KS
+               + bid * H * L
+               + hid * L
+               + offs_n
+               )
 
-    v_ptrs = (
-            V
-            + bid * L * stride_v
-            + hid * 128
-            + (offs_n[:, None] * stride_v + offs_0[None, :])
-    )
+    v_ptrs = (V
+              + bid * L * stride_v
+              + hid * 128
+              + (offs_n[:, None] * stride_v + offs_0[None, :])
+              )
 
     if VS is not None:
         # [B, H, L]
-        vs_ptrs = (
-                VS
-                + bid * H * L
-                + hid * L
-                + offs_n
-        )
+        vs_ptrs = (VS
+                   + bid * H * L
+                   + hid * L
+                   + offs_n
+                   )
 
     q0 = tl.load(q0_ptrs)
     q1 = tl.load(q0_ptrs + 64)
@@ -1950,12 +1870,11 @@ def fp8_mla_forward_kernel(
     tl.store(LSE + bid * H * L + hid * L + mid * M + tl.arange(0, M), lse)
     acc_o = acc_o / lse[:, None]
     # [B, L, H, 128]
-    out_ptrs = (
-            Out
-            + (bid * L + mid * M) * H * 128
-            + hid * 128
-            + (offs_m[:, None] * 128 * H + offs_0[None, :])
-    )
+    out_ptrs = (Out
+                + (bid * L + mid * M) * H * 128
+                + hid * 128
+                + (offs_m[:, None] * 128 * H + offs_0[None, :])
+                )
     tl.store(out_ptrs, acc_o)
 
 

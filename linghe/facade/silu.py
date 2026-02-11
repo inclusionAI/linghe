@@ -26,24 +26,22 @@ class BlockSiluFunction(torch.autograd.Function):
         ctx.cls = cls
         ctx.save_for_backward(input)
 
-        x_q, x_scale, xt_q, xt_scale = triton_silu_and_block_quant_forward(
-            input_view,
-            round_scale=quantizer.force_pow_2_scales
-            )
+        x_q, x_scale, xt_q, xt_scale = triton_silu_and_block_quant_forward(input_view,
+                                                                           round_scale=quantizer.force_pow_2_scales
+                                                                           )
         output_shape = (shape[0], shape[1], shape[2] // 2)
         transpose_shape = (shape[2] // 2, shape[0], shape[1])
-        output = cls(
-            shape=output_shape,
-            dtype=input.dtype,
-            fp8_dtype=quantizer.dtype,
-            rowwise_data=x_q.view(output_shape),
-            rowwise_scale_inv=x_scale,
-            columnwise_data=xt_q.view(transpose_shape),
-            columnwise_scale_inv=xt_scale,
-            quantizer=quantizer,
-            requires_grad=input.requires_grad,
-            is_2D_scaled=False
-            )
+        output = cls(shape=output_shape,
+                     dtype=input.dtype,
+                     fp8_dtype=quantizer.dtype,
+                     rowwise_data=x_q.view(output_shape),
+                     rowwise_scale_inv=x_scale,
+                     columnwise_data=xt_q.view(transpose_shape),
+                     columnwise_scale_inv=xt_scale,
+                     quantizer=quantizer,
+                     requires_grad=input.requires_grad,
+                     is_2D_scaled=False
+                     )
         return output
 
     @staticmethod
@@ -53,23 +51,21 @@ class BlockSiluFunction(torch.autograd.Function):
         input, = ctx.saved_tensors
         grad_quantizer = ctx.grad_quantizer
         input_view = input.view(shape[0] * shape[1], shape[2] * 2)
-        x_q, x_scale, xt_q, xt_scale = triton_silu_and_block_quant_backward(
-            grad_output_view,
-            input_view,
-            round_scale=grad_quantizer.force_pow_2_scales
-            )
-        output = ctx.cls(
-            shape=ctx.shape,
-            dtype=grad_output.dtype,
-            fp8_dtype=grad_quantizer.dtype,
-            rowwise_data=x_q.view(ctx.shape),
-            rowwise_scale_inv=x_scale,
-            columnwise_data=xt_q.view(ctx.shape[2], shape[0], shape[1]),
-            columnwise_scale_inv=xt_scale,
-            quantizer=grad_quantizer,
-            requires_grad=ctx.input_requires_grad,
-            is_2D_scaled=False
-            )
+        x_q, x_scale, xt_q, xt_scale = triton_silu_and_block_quant_backward(grad_output_view,
+                                                                            input_view,
+                                                                            round_scale=grad_quantizer.force_pow_2_scales
+                                                                            )
+        output = ctx.cls(shape=ctx.shape,
+                         dtype=grad_output.dtype,
+                         fp8_dtype=grad_quantizer.dtype,
+                         rowwise_data=x_q.view(ctx.shape),
+                         rowwise_scale_inv=x_scale,
+                         columnwise_data=xt_q.view(ctx.shape[2], shape[0], shape[1]),
+                         columnwise_scale_inv=xt_scale,
+                         quantizer=grad_quantizer,
+                         requires_grad=ctx.input_requires_grad,
+                         is_2D_scaled=False
+                         )
 
         return output, None, None, None
 
@@ -112,18 +108,17 @@ class BlockBatchWeightedSiluFunction(torch.autograd.Function):
                                                                         output_mode=output_mode
                                                                         )
 
-        output = cls(
-            shape=x_q.shape,
-            dtype=input.dtype,
-            fp8_dtype=quantizers[0].dtype,
-            rowwise_data=x_q,
-            rowwise_scale_inv=x_scale,
-            columnwise_data=xt_q,
-            columnwise_scale_inv=xt_scale,
-            quantizer=quantizers,
-            requires_grad=input.requires_grad,
-            is_2D_scaled=False
-            )
+        output = cls(shape=x_q.shape,
+                     dtype=input.dtype,
+                     fp8_dtype=quantizers[0].dtype,
+                     rowwise_data=x_q,
+                     rowwise_scale_inv=x_scale,
+                     columnwise_data=xt_q,
+                     columnwise_scale_inv=xt_scale,
+                     quantizer=quantizers,
+                     requires_grad=input.requires_grad,
+                     is_2D_scaled=False
+                     )
         return output
 
     @staticmethod
@@ -134,26 +129,25 @@ class BlockBatchWeightedSiluFunction(torch.autograd.Function):
          x_scale,
          wgrad,
          xt_q,
-         xt_scale) = triton_batch_weighted_silu_and_block_quant_backward(
-            grad_output,
-            input,
-            weights,
-            counts,
-            splits=ctx.splits,
-            round_scale=grad_quantizers[0].force_pow_2_scales
-            )
-        output = ctx.cls(
-            shape=ctx.shape,
-            dtype=grad_output.dtype,
-            fp8_dtype=grad_quantizers[0].dtype,
-            rowwise_data=x_q,
-            rowwise_scale_inv=x_scale,
-            columnwise_data=xt_q,
-            columnwise_scale_inv=xt_scale,
-            quantizer=grad_quantizers,
-            requires_grad=ctx.input_requires_grad,
-            is_2D_scaled=False
-            )
+         xt_scale) = triton_batch_weighted_silu_and_block_quant_backward(grad_output,
+                                                                         input,
+                                                                         weights,
+                                                                         counts,
+                                                                         splits=ctx.splits,
+                                                                         round_scale=grad_quantizers[
+                                                                             0].force_pow_2_scales
+                                                                         )
+        output = ctx.cls(shape=ctx.shape,
+                         dtype=grad_output.dtype,
+                         fp8_dtype=grad_quantizers[0].dtype,
+                         rowwise_data=x_q,
+                         rowwise_scale_inv=x_scale,
+                         columnwise_data=xt_q,
+                         columnwise_scale_inv=xt_scale,
+                         quantizer=grad_quantizers,
+                         requires_grad=ctx.input_requires_grad,
+                         is_2D_scaled=False
+                         )
 
         return output, wgrad, None, None, None, None, None, None
 
@@ -186,23 +180,21 @@ class MXFP8SiluFunction(torch.autograd.Function):
         ctx.shape = shape
         ctx.cls = cls
         ctx.save_for_backward(input)
-        x_q, x_scale, xt_q, xt_scale = triton_silu_and_mxfp8_quant_forward(
-            input
-            )
+        x_q, x_scale, xt_q, xt_scale = triton_silu_and_mxfp8_quant_forward(input
+                                                                           )
 
         output_shape = (shape[0], shape[1], shape[2] // 2)
         # transpose_shape = (shape[2]//2, shape[0], shape[1])
-        output = cls(
-            shape=output_shape,
-            dtype=input.dtype,
-            fp8_dtype=quantizer.dtype,
-            rowwise_data=x_q.view(output_shape),
-            rowwise_scale_inv=x_scale,
-            columnwise_data=xt_q.view(output_shape),
-            columnwise_scale_inv=xt_scale,
-            quantizer=quantizer,
-            requires_grad=input.requires_grad,
-            )
+        output = cls(shape=output_shape,
+                     dtype=input.dtype,
+                     fp8_dtype=quantizer.dtype,
+                     rowwise_data=x_q.view(output_shape),
+                     rowwise_scale_inv=x_scale,
+                     columnwise_data=xt_q.view(output_shape),
+                     columnwise_scale_inv=xt_scale,
+                     quantizer=quantizer,
+                     requires_grad=input.requires_grad,
+                     )
         return output
 
     @staticmethod
@@ -211,21 +203,19 @@ class MXFP8SiluFunction(torch.autograd.Function):
         grad_output = grad_output.view(shape[0] * shape[1], shape[2])
         input, = ctx.saved_tensors
         grad_quantizer = ctx.grad_quantizer
-        x_q, x_scale, xt_q, xt_scale = triton_silu_and_mxfp8_quant_backward(
-            grad_output,
-            input
-            )
-        output = ctx.cls(
-            shape=ctx.shape,
-            dtype=grad_output.dtype,
-            fp8_dtype=grad_quantizer.dtype,
-            rowwise_data=x_q.view(ctx.shape) if x_q is not None else None,
-            rowwise_scale_inv=x_scale,
-            columnwise_data=xt_q.view(ctx.shape) if xt_q is not None else None,
-            columnwise_scale_inv=xt_scale,
-            quantizer=grad_quantizer,
-            requires_grad=ctx.input_requires_grad,
-            )
+        x_q, x_scale, xt_q, xt_scale = triton_silu_and_mxfp8_quant_backward(grad_output,
+                                                                            input
+                                                                            )
+        output = ctx.cls(shape=ctx.shape,
+                         dtype=grad_output.dtype,
+                         fp8_dtype=grad_quantizer.dtype,
+                         rowwise_data=x_q.view(ctx.shape) if x_q is not None else None,
+                         rowwise_scale_inv=x_scale,
+                         columnwise_data=xt_q.view(ctx.shape) if xt_q is not None else None,
+                         columnwise_scale_inv=xt_scale,
+                         quantizer=grad_quantizer,
+                         requires_grad=ctx.input_requires_grad,
+                         )
 
         return output, None, None, None
 
@@ -266,17 +256,16 @@ class MXFP8BatchWeightedSiluFunction(torch.autograd.Function):
                                                                         output_mode=output_mode
                                                                         )
 
-        output = cls(
-            shape=x_q.shape,
-            dtype=input.dtype,
-            fp8_dtype=quantizers[0].dtype,
-            rowwise_data=x_q,
-            rowwise_scale_inv=x_scale,
-            columnwise_data=xt_q,
-            columnwise_scale_inv=xt_scale,
-            quantizer=quantizers,
-            requires_grad=input.requires_grad,
-            )
+        output = cls(shape=x_q.shape,
+                     dtype=input.dtype,
+                     fp8_dtype=quantizers[0].dtype,
+                     rowwise_data=x_q,
+                     rowwise_scale_inv=x_scale,
+                     columnwise_data=xt_q,
+                     columnwise_scale_inv=xt_scale,
+                     quantizer=quantizers,
+                     requires_grad=input.requires_grad,
+                     )
         return output
 
     @staticmethod
@@ -287,24 +276,22 @@ class MXFP8BatchWeightedSiluFunction(torch.autograd.Function):
          x_scale,
          wgrad,
          xt_q,
-         xt_scale) = triton_batch_weighted_silu_and_mxfp8_quant_backward(
-            grad_output,
-            input,
-            weights,
-            counts,
-            splits=ctx.splits
-            )
-        output = ctx.cls(
-            shape=ctx.shape,
-            dtype=grad_output.dtype,
-            fp8_dtype=quantizers[0].dtype,
-            rowwise_data=x_q,
-            rowwise_scale_inv=x_scale,
-            columnwise_data=xt_q,
-            columnwise_scale_inv=xt_scale,
-            quantizer=quantizers,
-            requires_grad=ctx.input_requires_grad,
-            )
+         xt_scale) = triton_batch_weighted_silu_and_mxfp8_quant_backward(grad_output,
+                                                                         input,
+                                                                         weights,
+                                                                         counts,
+                                                                         splits=ctx.splits
+                                                                         )
+        output = ctx.cls(shape=ctx.shape,
+                         dtype=grad_output.dtype,
+                         fp8_dtype=quantizers[0].dtype,
+                         rowwise_data=x_q,
+                         rowwise_scale_inv=x_scale,
+                         columnwise_data=xt_q,
+                         columnwise_scale_inv=xt_scale,
+                         quantizer=quantizers,
+                         requires_grad=ctx.input_requires_grad,
+                         )
 
         return output, wgrad, None, None, None, None, None, None
 
@@ -361,14 +348,13 @@ class SmoothSiluFunction(torch.autograd.Function):
         # we use requant implementation,
         # so must use round_scale=True to avoid second quantization error
         round_scale = True  # quantizer.force_pow_2_scales 
-        x_q, x_scale, xt_q, xt_scale = triton_silu_and_smooth_quant_backward(
-            grad_output,
-            input,
-            smooth_scale=grad_quantizer.smooth_scale_inv,
-            transpose_smooth_scale=grad_quantizer.transpose_smooth_scale_inv,
-            reverse=True,
-            round_scale=round_scale
-            )
+        x_q, x_scale, xt_q, xt_scale = triton_silu_and_smooth_quant_backward(grad_output,
+                                                                             input,
+                                                                             smooth_scale=grad_quantizer.smooth_scale_inv,
+                                                                             transpose_smooth_scale=grad_quantizer.transpose_smooth_scale_inv,
+                                                                             reverse=True,
+                                                                             round_scale=round_scale
+                                                                             )
 
         output = ctx.cls(shape=ctx.shape,
                          dtype=grad_output.dtype,
@@ -402,13 +388,12 @@ class SmoothBatchWeightedSiluFunction(torch.autograd.Function):
         ctx.cls = cls
         smooth_scales = torch.stack([x.smooth_scale for x in quantizers], 0)
         round_scale = quantizers[0].force_pow_2_scales
-        x_q, x_scale = triton_batch_weighted_silu_and_smooth_quant_forward(
-            inputs,
-            weights,
-            counts,
-            smooth_scale=smooth_scales,
-            round_scale=round_scale
-            )
+        x_q, x_scale = triton_batch_weighted_silu_and_smooth_quant_forward(inputs,
+                                                                           weights,
+                                                                           counts,
+                                                                           smooth_scale=smooth_scales,
+                                                                           round_scale=round_scale
+                                                                           )
         output = cls(shape=x_q.shape,
                      dtype=inputs.dtype,
                      fp8_dtype=quantizers[0].dtype,
@@ -426,10 +411,8 @@ class SmoothBatchWeightedSiluFunction(torch.autograd.Function):
         inputs, weights, counts = ctx.saved_tensors
         grad_quantizers = ctx.grad_quantizers
         # smooth_scale_inv may not exist in forward step
-        smooth_scales = torch.stack(
-            [x.smooth_scale_inv for x in grad_quantizers], 0)
-        transpose_smooth_scales = torch.cat(
-            [x.transpose_smooth_scale_inv for x in grad_quantizers], 0)
+        smooth_scales = torch.stack([x.smooth_scale_inv for x in grad_quantizers], 0)
+        transpose_smooth_scales = torch.cat([x.transpose_smooth_scale_inv for x in grad_quantizers], 0)
         # we use requant implementation, so must use round_scale=True to avoid second quantization error
         round_scale = True  # grad_quantizers[0].force_pow_2_scales
         x_q, x_scale, wgrad, xt_q, xt_scale = \

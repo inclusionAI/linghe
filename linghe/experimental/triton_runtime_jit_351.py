@@ -154,8 +154,7 @@ class DependenciesFinder(ast.NodeVisitor):
             return
 
         if var_dict is not None:
-            self.used_global_vals[(name, id(var_dict))] = (
-                copy.deepcopy(val), var_dict)
+            self.used_global_vals[(name, id(var_dict))] = (copy.deepcopy(val), var_dict)
         return
 
     def visit_Name(self, node):
@@ -252,8 +251,7 @@ class DependenciesFinder(ast.NodeVisitor):
             # get it from `a, b = ...` -- in that case, node.targets is a single
             # Tuple, and in fact we *do* need to handle that case if we want
             # existing code to work.
-            raise TypeError(
-                "Simultaneous multiple assignment is not supported.")
+            raise TypeError("Simultaneous multiple assignment is not supported.")
 
         self.visitAssnTarget(node.targets[0])
 
@@ -400,8 +398,7 @@ def create_specialize_impl(specialize_extra):
         elif isinstance(arg, tuple):
             spec = [specialize_impl(x) for x in arg]
             make_tuple = lambda vals: type(arg)(*vals) if hasattr(arg,
-                                                                  "_fields") else tuple(
-                vals)
+                                                                  "_fields") else tuple(vals)
             tys = make_tuple([x[0] for x in spec])
             keys = make_tuple([x[1] for x in spec])
             return (tys, keys)
@@ -412,8 +409,7 @@ def create_specialize_impl(specialize_extra):
         elif isinstance(arg, GluonTensorDescriptor):
             assert hasattr(arg.base, "data_ptr")
             inner = canonicalize_dtype(arg.base.dtype)
-            return (
-                f"tensordesc<{inner}{list(arg.block_shape)},{arg.layout!r}>", None)
+            return (f"tensordesc<{inner}{list(arg.block_shape)},{arg.layout!r}>", None)
         else:
             raise TypeError("Unsupported type: %s" % type(arg))
 
@@ -422,8 +418,7 @@ def create_specialize_impl(specialize_extra):
 
 def mangle_type(arg, specialize=False):
     if len(specialize_impl_cache) == 0:
-        specialize_impl_cache.append(
-            create_specialize_impl(lambda _, **kwargs: None))
+        specialize_impl_cache.append(create_specialize_impl(lambda _, **kwargs: None))
     specialize_impl = specialize_impl_cache[0]
     return specialize_impl(arg, specialize_value=specialize)[0]
 
@@ -490,8 +485,7 @@ def create_function_from_signature(sig, kparams, backend):
                         # we do not specialize non-constexpr floats and bools:
                         specialize = False
                 if specialize:
-                    specialization.append(
-                        f'("{kp.annotation_type}",) + {ret}[1:]')
+                    specialization.append(f'("{kp.annotation_type}",) + {ret}[1:]')
                 else:
                     # skip runtime specialization:
                     specialization.append(f'("{kp.annotation_type}", None)')
@@ -538,8 +532,7 @@ class JITCallable:
         try:
             self.raw_src, self.starting_line_number = inspect.getsourcelines(fn)
         except OSError as e:
-            raise ValueError(
-                "@jit functions should be defined in a Python file") from e
+            raise ValueError("@jit functions should be defined in a Python file") from e
         self._fn_name = get_full_name(fn)
         self._hash_lock = threading.RLock()
 
@@ -588,8 +581,7 @@ class JITCallable:
                                                      )
             dependencies_finder.visit(self.parse())
             self.hash = dependencies_finder.ret + str(self.starting_line_number)
-            self.used_global_vals = dict(
-                sorted(dependencies_finder.used_global_vals.items()))
+            self.used_global_vals = dict(sorted(dependencies_finder.used_global_vals.items()))
 
             from triton.language.core import constexpr
             self.hash += str([(name, val)
@@ -660,24 +652,22 @@ class JITFunction(JITCallable, KernelInterface[T]):
     def is_gluon(self):
         return False
 
-    def _call_hook(
-            self,
-            hook,
-            key,
-            signature,
-            device,
-            constants,
-            options,
-            configs,
-            is_warmup,
-            ) -> bool | None:
+    def _call_hook(self,
+                   hook,
+                   key,
+                   signature,
+                   device,
+                   constants,
+                   options,
+                   configs,
+                   is_warmup,
+                   ) -> bool | None:
         if not hook:
             return None
 
         name = self.fn.__qualname__
         module = self.fn.__module__
-        arg_reprs = ", ".join(
-            [f"{param.name}: {ty}" for param, ty in zip(self.params, key[1])])
+        arg_reprs = ", ".join([f"{param.name}: {ty}" for param, ty in zip(self.params, key[1])])
         repr = f"{name}[num_warps={options.num_warps}, num_ctas={options.num_ctas}, num_stages={options.num_stages}, enable_fp_fusion={options.enable_fp_fusion}, launch_cooperative_grid={options.launch_cooperative_grid}]({arg_reprs})"
         full_name = get_full_name(self.fn)
 
@@ -702,14 +692,13 @@ class JITFunction(JITCallable, KernelInterface[T]):
             'is_warmup': is_warmup,
             }
 
-        return hook(
-            key=key,
-            repr=repr,
-            fn=JitFunctionInfo(module, name, self),
-            compile={"key": key, **kwargs},
-            is_manual_warmup=is_warmup,
-            already_compiled=False,
-            )
+        return hook(key=key,
+                    repr=repr,
+                    fn=JitFunctionInfo(module, name, self),
+                    compile={"key": key, **kwargs},
+                    is_manual_warmup=is_warmup,
+                    already_compiled=False,
+                    )
 
     def add_pre_run_hook(self, hook):
         '''
@@ -746,8 +735,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
         assert "stream" not in kwargs, "stream option is deprecated; current stream will be used"
         for k in kwargs:
             if k not in options.__dict__ and k not in sigkeys:
-                raise KeyError(
-                    "Keyword argument %s was specified but unrecognised" % k)
+                raise KeyError("Keyword argument %s was specified but unrecognised" % k)
         # constexprs
         constexprs = find_paths_if(sigvals, lambda _, val: val == "constexpr")
         constexprs = {path: get_iterable_path(list(bound_args.values()), path)
@@ -994,15 +982,14 @@ class JITFunction(JITCallable, KernelInterface[T]):
         key = deserialized_obj['key']
         _, _, _, backend, _ = self.device_caches[device]
         options = backend.parse_options(options)
-        return self._do_compile(
-            key,
-            signature,
-            device,
-            constexprs,
-            options,
-            attrs,
-            warmup=True,
-            )
+        return self._do_compile(key,
+                                signature,
+                                device,
+                                constexprs,
+                                options,
+                                attrs,
+                                warmup=True,
+                                )
 
     def _do_compile(self, key, signature, device, constexprs, options, attrs,
                     warmup):
@@ -1043,8 +1030,7 @@ class JITFunction(JITCallable, KernelInterface[T]):
         return kernel
 
     def __call__(self, *args, **kwargs):
-        raise RuntimeError(
-            "Cannot call @triton.jit'd outside of the scope of a kernel")
+        raise RuntimeError("Cannot call @triton.jit'd outside of the scope of a kernel")
 
     def __repr__(self):
         return f"JITFunction({self.module}:{self.fn.__qualname__})"
@@ -1115,16 +1101,15 @@ def jit(
                                        launch_metadata=launch_metadata
                                        )
         else:
-            return JITFunction(
-                fn,
-                version=version,
-                do_not_specialize=do_not_specialize,
-                do_not_specialize_on_alignment=do_not_specialize_on_alignment,
-                debug=debug,
-                noinline=noinline,
-                repr=repr,
-                launch_metadata=launch_metadata,
-                )
+            return JITFunction(fn,
+                               version=version,
+                               do_not_specialize=do_not_specialize,
+                               do_not_specialize_on_alignment=do_not_specialize_on_alignment,
+                               debug=debug,
+                               noinline=noinline,
+                               repr=repr,
+                               launch_metadata=launch_metadata,
+                               )
 
     if fn is not None:
         return decorator(fn)

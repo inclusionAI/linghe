@@ -115,9 +115,8 @@ def blockwise_quant_kernel(x_ptr,
                                                                   128
                                                                   )[
                                                         :,
-                                                        None] * M + tl.arange(
-            0, 128
-            )[
+                                                        None] * M + tl.arange(0, 128
+                                                                              )[
                                                                     None,
                                                                     :],
                  tl.trans(xq), mask=indices[None, :] < M
@@ -207,9 +206,8 @@ def batch_blockwise_quant_kernel(x_ptr,
 
     x = tl.load(
         x_ptr + si * N + rid * 128 * N + cid * 128 + tl.arange(0, 128)[:,
-                                                     None] * N + tl.arange(
-            0, 128
-            )[None, :], mask=rids[:, None] < count
+                                                     None] * N + tl.arange(0, 128
+                                                                           )[None, :], mask=rids[:, None] < count
         ).to(tl.float32)
 
     scale = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
@@ -239,9 +237,9 @@ def batch_blockwise_quant_kernel(x_ptr,
              )
     tl.store(
         xtq_ptr + si * N + rid * 128 + cid * 128 * count + tl.arange(0, 128)[:,
-                                                           None] * count + tl.arange(
-            0, 128
-            )[None, :], tl.trans(xq), mask=rids[None, :] < count
+                                                           None] * count + tl.arange(0, 128
+                                                                                     )[None, :], tl.trans(xq),
+        mask=rids[None, :] < count
         )
 
 

@@ -21,9 +21,8 @@ def arrive_gmem_barrier(
         )
 
     if not skip_sync:
-        tl.inline_asm_elementwise(
-            "bar.sync 0;", "=r", [], dtype=tl.int32, is_pure=False, pack=1
-            )
+        tl.inline_asm_elementwise("bar.sync 0;", "=r", [], dtype=tl.int32, is_pure=False, pack=1
+                                  )
     return tl.atomic_xchg(addr, update, sem=sem, scope=scope)
 
 
@@ -68,7 +67,6 @@ def wait_gmem_barrier(
         pass
 
     if not skip_sync:
-        tl.inline_asm_elementwise(
-            "bar.sync 0;", "=r", [], dtype=tl.int32, is_pure=False, pack=1
-            )
+        tl.inline_asm_elementwise("bar.sync 0;", "=r", [], dtype=tl.int32, is_pure=False, pack=1
+                                  )
     # tl.debug_barrier() cause significant performance loss. (Perhaps breaks triton prefetching?)

@@ -34,9 +34,8 @@ def abs_max_kernel(x_ptr,
         else:
             x = tl.load(x_ptr + offs,
                         mask=i * H + tl.arange(0, H)[:, None] < M
-                        ).to(
-                tl.float32
-                )
+                        ).to(tl.float32
+                             )
         if QUANTIZED:
             scale = tl.load(scale_ptr + i * H + tl.arange(0, H),
                             mask=i * H + tl.arange(0, H) < M

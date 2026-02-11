@@ -48,11 +48,10 @@ def _get_flat_tid():
 
 @triton.jit
 def _get_flat_bid():
-    return (
-            tl.program_id(2) * tl.num_programs(1) * tl.num_programs(0)
+    return (tl.program_id(2) * tl.num_programs(1) * tl.num_programs(0)
             + tl.program_id(1) * tl.num_programs(0)
             + tl.program_id(0)
-    )
+            )
 
 
 @triton.jit

@@ -15,14 +15,13 @@ class GroupRMSNormGateFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, attn_output, gate, weight, eps=1e-6, group_size=4,
                 transpose=True):
-        output = triton_group_rms_norm_gate_forward(
-            attn_output,
-            gate,
-            weight,
-            eps=eps,
-            group_size=group_size,
-            transpose=transpose
-            )
+        output = triton_group_rms_norm_gate_forward(attn_output,
+                                                    gate,
+                                                    weight,
+                                                    eps=eps,
+                                                    group_size=group_size,
+                                                    transpose=transpose
+                                                    )
         ctx.save_for_backward(attn_output, gate, weight)
         ctx.eps = eps
         ctx.group_size = group_size
@@ -34,15 +33,14 @@ class GroupRMSNormGateFunction(torch.autograd.Function):
     def backward(ctx, dy):
         attn_output, gate, weight = ctx.saved_tensors
 
-        dx, dg, dw = triton_group_rms_norm_gate_backward(
-            dy,
-            attn_output,
-            gate,
-            weight,
-            eps=ctx.eps,
-            group_size=ctx.group_size,
-            transpose=ctx.transpose
-            )
+        dx, dg, dw = triton_group_rms_norm_gate_backward(dy,
+                                                         attn_output,
+                                                         gate,
+                                                         weight,
+                                                         eps=ctx.eps,
+                                                         group_size=ctx.group_size,
+                                                         transpose=ctx.transpose
+                                                         )
 
         return dx, dg, dw, None, None, None
 

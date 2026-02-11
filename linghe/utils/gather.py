@@ -400,28 +400,24 @@ def triton_permute_with_mask_map(
     if SCALE > 0:
         shape = (num_out_tokens, hs) if SCALE == 2 else (num_out_tokens,)
         if ZERO:
-            permuted_scale = torch.zeros(
-                shape,
-                dtype=scale.dtype, device="cuda"
-                )
+            permuted_scale = torch.zeros(shape,
+                                         dtype=scale.dtype, device="cuda"
+                                         )
         else:
-            permuted_scale = torch.empty(
-                shape,
-                dtype=scale.dtype, device="cuda"
-                )
+            permuted_scale = torch.empty(shape,
+                                         dtype=scale.dtype, device="cuda"
+                                         )
     else:
         permuted_scale = None
 
     PROB = probs is not None
     if PROB:
         if ZERO:
-            permuted_probs = torch.zeros(
-                (num_out_tokens,), dtype=probs.dtype, device="cuda"
-                )
+            permuted_probs = torch.zeros((num_out_tokens,), dtype=probs.dtype, device="cuda"
+                                         )
         else:
-            permuted_probs = torch.empty(
-                (num_out_tokens,), dtype=probs.dtype, device="cuda"
-                )
+            permuted_probs = torch.empty((num_out_tokens,), dtype=probs.dtype, device="cuda"
+                                         )
     else:
         permuted_probs = None
 
@@ -617,10 +613,9 @@ def batch_transpose_smooth_permute_kernel(x_ptr,
         indices = tl.load(index_ptr + si + i * H + tl.arange(0, H),
                           mask=idx < count
                           )
-        x = tl.load(
-            x_ptr + cid * W + indices[:, None] * N + tl.arange(0, W)[None, :],
-            mask=idx[:, None] < count
-            ).to(tl.float32)
+        x = tl.load(x_ptr + cid * W + indices[:, None] * N + tl.arange(0, W)[None, :],
+                    mask=idx[:, None] < count
+                    ).to(tl.float32)
         smooth_scale = tl.load(ss_ptr + si + i * H + tl.arange(0, H),
                                mask=idx < count
                                )[:, None]
@@ -642,10 +637,9 @@ def batch_transpose_smooth_permute_kernel(x_ptr,
         indices = tl.load(index_ptr + si + i * H + tl.arange(0, H),
                           mask=idx < count
                           )
-        x = tl.load(
-            x_ptr + cid * W + indices[:, None] * N + tl.arange(0, W)[None, :],
-            mask=idx[:, None] < count
-            ).to(tl.float32)
+        x = tl.load(x_ptr + cid * W + indices[:, None] * N + tl.arange(0, W)[None, :],
+                    mask=idx[:, None] < count
+                    ).to(tl.float32)
         smooth_scale = tl.load(ss_ptr + si + i * H + tl.arange(0, H),
                                mask=idx < count
                                )[:, None]
@@ -867,10 +861,9 @@ def batch_transpose_smooth_fused_permute_kernel(x_ptr, scale_ptr, oss_ptr,
         indices = tl.load(index_ptr + si + i * H + tl.arange(0, H),
                           mask=idx < count
                           )
-        x = tl.load(
-            x_ptr + cid * W + indices[:, None] * N + tl.arange(0, W)[None, :],
-            mask=idx[:, None] < count
-            ).to(tl.float32)
+        x = tl.load(x_ptr + cid * W + indices[:, None] * N + tl.arange(0, W)[None, :],
+                    mask=idx[:, None] < count
+                    ).to(tl.float32)
         smooth_scale = tl.load(ss_ptr + si + i * H + tl.arange(0, H),
                                mask=idx < count
                                )[:, None]
@@ -896,10 +889,9 @@ def batch_transpose_smooth_fused_permute_kernel(x_ptr, scale_ptr, oss_ptr,
         indices = tl.load(index_ptr + si + i * H + tl.arange(0, H),
                           mask=idx < count
                           )
-        x = tl.load(
-            x_ptr + cid * W + indices[:, None] * N + tl.arange(0, W)[None, :],
-            mask=idx[:, None] < count
-            ).to(tl.float32)
+        x = tl.load(x_ptr + cid * W + indices[:, None] * N + tl.arange(0, W)[None, :],
+                    mask=idx[:, None] < count
+                    ).to(tl.float32)
         smooth_scale = tl.load(ss_ptr + si + i * H + tl.arange(0, H),
                                mask=idx < count
                                )[:, None]
@@ -1060,9 +1052,9 @@ def batch_block_pad_permute_with_indices_kernel(x_ptr,
                                                                               128
                                                                               )[
                                                                     :,
-                                                                    None] * padding_count + tl.arange(
-            0, 128
-            )[None, :], tl.trans(xq), mask=rids[None, :] < padding_count
+                                                                    None] * padding_count + tl.arange(0, 128
+                                                                                                      )[None, :],
+        tl.trans(xq), mask=rids[None, :] < padding_count
         )
 
     if PROB:
@@ -1197,18 +1189,15 @@ def batch_mxfp8_permute_with_indices_kernel(x_ptr,
         scale = tl.maximum(tl.max(xr.abs(), 2) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        tl.store(
-            xs_ptr + m_block * N + rid * 32 * b + cid * B // 32 + tl.arange(0,
-                                                                            32
-                                                                            )[
-                                                                  :,
-                                                                  None] * b + tl.arange(
-                0, sb
-                ), log_scale + 127
-            )
-        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(
-            xq_ptr.dtype.element_ty
-            )
+        tl.store(xs_ptr + m_block * N + rid * 32 * b + cid * B // 32 + tl.arange(0,
+                                                                                 32
+                                                                                 )[
+                                                                       :,
+                                                                       None] * b + tl.arange(0, sb
+                                                                                             ), log_scale + 127
+                 )
+        xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(xq_ptr.dtype.element_ty
+                                                            )
         tl.store(xq_ptr + offs, xq,
                  mask=mask
                  )

@@ -174,9 +174,8 @@ def unpermute_with_mask_map_kernel(
         load_mask = (index >= 0) & (tl.arange(0, N) < n)
         sums += tl.load(grads_ptr + index * n + tl.arange(0, N),
                         mask=load_mask
-                        ).to(
-            tl.float32
-            )
+                        ).to(tl.float32
+                             )
 
         if PROB:
             mask = index >= 0

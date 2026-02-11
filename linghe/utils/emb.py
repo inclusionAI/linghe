@@ -170,12 +170,11 @@ def sync_embedding_backward_kernel(grad_output_ptr,
         pos = tl.load(sorted_indices_ptr + c0 + i)
         bid = pos // L
         lid = pos % L
-        g = tl.load(
-            grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
-                                                                          DIM
-                                                                          ),
-            mask=tl.arange(0, DIM) < dim
-            ).to(tl.float32)
+        g = tl.load(grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
+                                                                                  DIM
+                                                                                  ),
+                    mask=tl.arange(0, DIM) < dim
+                    ).to(tl.float32)
         outputs += g
     tl.store(grad_ptr + input_id * dim + tl.arange(0, DIM), outputs,
              mask=tl.arange(0, DIM) < dim
@@ -440,12 +439,11 @@ def embedding_backward_kernel(grad_output_ptr,
         pos = tl.load(sorted_indices_ptr + c0 + i)
         bid = pos // L
         lid = pos % L
-        g = tl.load(
-            grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
-                                                                          DIM
-                                                                          ),
-            mask=tl.arange(0, DIM) < dim
-            ).to(tl.float32)
+        g = tl.load(grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
+                                                                                  DIM
+                                                                                  ),
+                    mask=tl.arange(0, DIM) < dim
+                    ).to(tl.float32)
         outputs += g
     tl.store(grad_ptr + input_id * dim + tl.arange(0, DIM), outputs,
              mask=tl.arange(0, DIM) < dim

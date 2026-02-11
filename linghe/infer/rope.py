@@ -67,9 +67,8 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
     q1 *= q_weight_1
     tl.store(
         qo_ptr + pid * H * DD + D + DD * tl.arange(0, PH)[:,
-                                         None] + tl.arange(
-            0, D
-            )[None, :], q1, mask=q_mask
+                                         None] + tl.arange(0, D
+                                                           )[None, :], q1, mask=q_mask
         )
 
     q0 *= rms[:, None]
@@ -109,9 +108,8 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
                  ).to(tl.float32)
     k1 = tl.load(
         k_ptr + pid * stride + D + DD * row_offs[:,
-                                        None] + tl.arange(
-            0, D
-            )[None, :], mask=row_mask
+                                        None] + tl.arange(0, D
+                                                          )[None, :], mask=row_mask
         ).to(tl.float32)
 
     if SILU:
@@ -123,9 +121,8 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
     k_mask = tl.arange(0, ph)[:, None] < h
     tl.store(
         ko_ptr + pid * h * DD + D + DD * tl.arange(0, ph)[:,
-                                         None] + tl.arange(
-            0, D
-            )[None, :], k1, mask=k_mask
+                                         None] + tl.arange(0, D
+                                                           )[None, :], k1, mask=k_mask
         )
 
     k0 *= rms[:, None]
@@ -162,9 +159,8 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
                  ).to(tl.float32)
     v1 = tl.load(
         v_ptr + pid * stride + D + DD * row_offs[:,
-                                        None] + tl.arange(
-            0, D
-            )[None, :], mask=row_mask
+                                        None] + tl.arange(0, D
+                                                          )[None, :], mask=row_mask
         ).to(tl.float32)
 
     if SILU:
@@ -181,9 +177,8 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
         )
     tl.store(
         vo_ptr + pid * h * DD + D + DD * tl.arange(0, ph)[:,
-                                         None] + tl.arange(
-            0, D
-            )[None, :], v1, mask=v_mask
+                                         None] + tl.arange(0, D
+                                                           )[None, :], v1, mask=v_mask
         )
 
 

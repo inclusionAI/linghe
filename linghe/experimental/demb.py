@@ -36,34 +36,30 @@ def tp_embedding_lookup_forward_kernel(input_ids_ptr,
 
     if (input_id >= RANK * V) & (input_id < (RANK + 1) * V):
 
-        buffer_ptr = tl.load(buffer_ptrs + RANK).to(
-            tl.pointer_type(tl.bfloat16)
-            )
+        buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.bfloat16)
+                                                    )
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
         w = tl.load(weights_ptr + input_id % V * D + tl.arange(0, D), mask=mask)
         tl.store(outputs_ptr + pid * D + tl.arange(0, D), w, mask=mask)
 
         tl.store(buffer_ptr + pid * D + tl.arange(0, D), w, mask=mask)
-        symm_mem_sync(
-            signal_ptrs,
-            None,
-            RANK,
-            SIZE,
-            hasPreviousMemAccess=True,
-            hasSubsequentMemAccess=True,
-            )
+        symm_mem_sync(signal_ptrs,
+                      None,
+                      RANK,
+                      SIZE,
+                      hasPreviousMemAccess=True,
+                      hasSubsequentMemAccess=True,
+                      )
     else:
-        symm_mem_sync(
-            signal_ptrs,
-            None,
-            RANK,
-            SIZE,
-            hasPreviousMemAccess=True,
-            hasSubsequentMemAccess=True,
-            )
-        buffer_ptr = tl.load(buffer_ptrs + input_id // V).to(
-            tl.pointer_type(tl.bfloat16)
-            )
+        symm_mem_sync(signal_ptrs,
+                      None,
+                      RANK,
+                      SIZE,
+                      hasPreviousMemAccess=True,
+                      hasSubsequentMemAccess=True,
+                      )
+        buffer_ptr = tl.load(buffer_ptrs + input_id // V).to(tl.pointer_type(tl.bfloat16)
+                                                             )
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
         w = tl.load(buffer_ptr + pid * D + tl.arange(0, D), mask=mask)
         tl.store(outputs_ptr + pid * D + tl.arange(0, D), w, mask=mask)
@@ -156,27 +152,24 @@ def tp_embedding_lookup_backward_kernel(grad_output_ptr,
             pos = tl.load(sorted_indices_ptr + c0 + i)
             bid = pos // L
             lid = pos % L
-            g = tl.load(
-                grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
-                                                                              DIM
-                                                                              ),
-                mask=mask
-                ).to(tl.float32)
+            g = tl.load(grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
+                                                                                      DIM
+                                                                                      ),
+                        mask=mask
+                        ).to(tl.float32)
             outputs += g
-        symm_mem_sync(
-            signal_ptrs,
-            None,
-            RANK,
-            SIZE,
-            hasPreviousMemAccess=True,
-            hasSubsequentMemAccess=True,
-            )
+        symm_mem_sync(signal_ptrs,
+                      None,
+                      RANK,
+                      SIZE,
+                      hasPreviousMemAccess=True,
+                      hasSubsequentMemAccess=True,
+                      )
 
         for j in range(SIZE):
             if j != RANK:
-                buffer_ptr = tl.load(buffer_ptrs + j).to(
-                    tl.pointer_type(tl.bfloat16)
-                    )
+                buffer_ptr = tl.load(buffer_ptrs + j).to(tl.pointer_type(tl.bfloat16)
+                                                         )
                 buffer_ptr = tl.multiple_of(buffer_ptr, 16)
                 g = tl.load(buffer_ptr + pid * DIM + tl.arange(0, DIM),
                             mask=mask
@@ -192,27 +185,24 @@ def tp_embedding_lookup_backward_kernel(grad_output_ptr,
             pos = tl.load(sorted_indices_ptr + c0 + i)
             bid = pos // L
             lid = pos % L
-            g = tl.load(
-                grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
-                                                                              DIM
-                                                                              ),
-                mask=mask
-                ).to(tl.float32)
+            g = tl.load(grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
+                                                                                      DIM
+                                                                                      ),
+                        mask=mask
+                        ).to(tl.float32)
             outputs += g
 
-        buffer_ptr = tl.load(buffer_ptrs + RANK).to(
-            tl.pointer_type(tl.bfloat16)
-            )
+        buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.bfloat16)
+                                                    )
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
         tl.store(buffer_ptr + pid * DIM + tl.arange(0, DIM), outputs, mask=mask)
-        symm_mem_sync(
-            signal_ptrs,
-            None,
-            RANK,
-            SIZE,
-            hasPreviousMemAccess=True,
-            hasSubsequentMemAccess=True,
-            )
+        symm_mem_sync(signal_ptrs,
+                      None,
+                      RANK,
+                      SIZE,
+                      hasPreviousMemAccess=True,
+                      hasSubsequentMemAccess=True,
+                      )
 
 
 def triton_tp_embedding_lookup_backward(grad_output, x, g_ptr, vocab_size, hdl,
@@ -294,17 +284,15 @@ def sp_embedding_lookup_forward_kernel(input_ids_ptr,
                             )
                 tl.store(outputs_ptr + pid * D + tl.arange(0, D), w, mask=mask)
             else:
-                symm_mem_sync(
-                    signal_ptrs,
-                    None,
-                    RANK,
-                    SIZE,
-                    hasPreviousMemAccess=True,
-                    hasSubsequentMemAccess=True,
-                    )
-                buffer_ptr = tl.load(buffer_ptrs + input_id // V).to(
-                    tl.pointer_type(tl.bfloat16)
-                    )
+                symm_mem_sync(signal_ptrs,
+                              None,
+                              RANK,
+                              SIZE,
+                              hasPreviousMemAccess=True,
+                              hasSubsequentMemAccess=True,
+                              )
+                buffer_ptr = tl.load(buffer_ptrs + input_id // V).to(tl.pointer_type(tl.bfloat16)
+                                                                     )
                 buffer_ptr = tl.multiple_of(buffer_ptr, 16)
                 w = tl.load(buffer_ptr + pid * D + tl.arange(0, D), mask=mask)
                 tl.store(outputs_ptr + pid % M * D + tl.arange(0, D), w,
@@ -315,19 +303,17 @@ def sp_embedding_lookup_forward_kernel(input_ids_ptr,
                 w = tl.load(weights_ptr + input_id % V * D + tl.arange(0, D),
                             mask=mask
                             )
-                buffer_ptr = tl.load(buffer_ptrs + RANK).to(
-                    tl.pointer_type(tl.bfloat16)
-                    )
+                buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.bfloat16)
+                                                            )
                 buffer_ptr = tl.multiple_of(buffer_ptr, 16)
                 tl.store(buffer_ptr + pid * D + tl.arange(0, D), w, mask=mask)
-                symm_mem_sync(
-                    signal_ptrs,
-                    None,
-                    RANK,
-                    SIZE,
-                    hasPreviousMemAccess=True,
-                    hasSubsequentMemAccess=True,
-                    )
+                symm_mem_sync(signal_ptrs,
+                              None,
+                              RANK,
+                              SIZE,
+                              hasPreviousMemAccess=True,
+                              hasSubsequentMemAccess=True,
+                              )
 
 
 """
@@ -408,9 +394,8 @@ def sp_embedding_lookup_backward_kernel(grad_output_ptr,
     mask = tl.arange(0, DIM) < dim
 
     for chunk in range(SIZE):
-        c01 = tl.load(
-            accum_counts_ptr + chunk * (L + 1) + pid + tl.arange(0, 2)
-            )
+        c01 = tl.load(accum_counts_ptr + chunk * (L + 1) + pid + tl.arange(0, 2)
+                      )
         c0, c1 = tl.split(c01)
         if c0 != c1:
 
@@ -430,17 +415,14 @@ def sp_embedding_lookup_backward_kernel(grad_output_ptr,
                         pos = tl.load(sorted_indices_ptr + chunk * M + c0 + i)
                         bid = pos // L
                         lid = pos % L
-                        g = tl.load(
-                            grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(
-                                0, DIM
-                                ), mask=mask
-                            ).to(tl.float32)
+                        g = tl.load(grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0, DIM
+                                                                                                  ), mask=mask
+                                    ).to(tl.float32)
                         outputs += g
 
-                    tl.atomic_add(
-                        grad_ptr + input_id % V * DIM + tl.arange(0, DIM),
-                        outputs, mask=mask, sem='relaxed'
-                        )
+                    tl.atomic_add(grad_ptr + input_id % V * DIM + tl.arange(0, DIM),
+                                  outputs, mask=mask, sem='relaxed'
+                                  )
 
                 else:
 
@@ -448,51 +430,44 @@ def sp_embedding_lookup_backward_kernel(grad_output_ptr,
                         pos = tl.load(sorted_indices_ptr + chunk * M + c0 + i)
                         bid = pos // L
                         lid = pos % L
-                        g = tl.load(
-                            grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(
-                                0, DIM
-                                ), mask=mask
-                            ).to(tl.float32)
+                        g = tl.load(grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0, DIM
+                                                                                                  ), mask=mask
+                                    ).to(tl.float32)
                         outputs += g
 
                     # save to dst addr
-                    buffer_ptr = tl.load(buffer_ptrs + input_id // V).to(
-                        tl.pointer_type(tl.float32)
-                        )
+                    buffer_ptr = tl.load(buffer_ptrs + input_id // V).to(tl.pointer_type(tl.float32)
+                                                                         )
                     buffer_ptr = tl.multiple_of(buffer_ptr, 16)
                     tl.store(buffer_ptr + pid * DIM + tl.arange(0, DIM),
                              outputs, mask=mask
                              )
-                    symm_mem_sync(
-                        signal_ptrs,
-                        None,
-                        RANK,
-                        SIZE,
-                        hasPreviousMemAccess=True,
-                        hasSubsequentMemAccess=True,
-                        )
+                    symm_mem_sync(signal_ptrs,
+                                  None,
+                                  RANK,
+                                  SIZE,
+                                  hasPreviousMemAccess=True,
+                                  hasSubsequentMemAccess=True,
+                                  )
             else:
                 if (input_id >= RANK * V) & (input_id < (RANK + 1) * V):
-                    symm_mem_sync(
-                        signal_ptrs,
-                        None,
-                        RANK,
-                        SIZE,
-                        hasPreviousMemAccess=True,
-                        hasSubsequentMemAccess=True,
-                        )
+                    symm_mem_sync(signal_ptrs,
+                                  None,
+                                  RANK,
+                                  SIZE,
+                                  hasPreviousMemAccess=True,
+                                  hasSubsequentMemAccess=True,
+                                  )
 
-                    buffer_ptr = tl.load(buffer_ptrs + RANK).to(
-                        tl.pointer_type(tl.float32)
-                        )
+                    buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.float32)
+                                                                )
                     buffer_ptr = tl.multiple_of(buffer_ptr, 16)
                     g = tl.load(buffer_ptr + pid * DIM + tl.arange(0, DIM),
                                 mask=mask
                                 )
-                    tl.atomic_add(
-                        grad_ptr + input_id % V * DIM + tl.arange(0, DIM), g,
-                        mask=mask, sem='relaxed'
-                        )
+                    tl.atomic_add(grad_ptr + input_id % V * DIM + tl.arange(0, DIM), g,
+                                  mask=mask, sem='relaxed'
+                                  )
 
 
 def triton_sp_embedding_lookup_backward(grad_output, input_ids, g_ptr,

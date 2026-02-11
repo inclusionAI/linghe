@@ -20,20 +20,16 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
     org_dtype = org_out.dtype
     opt_dtype = opt_out.dtype
 
-    if org_dtype in (
-            torch.bfloat16, torch.float16, torch.float8_e4m3fn,
-            torch.float8_e5m2):
+    if org_dtype in (torch.bfloat16, torch.float16, torch.float8_e4m3fn,
+                     torch.float8_e5m2):
         org_out = org_out.float()
-    elif org_dtype in (
-            torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
+    elif org_dtype in (torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
         org_out = org_out.int()
 
-    if opt_dtype in (
-            torch.bfloat16, torch.float16, torch.float8_e4m3fn,
-            torch.float8_e5m2):
+    if opt_dtype in (torch.bfloat16, torch.float16, torch.float8_e4m3fn,
+                     torch.float8_e5m2):
         opt_out = opt_out.float()
-    elif org_dtype in (
-            torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
+    elif org_dtype in (torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
         opt_out = opt_out.int()
 
     if rtol is None:
@@ -146,6 +142,5 @@ def inf_or_nan(xs, name=''):
             break
     if hit:
         for x in xs:
-            print(
-                f'{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}'
-                )
+            print(f'{name=} {x.shape=} {x.argmax()=} {x.max()=} {x.argmin()=}  {x.min()=} {x=}'
+                  )

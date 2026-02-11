@@ -33,14 +33,12 @@ def softmax_cross_entropy_forward_kernel(logit_ptr,
     for i in range(T):
         logit = tl.load(logit_ptr + pid * N + i * B + tl.arange(0, B),
                         mask=i * B + tl.arange(0, B) < N, other=-1e10
-                        ).to(
-            tl.float32
-            )
+                        ).to(tl.float32
+                             )
         latest_max_logit = tl.maximum(max_logit, tl.max(logit))
 
-        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + tl.sum(
-            tl.exp(logit - latest_max_logit)
-            )
+        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + tl.sum(tl.exp(logit - latest_max_logit)
+                                                                          )
         max_logit = latest_max_logit
 
     tl.store(sum_exp_ptr + pid, sum_exp)
@@ -120,9 +118,8 @@ def softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr, sum_exp_ptr,
     for i in range(T):
         logit = tl.load(logit_ptr + pid * N + i * B + tl.arange(0, B),
                         mask=i * B + tl.arange(0, B) < N, other=-1e10
-                        ).to(
-            tl.float32
-            )
+                        ).to(tl.float32
+                             )
         grad = tl.exp(logit - max_logit) * coef
         if INPLACE:
             tl.store(logit_ptr + pid * N + i * B + tl.arange(0, B), grad,
@@ -213,14 +210,12 @@ def parallel_logit_stat_kernel(logit_ptr,
     for i in range(T):
         logit = tl.load(logit_ptr + pid * N + i * B + tl.arange(0, B),
                         mask=i * B + tl.arange(0, B) < N, other=-1e10
-                        ).to(
-            tl.float32
-            )
+                        ).to(tl.float32
+                             )
         latest_max_logit = tl.maximum(max_logit, tl.max(logit))
 
-        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + tl.sum(
-            tl.exp(logit - latest_max_logit)
-            )
+        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + tl.sum(tl.exp(logit - latest_max_logit)
+                                                                          )
         max_logit = latest_max_logit
 
     tl.store(sum_exp_ptr + pid, sum_exp)
@@ -258,9 +253,8 @@ def parallel_calc_loss_kernel(label_ptr, stats, sum_exp_ptr, max_logit_ptr,
         ml = tl.load(stats + i * M * 3 + M + pid)
         tg = tl.maximum(tl.load(stats + i * M * 3 + 2 * M + pid), tg)
         latest_max_logit = tl.maximum(max_logit, ml)
-        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + se * tl.exp(
-            ml - latest_max_logit
-            )
+        sum_exp = sum_exp * tl.exp(max_logit - latest_max_logit) + se * tl.exp(ml - latest_max_logit
+                                                                               )
         max_logit = latest_max_logit
 
     loss = tl.log(sum_exp) - (tg - max_logit)
@@ -369,9 +363,8 @@ def parallel_softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr,
     for i in range(T):
         logit = tl.load(logit_ptr + pid * N + i * B + tl.arange(0, B),
                         mask=i * B + tl.arange(0, B) < N, other=-1e10
-                        ).to(
-            tl.float32
-            )
+                        ).to(tl.float32
+                             )
         grad = tl.exp(logit - max_logit) * coef
         if INPLACE:
             tl.store(logit_ptr + pid * N + i * B + tl.arange(0, B), grad,
@@ -385,9 +378,8 @@ def parallel_softmax_cross_entropy_backward_kernel(logit_ptr, label_ptr,
 
     if label // N == group_rank:
         target_logit = tl.load(logit_ptr + pid * N + label % N).to(tl.float32)
-        target_grad = (tl.exp(
-            target_logit - max_logit
-            ) / sum_exp - 1) * output_grad
+        target_grad = (tl.exp(target_logit - max_logit
+                              ) / sum_exp - 1) * output_grad
         if INPLACE:
             tl.store(logit_ptr + pid * N + label % N, target_grad)
         else:

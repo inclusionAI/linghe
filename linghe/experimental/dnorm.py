@@ -38,50 +38,43 @@ def sp_rms_norm_forward_kernel(
     offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[
                                                             None, :]
     for i in range(T):
-        buffer_ptr = tl.load(buffer_ptrs + GROUP_RANK).to(
-            tl.pointer_type(tl.bfloat16))
+        buffer_ptr = tl.load(buffer_ptrs + GROUP_RANK).to(tl.pointer_type(tl.bfloat16))
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
 
-        mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (
-                tl.arange(0, N) < n
-        )
+        mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (tl.arange(0, N) < n
+                                                                       )
         x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
         if REUSE:
-            rms = tl.load(
-                rms_ptr + pid * W * T + i * W + tl.arange(0, W),
-                mask=pid * W * T + i * W + tl.arange(0, W) < M,
-                other=1.0,
-                )
+            rms = tl.load(rms_ptr + pid * W * T + i * W + tl.arange(0, W),
+                          mask=pid * W * T + i * W + tl.arange(0, W) < M,
+                          other=1.0,
+                          )
         else:
             rms = tl.rsqrt(tl.sum(x * x, axis=1) / n + eps)
-            tl.store(
-                rms_ptr + pid * W * T + i * W + tl.arange(0, W),
-                rms,
-                mask=pid * W * T + i * W + tl.arange(0, W) < M,
-                )
+            tl.store(rms_ptr + pid * W * T + i * W + tl.arange(0, W),
+                     rms,
+                     mask=pid * W * T + i * W + tl.arange(0, W) < M,
+                     )
 
         x = (x * rms[:, None]) * weight
 
         offs_buffer = GROUP_RANK * M * n + offs
         tl.store(buffer_ptr + offs_buffer, x)
-        symm_mem_sync(
-            signal_ptrs,
-            None,
-            GROUP_RANK,
-            GROUP_SIZE,
-            hasPreviousMemAccess=True,
-            hasSubsequentMemAccess=True,
-            )
+        symm_mem_sync(signal_ptrs,
+                      None,
+                      GROUP_RANK,
+                      GROUP_SIZE,
+                      hasPreviousMemAccess=True,
+                      hasSubsequentMemAccess=True,
+                      )
         # tl.store(out_ptr + offs, x, mask=mask)
         offs += n * W
 
     for i in tl.static_range(GROUP_SIZE):
         for j in range(T):
             offs = i * M * n + pid * W * T * n + j * W * n + tl.arange(0, W)[:,
-                                                             None] * n + tl.arange(
-                0, N)[None, :]
-            buffer_ptr = tl.load(buffer_ptrs + i).to(
-                tl.pointer_type(tl.bfloat16))
+                                                             None] * n + tl.arange(0, N)[None, :]
+            buffer_ptr = tl.load(buffer_ptrs + i).to(tl.pointer_type(tl.bfloat16))
             buffer_ptr = tl.multiple_of(buffer_ptr, 16)
             tmp = tl.load(buffer_ptr + offs)
             tl.store(out_ptr + offs, tmp)

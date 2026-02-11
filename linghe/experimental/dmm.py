@@ -60,24 +60,21 @@ def split_tp_mm_kernel(
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
 
         tl.store(buffer_ptr + offs_m[:, None] * N + offs_n[None, :], c)
-        symm_mem_sync(
-            signal_ptrs,
-            None,
-            RANK,
-            SIZE,
-            hasPreviousMemAccess=True,
-            hasSubsequentMemAccess=True,
-            )
+        symm_mem_sync(signal_ptrs,
+                      None,
+                      RANK,
+                      SIZE,
+                      hasPreviousMemAccess=True,
+                      hasSubsequentMemAccess=True,
+                      )
 
         outputs = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
         for i in tl.static_range(SIZE):
-            buffer_ptr = tl.load(buffer_ptrs + i).to(
-                tl.pointer_type(tl.float32)
-                )
+            buffer_ptr = tl.load(buffer_ptrs + i).to(tl.pointer_type(tl.float32)
+                                                     )
             buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-            outputs += tl.load(
-                buffer_ptr + offs_m[:, None] * N + offs_n[None, :]
-                )
+            outputs += tl.load(buffer_ptr + offs_m[:, None] * N + offs_n[None, :]
+                               )
         tl.store(c_ptrs, outputs)
 
         # for j in range(0, RANK):
@@ -103,30 +100,26 @@ def split_tp_mm_kernel(
 
             c = tl.load(c_ptrs)
 
-            buffer_ptr = tl.load(buffer_ptrs + RANK).to(
-                tl.pointer_type(tl.float32)
-                )
+            buffer_ptr = tl.load(buffer_ptrs + RANK).to(tl.pointer_type(tl.float32)
+                                                        )
             buffer_ptr = tl.multiple_of(buffer_ptr, 16)
             tl.store(buffer_ptr + offs_m[:, None] * N + offs_n[None, :], c)
 
-            symm_mem_sync(
-                signal_ptrs,
-                None,
-                RANK,
-                SIZE,
-                hasPreviousMemAccess=True,
-                hasSubsequentMemAccess=True,
-                )
+            symm_mem_sync(signal_ptrs,
+                          None,
+                          RANK,
+                          SIZE,
+                          hasPreviousMemAccess=True,
+                          hasSubsequentMemAccess=True,
+                          )
 
             outputs = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
             for j in tl.static_range(SIZE):
-                buffer_ptr = tl.load(buffer_ptrs + j).to(
-                    tl.pointer_type(tl.float32)
-                    )
+                buffer_ptr = tl.load(buffer_ptrs + j).to(tl.pointer_type(tl.float32)
+                                                         )
                 buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-                outputs += tl.load(
-                    buffer_ptr + offs_m[:, None] * N + offs_n[None, :]
-                    )
+                outputs += tl.load(buffer_ptr + offs_m[:, None] * N + offs_n[None, :]
+                                   )
             tl.store(c_ptrs, outputs)
 
             # for j in range(0, RANK):

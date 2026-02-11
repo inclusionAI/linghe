@@ -32,8 +32,7 @@ def inplace_add_warp_specialized_kernel(
                 # offsets += BLOCK_SIZE
         with tlx.async_task(num_warps=4):
             for i in tl.range(loop):
-                offsets = block_start + i * BLOCK_SIZE + BLOCK_SIZE * loop + tl.arange(
-                    0, BLOCK_SIZE)
+                offsets = block_start + i * BLOCK_SIZE + BLOCK_SIZE * loop + tl.arange(0, BLOCK_SIZE)
                 mask = offsets < n_elements
                 a = tl.load(x_ptr + offsets, mask=mask)
                 b = tl.load(y_ptr + offsets, mask=mask)

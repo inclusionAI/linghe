@@ -131,8 +131,7 @@ class DependenciesFinder(ast.NodeVisitor):
                                                                      "__triton_builtin__",
                                                                      False)  #
                 and node.id not in self.supported_python_builtins):
-            self.used_global_vals[(node.id, id(self.globals))] = (
-                val, self.globals)
+            self.used_global_vals[(node.id, id(self.globals))] = (val, self.globals)
 
         self._update_hash(val)
         return val
@@ -206,8 +205,7 @@ class DependenciesFinder(ast.NodeVisitor):
             # get it from `a, b = ...` -- in that case, node.targets is a single
             # Tuple, and in fact we *do* need to handle that case if we want
             # existing code to work.
-            raise TypeError(
-                "Simultaneous multiple assignment is not supported.")
+            raise TypeError("Simultaneous multiple assignment is not supported.")
 
         self.visitAssnTarget(node.targets[0])
 
@@ -329,8 +327,7 @@ def create_specialize_impl():
         elif isinstance(arg, tuple):
             spec = [specialize_impl(x, specialize_extra) for x in arg]
             make_tuple = lambda vals: type(arg)(*vals) if hasattr(arg,
-                                                                  "_fields") else tuple(
-                vals)
+                                                                  "_fields") else tuple(vals)
             tys = make_tuple([x[0] for x in spec])
             keys = make_tuple([x[1] for x in spec])
             return (tys, keys)
@@ -481,25 +478,23 @@ class JITFunction(KernelInterface[T]):
     # cache_hook will always be called before compilation and compiled_hook after.
     compiled_hook = None
 
-    def _call_hook(
-            self,
-            key,
-            signature,
-            device,
-            constants,
-            options,
-            configs,
-            is_warmup,
-            before,
-            ):
+    def _call_hook(self,
+                   key,
+                   signature,
+                   device,
+                   constants,
+                   options,
+                   configs,
+                   is_warmup,
+                   before,
+                   ):
         hook = JITFunction.cache_hook if before else JITFunction.compiled_hook
         if hook is None:
             return False
 
         name = self.fn.__name__
         module = self.fn.__module__
-        arg_reprs = ", ".join(
-            [f"{param.name}: {ty}" for param, ty in zip(self.params, key[1])])
+        arg_reprs = ", ".join([f"{param.name}: {ty}" for param, ty in zip(self.params, key[1])])
         repr = f"{name}[num_warps={options.num_warps}, num_ctas={options.num_ctas}, num_stages={options.num_stages}, enable_fp_fusion={options.enable_fp_fusion}, launch_cooperative_grid={options.launch_cooperative_grid}]({arg_reprs})"
 
         class JitFunctionInfo:
@@ -530,14 +525,13 @@ class JITFunction(KernelInterface[T]):
             'is_warmup': is_warmup,
             }
 
-        return hook(
-            key=key,
-            repr=repr,
-            fn=JitFunctionInfo(module, name, self),
-            compile={"key": key, **kwargs},
-            is_manual_warmup=is_warmup,
-            already_compiled=False,
-            )
+        return hook(key=key,
+                    repr=repr,
+                    fn=JitFunctionInfo(module, name, self),
+                    compile={"key": key, **kwargs},
+                    is_manual_warmup=is_warmup,
+                    already_compiled=False,
+                    )
 
     def add_pre_run_hook(self, hook):
         '''
@@ -562,8 +556,7 @@ class JITFunction(KernelInterface[T]):
         return {}, target, backend, binder
 
     def run(self, *args, grid, warmup, **kwargs):
-        kwargs["debug"] = kwargs.get("debug", self.debug) or os.environ.get(
-            "TRITON_DEBUG", "0") == "1"
+        kwargs["debug"] = kwargs.get("debug", self.debug) or os.environ.get("TRITON_DEBUG", "0") == "1"
 
         # parse options
         device = driver.active.get_current_device()
@@ -594,8 +587,7 @@ class JITFunction(KernelInterface[T]):
             assert "stream" not in kwargs, "stream option is deprecated; current stream will be used"
             for k in kwargs:
                 if k not in options.__dict__ and k not in sigkeys:
-                    raise KeyError(
-                        "Keyword argument %s was specified but unrecognised" % k)
+                    raise KeyError("Keyword argument %s was specified but unrecognised" % k)
             # constexprs
             constexprs = find_paths_if(sigvals,
                                        lambda _, val: val == "constexpr")
@@ -668,8 +660,7 @@ class JITFunction(KernelInterface[T]):
                        )
             return kernel
 
-        kwargs["debug"] = kwargs.get("debug", self.debug) or os.environ.get(
-            "TRITON_DEBUG", "0") == "1"
+        kwargs["debug"] = kwargs.get("debug", self.debug) or os.environ.get("TRITON_DEBUG", "0") == "1"
 
         # parse options
         device = driver.active.get_current_device()
@@ -700,8 +691,7 @@ class JITFunction(KernelInterface[T]):
             assert "stream" not in kwargs, "stream option is deprecated; current stream will be used"
             for k in kwargs:
                 if k not in options.__dict__ and k not in sigkeys:
-                    raise KeyError(
-                        "Keyword argument %s was specified but unrecognised" % k)
+                    raise KeyError("Keyword argument %s was specified but unrecognised" % k)
             # constexprs
             constexprs = find_paths_if(sigvals,
                                        lambda _, val: val == "constexpr")
@@ -839,8 +829,7 @@ class JITFunction(KernelInterface[T]):
                                                      src=self.src)
             dependencies_finder.visit(self.parse())
             self.hash = dependencies_finder.ret + str(self.starting_line_number)
-            self.used_global_vals = dict(
-                sorted(dependencies_finder.used_global_vals.items()))
+            self.used_global_vals = dict(sorted(dependencies_finder.used_global_vals.items()))
         return self.hash
 
     def warmup(self, *args, grid, **kwargs):
@@ -888,8 +877,7 @@ class JITFunction(KernelInterface[T]):
         return tree
 
     def __call__(self, *args, **kwargs):
-        raise RuntimeError(
-            "Cannot call @triton.jit'd outside of the scope of a kernel")
+        raise RuntimeError("Cannot call @triton.jit'd outside of the scope of a kernel")
 
     def __setattr__(self, name, value):
         # - when `.src` attribute is set, cache key of all callers need to be re-computed
@@ -977,16 +965,15 @@ def jit(
                                        launch_metadata=launch_metadata
                                        )
         else:
-            return JITFunction(
-                fn,
-                version=version,
-                do_not_specialize=do_not_specialize,
-                do_not_specialize_on_alignment=do_not_specialize_on_alignment,
-                debug=debug,
-                noinline=noinline,
-                repr=repr,
-                launch_metadata=launch_metadata,
-                )
+            return JITFunction(fn,
+                               version=version,
+                               do_not_specialize=do_not_specialize,
+                               do_not_specialize_on_alignment=do_not_specialize_on_alignment,
+                               debug=debug,
+                               noinline=noinline,
+                               repr=repr,
+                               launch_metadata=launch_metadata,
+                               )
 
     if fn is not None:
         return decorator(fn)

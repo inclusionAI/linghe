@@ -35,14 +35,12 @@ def transpose_kernel(x_ptr, t_ptr, M, N, H: tl.constexpr, W: tl.constexpr,
         tl.store(t_ptr + toffs, y)
     else:
         y = tl.trans(tl.load(x_ptr + offs,
-                             mask=(cid * W + tl.arange(0, W)[None, :] < N) & (
-                                     rid * H + tl.arange(0, H)[:,
-                                               None] < M)
+                             mask=(cid * W + tl.arange(0, W)[None, :] < N) & (rid * H + tl.arange(0, H)[:,
+                                                                                        None] < M)
                              )
                      )
         tl.store(t_ptr + toffs, y,
-                 mask=(cid * W + tl.arange(0, W)[:, None] < N) & (
-                         rid * H + tl.arange(0, H)[None, :] < M)
+                 mask=(cid * W + tl.arange(0, W)[:, None] < N) & (rid * H + tl.arange(0, H)[None, :] < M)
                  )
 
 
@@ -81,14 +79,12 @@ def transpose_outer_dims_kernel(x_ptr, t_ptr, M, N, H: tl.constexpr,
         tl.store(t_ptr + toffs, y)
     else:
         y = tl.trans(tl.load(x_ptr + offs,
-                             mask=(cid * W + tl.arange(0, W)[None, :] < N) & (
-                                     rid * H + tl.arange(0, H)[:,
-                                               None] < M)
+                             mask=(cid * W + tl.arange(0, W)[None, :] < N) & (rid * H + tl.arange(0, H)[:,
+                                                                                        None] < M)
                              )
                      )
         tl.store(t_ptr + toffs, y,
-                 mask=(cid * W + tl.arange(0, W)[:, None] < N) & (
-                         rid * H + tl.arange(0, H)[None, :] < M)
+                 mask=(cid * W + tl.arange(0, W)[:, None] < N) & (rid * H + tl.arange(0, H)[None, :] < M)
                  )
 
 
@@ -116,14 +112,13 @@ def triton_transpose(x: torch.Tensor, inner=True):
         num_warps = 2
 
         grid = (triton.cdiv(M, H), triton.cdiv(N, W))
-        transpose_kernel[grid](
-            x, t,
-            M, N,
-            H, W,
-            EVEN,
-            num_stages=num_stages,
-            num_warps=num_warps
-            )
+        transpose_kernel[grid](x, t,
+                               M, N,
+                               H, W,
+                               EVEN,
+                               num_stages=num_stages,
+                               num_warps=num_warps
+                               )
     elif inner:
         stride = x.stride()
         if rank == 4:
@@ -168,14 +163,13 @@ def triton_transpose(x: torch.Tensor, inner=True):
         num_warps = 2
 
         grid = (B, triton.cdiv(M, H), triton.cdiv(N, W))
-        transpose_outer_dims_kernel[grid](
-            x, t,
-            M, N,
-            H, W,
-            EVEN,
-            num_stages=num_stages,
-            num_warps=num_warps
-            )
+        transpose_outer_dims_kernel[grid](x, t,
+                                          M, N,
+                                          H, W,
+                                          EVEN,
+                                          num_stages=num_stages,
+                                          num_warps=num_warps
+                                          )
     return t
 
 
@@ -327,9 +321,8 @@ def batch_pad_transpose_kernel(x_ptr,
         0, H
         )[None, :]
     for i in range(0, P, H):
-        y = tl.trans(
-            tl.load(x_ptr + offs, mask=i + tl.arange(0, H)[:, None] < count)
-            )
+        y = tl.trans(tl.load(x_ptr + offs, mask=i + tl.arange(0, H)[:, None] < count)
+                     )
         # paddings are filled with 0
         tl.store(t_ptr + toffs, y, mask=i + tl.arange(0, H)[None, :] < P)
         offs += N * H
