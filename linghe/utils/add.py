@@ -116,7 +116,8 @@ def batch_inplace_add_kernel(x_ptrs,
             offs += B
 
 
-def triton_batch_inplace_add(xs: List[torch.Tensor], ys: List[torch.Tensor], accum: bool = True):
+def triton_batch_inplace_add(xs: List[torch.Tensor], ys: List[torch.Tensor],
+                             accum: bool = True):
     """
     inplace add y to x
     Args:

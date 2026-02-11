@@ -37,7 +37,8 @@ def rms_norm_and_block_quant_kernel(
         x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
 
         if residual_ptr is not None:
-            r = tl.load(residual_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
+            r = tl.load(residual_ptr + offs, mask=indices[:, None] < M).to(
+                tl.float32)
             x = x + r
             tl.debug_barrier()
             tl.store(residual_ptr + offs, x, mask=indices[:, None] < M)
@@ -50,14 +51,16 @@ def rms_norm_and_block_quant_kernel(
         scale = tl.where(scale == 0.0, 1.0, scale)
         if ROUND:
             scale = tl.exp2(tl.ceil(tl.log2(scale)))
-        tl.store(scale_ptr + tl.arange(0, nb)[:, None] * PM + indices[None, :], tl.trans(scale),
+        tl.store(scale_ptr + tl.arange(0, nb)[:, None] * PM + indices[None, :],
+                 tl.trans(scale),
                  mask=indices[None, :] < M
                  )
 
         x = x / scale[:, :, None]
         x = tl.reshape(x, [W, N])
 
-        tl.store(out_ptr + offs, x.to(out_ptr.dtype.element_ty), mask=indices[:, None] < M)
+        tl.store(out_ptr + offs, x.to(out_ptr.dtype.element_ty),
+                 mask=indices[:, None] < M)
 
         offs += N * W
 
@@ -88,7 +91,8 @@ def triton_rms_norm_and_block_quant(
         - scale: quantization scale.
         - residual: residual tensor.
     """
-    assert x.is_contiguous() and weight.is_contiguous() and (residual is None or residual.is_contiguous())
+    assert x.is_contiguous() and weight.is_contiguous() and (
+            residual is None or residual.is_contiguous())
     M, N = x.shape
     assert N <= 8192 and 8192 % N == 0
     device = x.device
@@ -97,7 +101,8 @@ def triton_rms_norm_and_block_quant(
         out = torch.empty((M, N), device=device, dtype=torch.float8_e4m3fn)
 
     if scale is None:
-        scale = torch.zeros((N // 128, (M + 3) // 4 * 4), device=device, dtype=torch.float32)
+        scale = torch.zeros((N // 128, (M + 3) // 4 * 4), device=device,
+                            dtype=torch.float32)
 
     W = 8192 // N
     T = 4 // W
@@ -163,7 +168,8 @@ def residual_rms_norm_and_block_quant_kernel(
     scale = tl.where(scale == 0.0, 1.0, scale)
     if ROUND:
         scale = tl.exp2(tl.ceil(tl.log2(scale)))
-    tl.store(scale_ptr + tl.arange(0, nb)[:, None] * PM + indices[None, :], tl.trans(scale), mask=indices[None, :] < M)
+    tl.store(scale_ptr + tl.arange(0, nb)[:, None] * PM + indices[None, :],
+             tl.trans(scale), mask=indices[None, :] < M)
 
     x = x / scale[:, :, None]
     x = tl.reshape(x, [W, N], can_reorder=False)

@@ -5,8 +5,8 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import torch
 
-from linghe.experimental.norm import triton_rms_norm_forward, \
-    triton_parallel_rms_norm_and_block_quant_forward
+from linghe.experimental.norm import (triton_rms_norm_forward,
+                                      triton_parallel_rms_norm_and_block_quant_forward)
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.norm import triton_rms_norm_and_block_quant_forward

@@ -21,7 +21,8 @@ def group_rms_norm_gate_kernel(x_ptr,
     pid = tl.program_id(axis=0)
     weight = tl.load(weight_ptr + tl.arange(0, DIM))
     weight = tl.reshape(weight, [GROUP_SIZE, D])
-    x_offs = pid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
+    x_offs = pid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0,
+                                                                           D)[
                                                                  None, :]
     x = tl.load(x_ptr + x_offs).to(tl.float32)
     offs = pid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0, D)[
@@ -51,7 +52,8 @@ def triton_group_rms_norm_gate(x: torch.Tensor,
     """
     # row-wise read, row-wise write
     tokens, dim = gate.shape
-    assert dim <= 8192 and triton.next_power_of_2(dim) == dim and triton.next_power_of_2(group_size) == group_size
+    assert dim <= 8192 and triton.next_power_of_2(
+        dim) == dim and triton.next_power_of_2(group_size) == group_size
     d = dim // group_size
     device = x.device
     out = torch.empty((tokens, dim), device=device, dtype=x.dtype)

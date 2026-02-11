@@ -516,7 +516,8 @@ def tma_persistent_matmul_kernel(
     num_pid_in_group = GROUP_SIZE_M * num_pid_n
 
     for tid in tl.range(start_pid, num_tiles, SM, flatten=True):
-        pid_m, pid_n = _compute_pid(tid, num_pid_in_group, num_pid_m, GROUP_SIZE_M)
+        pid_m, pid_n = _compute_pid(tid, num_pid_in_group, num_pid_m,
+                                    GROUP_SIZE_M)
         offs_a = pid_m * BLOCK_SIZE_M
         offs_b = pid_n * BLOCK_SIZE_N
 
@@ -555,9 +556,16 @@ def triton_tma_persistent_matmul(a, b):
     BLOCK_N = 64
     GROUP_SIZE_M = 8
 
-    a_desc = triton.tools.tensor_descriptor.TensorDescriptor(a, a.shape, a.stride(), [BLOCK_M, BLOCK_K])
-    b_desc = triton.tools.tensor_descriptor.TensorDescriptor(b, b.shape, b.stride(), [BLOCK_N, BLOCK_K])
-    c_desc = triton.tools.tensor_descriptor.TensorDescriptor(c, c.shape, c.stride(), [BLOCK_M, BLOCK_N // 2])
+    a_desc = triton.tools.tensor_descriptor.TensorDescriptor(a, a.shape,
+                                                             a.stride(),
+                                                             [BLOCK_M, BLOCK_K])
+    b_desc = triton.tools.tensor_descriptor.TensorDescriptor(b, b.shape,
+                                                             b.stride(),
+                                                             [BLOCK_N, BLOCK_K])
+    c_desc = triton.tools.tensor_descriptor.TensorDescriptor(c, c.shape,
+                                                             c.stride(),
+                                                             [BLOCK_M,
+                                                              BLOCK_N // 2])
 
     def grid(META):
         nonlocal a_desc, b_desc, c_desc

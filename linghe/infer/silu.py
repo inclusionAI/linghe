@@ -74,7 +74,8 @@ def triton_silu_and_block_quant(
     if out is None:
         out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
     if scale is None:
-        scale = torch.zeros((n // 128, (M + 3) // 4 * 4), device=device, dtype=torch.float32)
+        scale = torch.zeros((n // 128, (M + 3) // 4 * 4), device=device,
+                            dtype=torch.float32)
 
     grid = (triton.cdiv(M, 128), n // 128)
     silu_and_block_quant_kernel[grid](

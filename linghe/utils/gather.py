@@ -215,7 +215,8 @@ def triton_make_row_id_map_and_index(
 
 
 @triton.jit
-def permute_with_indices_kernel(x_ptr, out_ptr, scale_ptr, scale_out_ptr, index_ptr, M,
+def permute_with_indices_kernel(x_ptr, out_ptr, scale_ptr, scale_out_ptr,
+                                index_ptr, M,
                                 T, N: tl.constexpr, SCALE: tl.constexpr
                                 ):
     pid = tl.program_id(axis=0)
@@ -230,7 +231,8 @@ def permute_with_indices_kernel(x_ptr, out_ptr, scale_ptr, scale_out_ptr, index_
             tl.store(scale_out_ptr + dst_idx, scale, mask=dst_idx < M)
 
 
-def triton_permute_with_indices(x, indices, scale=None, out=None, scale_out=None):
+def triton_permute_with_indices(x, indices, scale=None, out=None,
+                                scale_out=None):
     """
     index select, mainly used for fp8 dispatch
     Args:

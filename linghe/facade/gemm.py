@@ -13,7 +13,8 @@ from linghe.utils.transpose import triton_pad_transpose
 
 
 # the function is used in transformer_engine/pytorch/cpp_extensions/gemm.py
-def smooth_gemm(A, B, layout='TN', out=None, accumulate=True, online_transpose=False):
+def smooth_gemm(A, B, layout='TN', out=None, accumulate=True,
+                online_transpose=False):
     if layout == 'TN':  # forward, y=x@w
         x_q = B._rowwise_data
         x_scale = B._rowwise_scale_inv
@@ -69,7 +70,8 @@ def smooth_gemm(A, B, layout='TN', out=None, accumulate=True, online_transpose=F
     return out
 
 
-def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True, online_transpose=False):
+def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True,
+                       online_transpose=False):
     s = 0
     if layout == 'TN':  # forward, y=x@w
         for i, m in enumerate(m_splits):

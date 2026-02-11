@@ -35,9 +35,11 @@ def sp_rms_norm_forward_kernel(
         tl.float32
         )[None, :]
 
-    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[None, :]
+    offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[
+                                                            None, :]
     for i in range(T):
-        buffer_ptr = tl.load(buffer_ptrs + GROUP_RANK).to(tl.pointer_type(tl.bfloat16))
+        buffer_ptr = tl.load(buffer_ptrs + GROUP_RANK).to(
+            tl.pointer_type(tl.bfloat16))
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
 
         mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (
@@ -75,8 +77,11 @@ def sp_rms_norm_forward_kernel(
 
     for i in tl.static_range(GROUP_SIZE):
         for j in range(T):
-            offs = i * M * n + pid * W * T * n + j * W * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[None, :]
-            buffer_ptr = tl.load(buffer_ptrs + i).to(tl.pointer_type(tl.bfloat16))
+            offs = i * M * n + pid * W * T * n + j * W * n + tl.arange(0, W)[:,
+                                                             None] * n + tl.arange(
+                0, N)[None, :]
+            buffer_ptr = tl.load(buffer_ptrs + i).to(
+                tl.pointer_type(tl.bfloat16))
             buffer_ptr = tl.multiple_of(buffer_ptr, 16)
             tmp = tl.load(buffer_ptr + offs)
             tl.store(out_ptr + offs, tmp)
@@ -108,7 +113,8 @@ def triton_sp_rms_norm_forward(x, weight, hdl, eps=1e-6, rms=None):
     T = 1
     assert N <= 8192
     device = x.device
-    out = torch.empty((hdl.world_size * M, n), dtype=torch.bfloat16, device=device)
+    out = torch.empty((hdl.world_size * M, n), dtype=torch.bfloat16,
+                      device=device)
     REUSE = rms is not None
     if not REUSE:
         rms = torch.empty((M,), device=device, dtype=torch.float32)

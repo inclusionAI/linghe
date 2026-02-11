@@ -170,7 +170,8 @@ def deprecated_cp_mla_forward_kernel(
 
         if src_idx != RANK:
 
-            buffer_ptr = tl.load(buffer_ptrs + src_idx).to(tl.pointer_type(tl.bfloat16))
+            buffer_ptr = tl.load(buffer_ptrs + src_idx).to(
+                tl.pointer_type(tl.bfloat16))
             buffer_ptr = tl.multiple_of(buffer_ptr, 16)
             kb_ptrs = (
                     buffer_ptr +
@@ -203,7 +204,8 @@ def deprecated_cp_mla_forward_kernel(
                         qk *= softmax_scale
 
                         if SAFE:
-                            latest_max_logits = tl.maximum(max_logits, tl.max(qk, 1))
+                            latest_max_logits = tl.maximum(max_logits,
+                                                           tl.max(qk, 1))
                             p = tl.exp(qk - latest_max_logits[:, None])
                             rescale = tl.exp(max_logits - latest_max_logits)
                             lse = lse * rescale + tl.sum(p, 1)
@@ -239,7 +241,8 @@ def deprecated_cp_mla_forward_kernel(
                     qk *= softmax_scale
 
                     if SAFE:
-                        latest_max_logits = tl.maximum(max_logits, tl.max(qk, 1))
+                        latest_max_logits = tl.maximum(max_logits,
+                                                       tl.max(qk, 1))
                         p = tl.exp(qk - latest_max_logits[:, None])
                         rescale = tl.exp(max_logits - latest_max_logits)
                         lse = lse * rescale + tl.sum(p, 1)
@@ -273,7 +276,8 @@ def deprecated_cp_mla_forward_kernel(
                         qk *= softmax_scale
 
                         if SAFE:
-                            latest_max_logits = tl.maximum(max_logits, tl.max(qk, 1))
+                            latest_max_logits = tl.maximum(max_logits,
+                                                           tl.max(qk, 1))
                             p = tl.exp(qk - latest_max_logits[:, None])
                             rescale = tl.exp(max_logits - latest_max_logits)
                             lse = lse * rescale + tl.sum(p, 1)
@@ -488,7 +492,8 @@ def cp_mla_forward_kernel(
 
         if src_idx > RANK:
 
-            src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(tl.pointer_type(tl.bfloat16))
+            src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(
+                tl.pointer_type(tl.bfloat16))
             src_buffer_ptr = tl.multiple_of(src_buffer_ptr, 16)
             src_qb_ptrs = (
                     src_buffer_ptr +
@@ -612,9 +617,10 @@ def cp_mla_forward_kernel(
         qk = tl.dot(q2, tl.trans(k2), qk)
 
         if CAUSAL:
-            qk += tl.where((L // 2 + mid * M + offs_m)[:, None] >= (n + offs_n)[None, :],
-                           0.0, -1e9
-                           )
+            qk += tl.where(
+                (L // 2 + mid * M + offs_m)[:, None] >= (n + offs_n)[None, :],
+                0.0, -1e9
+                )
 
         qk *= softmax_scale
 
@@ -695,7 +701,8 @@ def cp_mla_forward_kernel(
     # q1 
     for src_idx in range(SIZE):
 
-        src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(tl.pointer_type(tl.bfloat16))
+        src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(
+            tl.pointer_type(tl.bfloat16))
         src_buffer_ptr = tl.multiple_of(src_buffer_ptr, 16)
         src_qb_ptrs = (
                 src_buffer_ptr +
@@ -861,7 +868,8 @@ def cp_mla_forward_kernel(
     tl.store(lse_ptrs + L // 2, lse)
 
 
-def triton_cp_mla_forward(q, k, v, hdl, group, causal=True, safe=True, clip_value=0.0):
+def triton_cp_mla_forward(q, k, v, hdl, group, causal=True, safe=True,
+                          clip_value=0.0):
     assert not safe  # TODO: use cross device online softmax
     B, L, H, D = q.shape
     h = k.shape[2]
@@ -1163,7 +1171,8 @@ def cp_mla_backward_kernel(
 
         if src_idx != RANK:
 
-            src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(tl.pointer_type(tl.bfloat16))
+            src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(
+                tl.pointer_type(tl.bfloat16))
             src_buffer_ptr = tl.multiple_of(src_buffer_ptr, 16)
             src_kb0_ptrs = (
                     src_buffer_ptr
@@ -1193,12 +1202,14 @@ def cp_mla_backward_kernel(
             # q: chunk 0
             if src_idx < RANK:
                 for m in range(0, L // 2, M):
-                    lse = 1 / tl.load(LSE + bid * H * L + hid * L + m + tl.arange(0, M))
+                    lse = 1 / tl.load(
+                        LSE + bid * H * L + hid * L + m + tl.arange(0, M))
                     if SAFE:
                         max_logits = tl.load(
                             ML + bid * H * L + hid * L + m + tl.arange(0, M)
                             )
-                    ds = tl.load(DS + bid * H * L + hid * L + m + tl.arange(0, M))
+                    ds = tl.load(
+                        DS + bid * H * L + hid * L + m + tl.arange(0, M))
 
                     q0 = tl.load(q0_ptrs + m * stride_q)
                     q1 = tl.load(q1_ptrs + m * stride_q)
@@ -1240,7 +1251,8 @@ def cp_mla_backward_kernel(
             # kv: chunk 0
             # q: chunk 1
             for m in range(L // 2, L, M):
-                lse = 1 / tl.load(LSE + bid * H * L + hid * L + m + tl.arange(0, M))
+                lse = 1 / tl.load(
+                    LSE + bid * H * L + hid * L + m + tl.arange(0, M))
                 if SAFE:
                     max_logits = tl.load(
                         ML + bid * H * L + hid * L + m + tl.arange(0, M)
@@ -1353,9 +1365,10 @@ def cp_mla_backward_kernel(
         go = tl.load(go_ptrs + m * H * 128)
 
         if CAUSAL:
-            qk = tl.where((m + offs_m)[:, None] >= (L // 2 + nid * N + offs_n)[None, :],
-                          0.0, -10000.0
-                          )
+            qk = tl.where(
+                (m + offs_m)[:, None] >= (L // 2 + nid * N + offs_n)[None, :],
+                0.0, -10000.0
+                )
             qk = tl.dot(q1, tl.trans(k1), qk)
             qk = tl.dot(q0, tl.trans(k0), qk)
         else:
@@ -1397,7 +1410,8 @@ def cp_mla_backward_kernel(
     tl.atomic_add(gv_ptrs + L // 2 * H * 128, dv, sem='relaxed')
 
     for src_idx in range(SIZE):
-        src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(tl.pointer_type(tl.bfloat16))
+        src_buffer_ptr = tl.load(buffer_ptrs + src_idx).to(
+            tl.pointer_type(tl.bfloat16))
         src_buffer_ptr = tl.multiple_of(src_buffer_ptr, 16)
         src_kb0_ptrs = (
                 src_buffer_ptr
@@ -1430,12 +1444,14 @@ def cp_mla_backward_kernel(
             # second chunk
             if src_idx > RANK:
                 for m in range(L // 2, L, M):
-                    lse = 1 / tl.load(LSE + bid * H * L + hid * L + m + tl.arange(0, M))
+                    lse = 1 / tl.load(
+                        LSE + bid * H * L + hid * L + m + tl.arange(0, M))
                     if SAFE:
                         max_logits = tl.load(
                             ML + bid * H * L + hid * L + m + tl.arange(0, M)
                             )
-                    ds = tl.load(DS + bid * H * L + hid * L + m + tl.arange(0, M))
+                    ds = tl.load(
+                        DS + bid * H * L + hid * L + m + tl.arange(0, M))
 
                     q0 = tl.load(q0_ptrs + m * stride_q)
                     q1 = tl.load(q1_ptrs + m * stride_q)
@@ -1497,7 +1513,8 @@ def cp_mla_backward_kernel(
     tl.atomic_add(gv_ptrs + L // 2 * H * 128, src_dv)
 
 
-def triton_cp_mla_backward(go, o, q, k, v, lse, max_logits, hdl, group, causal=True, safe=True,
+def triton_cp_mla_backward(go, o, q, k, v, lse, max_logits, hdl, group,
+                           causal=True, safe=True,
                            hpc=False, clip_value=0.0
                            ):
     # q: [B, L, H, 192]
@@ -1532,9 +1549,12 @@ def triton_cp_mla_backward(go, o, q, k, v, lse, max_logits, hdl, group, causal=T
 
     M = 32
     N = 128
-    gq = torch.zeros((B, L, H, 192), dtype=torch.float32 if hpc else dtype, device=device)
-    gk = torch.zeros((B, L, H, 192), dtype=torch.float32 if hpc else dtype, device=device)
-    gv = torch.zeros((B, L, H, 128), dtype=torch.float32 if hpc else dtype, device=device)
+    gq = torch.zeros((B, L, H, 192), dtype=torch.float32 if hpc else dtype,
+                     device=device)
+    gk = torch.zeros((B, L, H, 192), dtype=torch.float32 if hpc else dtype,
+                     device=device)
+    gv = torch.zeros((B, L, H, 128), dtype=torch.float32 if hpc else dtype,
+                     device=device)
     assert L % M == 0
     assert L % N == 0
     assert N >= M

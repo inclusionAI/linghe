@@ -194,14 +194,15 @@ class SmoothRMSNorm(torch.autograd.Function):
         ctx.shape = shape
         ctx.eps = eps
         ctx.save_for_backward(input, weight)
-        x_q, x_scale, x_maxs, rms = triton_rms_norm_and_smooth_quant_forward(input,
-                                                                             weight.data,
-                                                                             smooth_scale=quantizer.smooth_scale,
-                                                                             eps=eps,
-                                                                             calibrate=is_first_microbatch,
-                                                                             output_rms=False,
-                                                                             round_scale=quantizer.force_pow_2_scales
-                                                                             )
+        x_q, x_scale, x_maxs, rms = triton_rms_norm_and_smooth_quant_forward(
+            input,
+            weight.data,
+            smooth_scale=quantizer.smooth_scale,
+            eps=eps,
+            calibrate=is_first_microbatch,
+            output_rms=False,
+            round_scale=quantizer.force_pow_2_scales
+            )
         output = cls(shape=(shape[0], shape[1], shape[2]),
                      dtype=input.dtype,
                      fp8_dtype=quantizer.dtype,
@@ -219,12 +220,15 @@ class SmoothRMSNorm(torch.autograd.Function):
         shape = grad_output.shape
         grad_output = grad_output.view(shape[0] * shape[1], shape[2])
         input, weight = ctx.saved_tensors
-        dx, dw = triton_rms_norm_backward(grad_output, input, weight, eps=ctx.eps)
+        dx, dw = triton_rms_norm_backward(grad_output, input, weight,
+                                          eps=ctx.eps)
         dx = dx.view(*shape)
         return dx, dw, None, None, None, None
 
 
-def smooth_rms_norm(input, weight, quantizer, cls, eps=1e-6, is_first_microbatch=False):
+def smooth_rms_norm(input, weight, quantizer, cls, eps=1e-6,
+                    is_first_microbatch=False):
     # input: [length,bs,dim]
-    output, x_maxs = SmoothRMSNorm.apply(input, weight, quantizer, cls, eps, is_first_microbatch)
+    output, x_maxs = SmoothRMSNorm.apply(input, weight, quantizer, cls, eps,
+                                         is_first_microbatch)
     return output, x_maxs

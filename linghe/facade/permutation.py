@@ -38,7 +38,8 @@ class _PaddedPermute(torch.autograd.Function):
 
         row_id_map = triton_make_row_id_map(routing_map, multiple_of=multiple)
         num_out_tokens = sum(
-            [((x - 1) // multiple + 1) * multiple for x in tokens_per_expert_list]
+            [((x - 1) // multiple + 1) * multiple for x in
+             tokens_per_expert_list]
             )
 
         ctx.num_tokens = num_tokens
@@ -637,13 +638,15 @@ def mxfp8_quant_combine(
 # bf16 forward and bf16 backward
 class _SmoothPermute(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, tokens, probs, routing_map, tokens_per_expert, splits, quantizers, cls):
+    def forward(ctx, tokens, probs, routing_map, tokens_per_expert, splits,
+                quantizers, cls):
         """Forward function."""
         num_tokens, hidden_dim = tokens.shape
 
         smooth_scales = torch.stack([x.smooth_scale for x in quantizers], 0)
         # num_out_tokens should including padding tokens
-        row_id_map, row_id_indices = triton_make_row_id_map_and_index(routing_map, sum(splits))
+        row_id_map, row_id_indices = triton_make_row_id_map_and_index(
+            routing_map, sum(splits))
         ctx.num_tokens = num_tokens
         ctx.hidden_dim = hidden_dim
         ctx.prob_shape = probs.shape
@@ -674,8 +677,11 @@ class _SmoothPermute(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output, grad_prob, grad_map, grad_indices):
         """Backward function."""
-        output, prob_output = triton_unpermute_with_mask_map(grad_output, ctx.row_id_map, grad_prob)
-        return output.view(ctx.shape), prob_output.view(ctx.prob_shape), None, None, None, None, None
+        output, prob_output = triton_unpermute_with_mask_map(grad_output,
+                                                             ctx.row_id_map,
+                                                             grad_prob)
+        return output.view(ctx.shape), prob_output.view(
+            ctx.prob_shape), None, None, None, None, None
 
 
 def smooth_permute(
@@ -722,14 +728,16 @@ def smooth_permute(
 # bf16 forward and bf16 backward
 class _SmoothUnpermute(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, permuted_tokens, row_id_map, row_id_indices, token_count_per_expert, splits, restore_shape,
+    def forward(ctx, permuted_tokens, row_id_map, row_id_indices,
+                token_count_per_expert, splits, restore_shape,
                 quantizers, cls
                 ):
         """Forward function."""
         num_tokens, hidden_size = restore_shape
         num_out_tokens = permuted_tokens.shape[0]
         n_experts = row_id_map.size(1)
-        ctx.save_for_backward(row_id_map, row_id_indices, token_count_per_expert)
+        ctx.save_for_backward(row_id_map, row_id_indices,
+                              token_count_per_expert)
         ctx.num_experts = n_experts
         ctx.restore_shape = restore_shape
         ctx.num_tokens = num_tokens
@@ -738,7 +746,8 @@ class _SmoothUnpermute(torch.autograd.Function):
         ctx.splits = splits
         ctx.quantizers = quantizers
         ctx.cls = cls
-        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map, None)
+        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map,
+                                                   None)
         return output
 
     @staticmethod
@@ -747,11 +756,15 @@ class _SmoothUnpermute(torch.autograd.Function):
         row_id_map, row_id_indices, token_count_per_expert = ctx.saved_tensors
         quantizers = ctx.quantizers
         # TODO(nanxiao): smooth_scale_inv will updated in every forward, it will cause error with PP
-        grad_smooth_scales = torch.stack([x.smooth_scale_inv for x in quantizers], 0)
-        transpose_grad_smooth_scales = [x.transpose_smooth_scale_inv for x in quantizers
-                                        if x.transpose_smooth_scale_inv.numel() > 0]
+        grad_smooth_scales = torch.stack(
+            [x.smooth_scale_inv for x in quantizers], 0)
+        transpose_grad_smooth_scales = [x.transpose_smooth_scale_inv for x in
+                                        quantizers
+                                        if
+                                        x.transpose_smooth_scale_inv.numel() > 0]
         if len(transpose_grad_smooth_scales) > 0:
-            transpose_grad_smooth_scales = torch.cat(transpose_grad_smooth_scales, 0)
+            transpose_grad_smooth_scales = torch.cat(
+                transpose_grad_smooth_scales, 0)
         else:
             transpose_grad_smooth_scales = None
         round_scale = quantizers[0].force_pow_2_scales
@@ -814,14 +827,16 @@ def smooth_unpermute(
 # fp8 forward and bf16 backward
 class _SmoothFusedPermute(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, tokens, probs, routing_map, tokens_per_expert, splits, cls):
+    def forward(ctx, tokens, probs, routing_map, tokens_per_expert, splits,
+                cls):
         """Forward function."""
         num_tokens, hidden_dim = tokens._rowwise_data.shape
         # num_experts = routing_map.shape[1]
         counts = routing_map.sum(-1)
 
         # num_out_tokens should including padding tokens
-        row_id_map, row_id_indices = triton_make_row_id_map_and_index(routing_map, sum(splits))
+        row_id_map, row_id_indices = triton_make_row_id_map_and_index(
+            routing_map, sum(splits))
         ctx.num_tokens = num_tokens
         ctx.hidden_dim = hidden_dim
         ctx.prob_shape = probs.shape
@@ -851,8 +866,11 @@ class _SmoothFusedPermute(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output, grad_prob, grad_map, grad_indices):
         """Backward function."""
-        output, prob_output = triton_unpermute_with_mask_map(grad_output, ctx.row_id_map, grad_prob)
-        return output.view(ctx.shape), prob_output.view(ctx.prob_shape), None, None, None, None
+        output, prob_output = triton_unpermute_with_mask_map(grad_output,
+                                                             ctx.row_id_map,
+                                                             grad_prob)
+        return output.view(ctx.shape), prob_output.view(
+            ctx.prob_shape), None, None, None, None
 
 
 def smooth_fused_permute(
@@ -895,14 +913,16 @@ def smooth_fused_permute(
 # fused unpermute and quant
 class _SmoothFusedUnpermute(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, permuted_tokens, row_id_map, row_id_indices, org_smooth_scale, token_count_per_expert, splits,
+    def forward(ctx, permuted_tokens, row_id_map, row_id_indices,
+                org_smooth_scale, token_count_per_expert, splits,
                 quantizers, restore_shape, cls
                 ):
         """Forward function."""
         num_tokens, hidden_size = restore_shape
         num_out_tokens = permuted_tokens.shape[0]
         n_experts = row_id_map.size(1)
-        ctx.save_for_backward(row_id_map, row_id_indices, org_smooth_scale, token_count_per_expert)
+        ctx.save_for_backward(row_id_map, row_id_indices, org_smooth_scale,
+                              token_count_per_expert)
         ctx.input_requires_grad = permuted_tokens.requires_grad
         ctx.num_experts = n_experts
         ctx.restore_shape = restore_shape
@@ -912,7 +932,8 @@ class _SmoothFusedUnpermute(torch.autograd.Function):
         ctx.splits = splits
         ctx.quantizers = quantizers
         ctx.cls = cls
-        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map, None)
+        output, _ = triton_unpermute_with_mask_map(permuted_tokens, row_id_map,
+                                                   None)
         return output
 
     @staticmethod
@@ -922,7 +943,8 @@ class _SmoothFusedUnpermute(torch.autograd.Function):
         quantizers = grad_output._quantizer
         # smooth_scale_inv will updated in every forward, it will cause error with PP
         smooth_scales = torch.stack([x.smooth_scale_inv for x in quantizers], 0)
-        transpose_smooth_scales = torch.cat([x.transpose_smooth_scale_inv for x in quantizers], 0)
+        transpose_smooth_scales = torch.cat(
+            [x.transpose_smooth_scale_inv for x in quantizers], 0)
         #  todo(nanxiao): smooth
         round_scale = quantizers[0].force_pow_2_scales
 

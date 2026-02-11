@@ -108,7 +108,8 @@ def smooth_quantize(hidden_states, quantizer, grad_quantizer, cls):
 
 class BatchSmoothQuantize(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, hidden_states, token_count_per_expert, quantizers, grad_quantizers, splits, cls):
+    def forward(ctx, hidden_states, token_count_per_expert, quantizers,
+                grad_quantizers, splits, cls):
         ctx.grad_quantizers = grad_quantizers
         ctx.splits = splits
         ctx.cls = cls
@@ -122,15 +123,17 @@ class BatchSmoothQuantize(torch.autograd.Function):
             hidden_states = hidden_states.view(-1, shape[-1])
 
         if token_count_per_expert is None:
-            token_count_per_expert = torch.tensor(splits).cuda(non_blocking=True)
+            token_count_per_expert = torch.tensor(splits).cuda(
+                non_blocking=True)
             ctx.token_count_per_expert = token_count_per_expert
 
         smooth_scales = [x.smooth_scale for x in quantizers]
         if any([x is None for x in smooth_scales]):
-            smooth_scales = torch.ones((len(smooth_scales), hidden_states.shape[-1]),
-                                       dtype=torch.float32,
-                                       device=hidden_states.device
-                                       )
+            smooth_scales = torch.ones(
+                (len(smooth_scales), hidden_states.shape[-1]),
+                dtype=torch.float32,
+                device=hidden_states.device
+                )
             for i, x in enumerate(quantizers):
                 x.smooth_scale = smooth_scales[i]
         else:
@@ -139,7 +142,8 @@ class BatchSmoothQuantize(torch.autograd.Function):
                                                  smooth_scales,
                                                  token_count_per_expert,
                                                  reverse=False,
-                                                 round_scale=quantizers[0].force_pow_2_scales
+                                                 round_scale=quantizers[
+                                                     0].force_pow_2_scales
                                                  )
         output = cls(
             shape=shape,
@@ -161,7 +165,8 @@ class BatchSmoothQuantize(torch.autograd.Function):
 
         token_count_per_expert = ctx.token_count_per_expert
         if token_count_per_expert is None:
-            token_count_per_expert = torch.tensor(ctx.splits).cuda(non_blocking=True)
+            token_count_per_expert = torch.tensor(ctx.splits).cuda(
+                non_blocking=True)
 
         shape = grad_output.shape  # rank-3 tensor
         grad_output = grad_output.view(-1, shape[-1])
@@ -176,10 +181,12 @@ class BatchSmoothQuantize(torch.autograd.Function):
                                                  smooth_scale_invs,
                                                  token_count_per_expert,
                                                  reverse=True,
-                                                 round_scale=grad_quantizers[0].force_pow_2_scales
+                                                 round_scale=grad_quantizers[
+                                                     0].force_pow_2_scales
                                                  )
 
-        transpose_smooth_scale_invs = [x.transpose_smooth_scale_inv for x in grad_quantizers]
+        transpose_smooth_scale_invs = [x.transpose_smooth_scale_inv for x in
+                                       grad_quantizers]
         transpose_smooth_scale_invs = torch.cat(transpose_smooth_scale_invs, 0)
 
         yt_q, yt_scale = triton_batch_transpose_smooth_quant(grad_output,
@@ -187,7 +194,9 @@ class BatchSmoothQuantize(torch.autograd.Function):
                                                              token_count_per_expert,
                                                              ctx.splits,
                                                              reverse=True,
-                                                             round_scale=grad_quantizers[0].force_pow_2_scales
+                                                             round_scale=
+                                                             grad_quantizers[
+                                                                 0].force_pow_2_scales
                                                              )
 
         # import math
@@ -207,8 +216,10 @@ class BatchSmoothQuantize(torch.autograd.Function):
         return output, None, None, None, None, None
 
 
-def batch_smooth_quantize(hidden_states, token_count_per_expert, quantizers, grad_quantizers, splits, cls):
-    return BatchSmoothQuantize.apply(hidden_states, token_count_per_expert, quantizers, grad_quantizers, splits, cls)
+def batch_smooth_quantize(hidden_states, token_count_per_expert, quantizers,
+                          grad_quantizers, splits, cls):
+    return BatchSmoothQuantize.apply(hidden_states, token_count_per_expert,
+                                     quantizers, grad_quantizers, splits, cls)
 
 
 # y = x @ w

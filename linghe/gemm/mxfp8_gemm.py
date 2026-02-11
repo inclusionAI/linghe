@@ -1012,5 +1012,6 @@ def triton_native_mxfp8_grouped_gemm(a: List[torch.Tensor],
     else:
         outs = out
     for i, m in enumerate(m_splits):
-        triton_native_mxfp8_gemm(a[i], b[i], a_s[i], b_s[i], out=outs[i], layout=layout)
+        triton_native_mxfp8_gemm(a[i], b[i], a_s[i], b_s[i], out=outs[i],
+                                 layout=layout)
     return out

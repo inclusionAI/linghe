@@ -17,7 +17,8 @@ from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 
 
-def torch_attn(q, k, v, causal=True, mask=None, safe=True, clip_value=0.0, hp=False):
+def torch_attn(q, k, v, causal=True, mask=None, safe=True, clip_value=0.0,
+               hp=False):
     dtype = q.dtype
     if hp:
         q = q.float()
@@ -126,7 +127,8 @@ def select(x, group):
     B, L, H, D = x.shape
     l = L // (2 * group_size)
     x1 = x[:, group_rank * l:(group_rank + 1) * l]
-    x2 = x[:, (group_size * 2 - group_rank - 1) * l:(group_size * 2 - group_rank) * l]
+    x2 = x[:, (group_size * 2 - group_rank - 1) * l:(
+                                                            group_size * 2 - group_rank) * l]
     return torch.cat([x1, x2], 1)
 
 
@@ -136,11 +138,13 @@ def select_stat(x, group):
     B, H, L = x.shape
     l = L // (2 * group_size)
     x1 = x[:, :, group_rank * l:(group_rank + 1) * l]
-    x2 = x[:, :, (group_size * 2 - group_rank - 1) * l:(group_size * 2 - group_rank) * l]
+    x2 = x[:, :, (group_size * 2 - group_rank - 1) * l:(
+                                                               group_size * 2 - group_rank) * l]
     return torch.cat([x1, x2], 2)
 
 
-def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False, safe=True, coef=1.0,
+def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False,
+                safe=True, coef=1.0,
                 clip_value=0.0, bench=False
                 ):
     group_size = group.size()
@@ -174,8 +178,11 @@ def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False, safe=True
     V = rearange(v.detach(), group).requires_grad_()
     G = rearange(g, group)
 
-    global_output_ref, global_lse_ref, global_max_logits_ref = torch_attn(Q, K, V, causal=causal,
-                                                                          hp=True, safe=safe
+    global_output_ref, global_lse_ref, global_max_logits_ref = torch_attn(Q, K,
+                                                                          V,
+                                                                          causal=causal,
+                                                                          hp=True,
+                                                                          safe=safe
                                                                           )
     global_output_ref.backward(G, retain_graph=False)
     DQ_ref = Q.grad
@@ -193,13 +200,16 @@ def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False, safe=True
     lse_ref = select_stat(global_lse_ref, group)
     ml_ref = select_stat(global_max_logits_ref, group)
 
-    output, lse, max_logits = triton_cp_mla_forward(q, k, v, hdl, group, causal=causal,
+    output, lse, max_logits = triton_cp_mla_forward(q, k, v, hdl, group,
+                                                    causal=causal,
                                                     safe=safe,
                                                     clip_value=clip_value
                                                     )
-    output_check(output_ref, output, atol=-0.05, rtol=0.05, name=f'output:{group_rank}')
+    output_check(output_ref, output, atol=-0.05, rtol=0.05,
+                 name=f'output:{group_rank}')
     output_check(lse_ref, lse, atol=-0.05, rtol=0.05, name=f'lse:{group_rank}')
-    output_check(ml_ref, max_logits, atol=-0.01, rtol=0.03, name=f'max_logits:{group_rank}')
+    output_check(ml_ref, max_logits, atol=-0.01, rtol=0.03,
+                 name=f'max_logits:{group_rank}')
 
     gq, gk, gv = triton_cp_mla_backward(g, output, q, k, v, lse, max_logits,
                                         hdl, group,
@@ -208,17 +218,22 @@ def test_cp_mla(B=2, L=4096, H=16, group=None, causal=True, hpc=False, safe=True
                                         )
     if clip_value == 0.0:
         output_check(dv_ref, gv, atol=-0.05, rtol=0.05, name=f'gv:{group_rank}')
-        output_check(dk_ref, gk, atol=-0.05 * coef, rtol=0.05, name=f'gk:{group_rank}')
-        output_check(dq_ref, gq, atol=-0.05 * coef, rtol=0.05, name=f'gq:{group_rank}')
+        output_check(dk_ref, gk, atol=-0.05 * coef, rtol=0.05,
+                     name=f'gk:{group_rank}')
+        output_check(dq_ref, gq, atol=-0.05 * coef, rtol=0.05,
+                     name=f'gq:{group_rank}')
 
     if bench:
-        ref_flops = B * L * L * H * (192 + 128) * (1 if causal else 2) * group_size
-        benchmark_func(triton_cp_mla_forward, q, k, v, hdl, group, causal=causal, safe=safe,
+        ref_flops = B * L * L * H * (192 + 128) * (
+            1 if causal else 2) * group_size
+        benchmark_func(triton_cp_mla_forward, q, k, v, hdl, group,
+                       causal=causal, safe=safe,
                        clip_value=clip_value, ref_flops=ref_flops
                        )
         ref_flops = B * L * L * H * (192 + 128 * 2 + 192 * 2) * (
             1 if causal else 2) * group_size
-        benchmark_func(triton_cp_mla_backward, g, output, q, k, v, lse, max_logits,
+        benchmark_func(triton_cp_mla_backward, g, output, q, k, v, lse,
+                       max_logits,
                        hdl, group,
                        causal=causal, hpc=hpc, safe=safe,
                        clip_value=clip_value,
@@ -241,6 +256,7 @@ if __name__ == '__main__':
     torch.distributed.distributed_c10d._set_pg_timeout(timedelta(seconds=10),
                                                        dist.group.WORLD
                                                        )
-    test_cp_mla(B=2, L=4096, H=32, group=group, causal=True, hpc=False, safe=False, coef=1.0,
+    test_cp_mla(B=2, L=4096, H=32, group=group, causal=True, hpc=False,
+                safe=False, coef=1.0,
                 clip_value=0.0, bench=True
                 )

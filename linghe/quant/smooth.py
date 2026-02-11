@@ -443,7 +443,8 @@ def batch_transpose_smooth_quant_kernel(x_ptr,
     counts = tl.load(count_ptr + tl.arange(0, E))
     si = tl.sum(tl.where(tl.arange(0, E) < eid, counts, 0))
 
-    round_si = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 32), 0)) * 32
+    round_si = tl.sum(
+        tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 32), 0)) * 32
 
     n = tl.cdiv(count, H)
     maxs = tl.zeros((H, W), dtype=tl.float32)
@@ -454,9 +455,10 @@ def batch_transpose_smooth_quant_kernel(x_ptr,
             smooth_scale = 1.0 / smooth_scale
 
         x = tl.load(x_ptr + si * N + i * H * N + bid * W + tl.arange(0, H)[:,
-                                                           None] * N + tl.arange(0,
-                                                                                 W
-                                                                                 )[
+                                                           None] * N + tl.arange(
+            0,
+            W
+            )[
                                                                        None, :],
                     mask=indices[:, None] < count
                     ).to(tl.float32)
@@ -476,9 +478,10 @@ def batch_transpose_smooth_quant_kernel(x_ptr,
             smooth_scale = 1.0 / smooth_scale
 
         x = tl.load(x_ptr + si * N + i * H * N + bid * W + tl.arange(0, H)[:,
-                                                           None] * N + tl.arange(0,
-                                                                                 W
-                                                                                 )[
+                                                           None] * N + tl.arange(
+            0,
+            W
+            )[
                                                                        None, :],
                     mask=indices[:, None] < count
                     ).to(tl.float32)
@@ -486,7 +489,8 @@ def batch_transpose_smooth_quant_kernel(x_ptr,
         x *= s
         xq = tl.trans(x.to(q_ptr.dtype.element_ty))
         tl.store(
-            q_ptr + round_si * N + bid * W * round_count + i * H + tl.arange(0, W)[
+            q_ptr + round_si * N + bid * W * round_count + i * H + tl.arange(0,
+                                                                             W)[
                                                                    :,
                                                                    None] * round_count + tl.arange(
                 0, H

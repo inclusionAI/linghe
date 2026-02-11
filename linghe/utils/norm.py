@@ -363,7 +363,8 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
                                             weight: torch.Tensor,
                                             eps: float = 1e-6,
                                             out: Optional[torch.Tensor] = None,
-                                            scale: Optional[torch.Tensor] = None,
+                                            scale: Optional[
+                                                torch.Tensor] = None,
                                             rms: Optional[torch.Tensor] = None,
                                             round_scale: bool = False,
                                             output_mode: int = 2

@@ -392,7 +392,8 @@ def smooth_silu_impl(input, quantizer, grad_quantizer, cls):
 
 class SmoothBatchWeightedSiluFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, inputs, weights, counts, splits, quantizers, grad_quantizers, cls):
+    def forward(ctx, inputs, weights, counts, splits, quantizers,
+                grad_quantizers, cls):
         shape = inputs.shape
         ctx.grad_quantizers = grad_quantizers
         ctx.shape = shape
@@ -401,12 +402,13 @@ class SmoothBatchWeightedSiluFunction(torch.autograd.Function):
         ctx.cls = cls
         smooth_scales = torch.stack([x.smooth_scale for x in quantizers], 0)
         round_scale = quantizers[0].force_pow_2_scales
-        x_q, x_scale = triton_batch_weighted_silu_and_smooth_quant_forward(inputs,
-                                                                           weights,
-                                                                           counts,
-                                                                           smooth_scale=smooth_scales,
-                                                                           round_scale=round_scale
-                                                                           )
+        x_q, x_scale = triton_batch_weighted_silu_and_smooth_quant_forward(
+            inputs,
+            weights,
+            counts,
+            smooth_scale=smooth_scales,
+            round_scale=round_scale
+            )
         output = cls(shape=x_q.shape,
                      dtype=inputs.dtype,
                      fp8_dtype=quantizers[0].dtype,
@@ -424,8 +426,10 @@ class SmoothBatchWeightedSiluFunction(torch.autograd.Function):
         inputs, weights, counts = ctx.saved_tensors
         grad_quantizers = ctx.grad_quantizers
         # smooth_scale_inv may not exist in forward step
-        smooth_scales = torch.stack([x.smooth_scale_inv for x in grad_quantizers], 0)
-        transpose_smooth_scales = torch.cat([x.transpose_smooth_scale_inv for x in grad_quantizers], 0)
+        smooth_scales = torch.stack(
+            [x.smooth_scale_inv for x in grad_quantizers], 0)
+        transpose_smooth_scales = torch.cat(
+            [x.transpose_smooth_scale_inv for x in grad_quantizers], 0)
         # we use requant implementation, so must use round_scale=True to avoid second quantization error
         round_scale = True  # grad_quantizers[0].force_pow_2_scales
         x_q, x_scale, wgrad, xt_q, xt_scale = \
@@ -453,8 +457,11 @@ class SmoothBatchWeightedSiluFunction(torch.autograd.Function):
         return output, wgrad, None, None, None, None, None
 
 
-def smooth_batch_weighted_silu_impl(inputs, weights, counts, splits, quantizers, grad_quantizers, cls):
+def smooth_batch_weighted_silu_impl(inputs, weights, counts, splits, quantizers,
+                                    grad_quantizers, cls):
     # TODO(nanxiao): support recomputation
     assert inputs.ndim == 2
-    output = SmoothBatchWeightedSiluFunction.apply(inputs, weights, counts, splits, quantizers, grad_quantizers, cls)
+    output = SmoothBatchWeightedSiluFunction.apply(inputs, weights, counts,
+                                                   splits, quantizers,
+                                                   grad_quantizers, cls)
     return output

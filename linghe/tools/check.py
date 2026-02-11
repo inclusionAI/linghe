@@ -21,14 +21,16 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
     opt_dtype = opt_out.dtype
 
     if org_dtype in (
-            torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
+            torch.bfloat16, torch.float16, torch.float8_e4m3fn,
+            torch.float8_e5m2):
         org_out = org_out.float()
     elif org_dtype in (
             torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):
         org_out = org_out.int()
 
     if opt_dtype in (
-            torch.bfloat16, torch.float16, torch.float8_e4m3fn, torch.float8_e5m2):
+            torch.bfloat16, torch.float16, torch.float8_e4m3fn,
+            torch.float8_e5m2):
         opt_out = opt_out.float()
     elif org_dtype in (
             torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16):

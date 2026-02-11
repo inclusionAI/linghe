@@ -19,7 +19,8 @@ from linghe.utils.norm import triton_rms_norm_forward
 def torch_rms_gather_forward(x, weight, group):
     M, N = x.shape
     out, _ = triton_rms_norm_forward(x, weight)
-    torch_tensor_gather = torch.empty(group.size() * M, N, dtype=x.dtype, device=x.device)
+    torch_tensor_gather = torch.empty(group.size() * M, N, dtype=x.dtype,
+                                      device=x.device)
     dist.all_gather_into_tensor(torch_tensor_gather, out)
     return torch_tensor_gather
 
@@ -38,7 +39,8 @@ def test_norm_gather(M=4096, N=2048, group=None, bench=False):
     buffers = symm_mem.empty((M, N), dtype=torch.bfloat16, device=device)
     hdl = symm_mem.rendezvous(buffers, dist.group.WORLD)
 
-    x = torch.randn(M // group_size, N, dtype=dtype, requires_grad=True, device=device) ** 3
+    x = torch.randn(M // group_size, N, dtype=dtype, requires_grad=True,
+                    device=device) ** 3
     weight = torch.randn(N, dtype=dtype, requires_grad=True, device=device)
 
     tri_out, _ = triton_sp_rms_norm_forward(x, weight, hdl)

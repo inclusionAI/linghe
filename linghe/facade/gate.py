@@ -5,15 +5,16 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import torch
 
-from linghe.utils.gate import triton_group_rms_norm_gate_forward, \
-    triton_group_rms_norm_gate_backward
+from linghe.utils.gate import (triton_group_rms_norm_gate_forward,
+                               triton_group_rms_norm_gate_backward)
 
 
 class GroupRMSNormGateFunction(torch.autograd.Function):
     """"""
 
     @staticmethod
-    def forward(ctx, attn_output, gate, weight, eps=1e-6, group_size=4, transpose=True):
+    def forward(ctx, attn_output, gate, weight, eps=1e-6, group_size=4,
+                transpose=True):
         output = triton_group_rms_norm_gate_forward(
             attn_output,
             gate,

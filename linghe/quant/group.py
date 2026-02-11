@@ -37,7 +37,8 @@ def group_quant_kernel(
         soffs += K
 
 
-def triton_group_quant(x, dtype=torch.float8_e4m3fn, group_size=128, round_scale=False):
+def triton_group_quant(x, dtype=torch.float8_e4m3fn, group_size=128,
+                       round_scale=False):
     """
     groupwise quantize x, group is in under rowwise format
     Args:
