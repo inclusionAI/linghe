@@ -1,6 +1,11 @@
 # Changelog
 
 
+## linghe 0.3.4
+
+- add tma persistent fp32 gemm kernel
+- add multiple kernels for inference
+
 
 ## linghe 0.3.3
 
