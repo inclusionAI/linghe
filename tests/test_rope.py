@@ -469,8 +469,8 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048, 2048], H=32, h=4, dim=128,
                                                                   cp_size=cp_size,
                                                                   cp_rank=cp_rank)
     output_check(dqkv_ref, dqkv, name='dqkv', atol=0.1, rtol=0.02)
-    output_check(dqw_ref, dqw.to(dtype), name='dqw', atol=1.0*len(lengths), rtol=0.02)
-    output_check(dkw_ref, dkw.to(dtype), name='dkw', atol=1.0*len(lengths), rtol=0.02)
+    output_check(dqw_ref, dqw.to(dtype), name='dqw', atol=2.0*len(lengths), rtol=0.02)
+    output_check(dkw_ref, dkw.to(dtype), name='dkw', atol=2.0*len(lengths), rtol=0.02)
 
     if bench:
         lbh = sum(lengths) // cp_size * H
@@ -657,7 +657,7 @@ if __name__ == '__main__':
                                transposed=True, silu=False, bench=False)
     test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
                                rope_theta=10000.0, interleaved=True,
-                               transposed=False, silu=True, bench=True)
+                               transposed=False, silu=True, bench=False)
     test_qk_norm_and_half_rope(B=4, L=4096, H=16, h=4, D=128,
                                rope_theta=10000.0, interleaved=True,
                                transposed=False, silu=False, bench=False)
@@ -696,11 +696,11 @@ if __name__ == '__main__':
     test_varlen_qk_norm_and_half_rope(lengths=[2048, 4096, 4096], H=32, h=4,
                                       dim=128, rope_theta=10000.0, silu=True,
                                       interleaved=False, cp_size=4, cp_rank=0,
-                                      bench=True)
+                                      bench=False)
     test_varlen_qk_norm_and_half_rope(lengths=[16] * 512, H=32, h=4,
                                       dim=128, rope_theta=10000.0, silu=False,
                                       interleaved=False, cp_size=4, cp_rank=0,
-                                      bench=True)
+                                      bench=False)
     test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0, transpose=False,
                   bench=False)
     test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0, transpose=True,

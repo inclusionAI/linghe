@@ -413,7 +413,7 @@ def qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                  + pid * H * DD
                  + i * L * H * DD
                  + DD * tl.arange(0, H)[:, None]
-                 + tl.arange(0, D)[:, None],
+                 + tl.arange(0, D)[None, :],
                  q0)
 
     k_weight_0 = tl.load(k_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
@@ -476,7 +476,7 @@ def qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                  + pid * h * DD
                  + i * L * h * DD
                  + DD * tl.arange(0, h)[:, None]
-                 + tl.arange(0, D)[:, None],
+                 + tl.arange(0, D)[None, :],
                  k0)
 
     if INTERLEAVED:
@@ -518,7 +518,7 @@ def qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                  + pid * h * DD
                  + i * L * h * DD
                  + DD * tl.arange(0, h)[:, None]
-                 + tl.arange(0, D)[:, None], v0)
+                 + tl.arange(0, D)[None, :], v0)
         tl.store(vo_ptr
                  + pid * h * DD
                  + i * L * h * DD
@@ -627,7 +627,7 @@ def compatible_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                  + pid * H * DD
                  + i * L * H * DD
                  + DD * tl.arange(0, H_p)[:, None]
-                 + tl.arange(0, D)[:, None],
+                 + tl.arange(0, D)[None, :],
                  q0,
                  mask=q_mask)
 
@@ -682,7 +682,12 @@ def compatible_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
         k1 *= k_weight_1
         k_mask = tl.arange(0, h_p)[:, None] < h
         tl.store(
-            ko_ptr + pid * h * DD + i * L * h * DD + D + DD * tl.arange(0, h_p)[:, None] + tl.arange(0, D)[None, :], k1,
+            ko_ptr
+            + pid * h * DD
+            + i * L * h * DD
+            + D + DD * tl.arange(0, h_p)[:, None]
+            + tl.arange(0, D)[None, :],
+            k1,
             mask=k_mask)
 
         k0 *= rms[:, None]
@@ -690,8 +695,12 @@ def compatible_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
         kr = tl.reshape(tl.permute(tl.flip(tl.permute(tl.reshape(k0, (h_p, 2, d)), (0, 2, 1)),
                                            dim=2) * signs, (0, 2, 1)), (h_p, D))
         k0 = k0 * cos + kr * sin
-        tl.store(ko_ptr + pid * h * DD + i * L * h * DD + DD * tl.arange(0, h_p)[:, None] + tl.arange(0,
-                                                                                                      D)[:, None], k0,
+        tl.store(ko_ptr 
+                 + pid * h * DD 
+                 + i * L * h * DD 
+                 + DD * tl.arange(0, h_p)[:, None] 
+                 + tl.arange(0, D)[None, :], 
+                 k0,
                  mask=k_mask)
 
     if INTERLEAVED:
@@ -742,7 +751,7 @@ def compatible_qk_norm_and_half_rope_forward_kernel(qkv_ptr,
                  + pid * h * DD
                  + i * L * h * DD
                  + DD * tl.arange(0, h_p)[:, None]
-                 + tl.arange(0, D)[:, None],
+                 + tl.arange(0, D)[None, :],
                  v0,
                  mask=v_mask)
         tl.store(vo_ptr
@@ -897,7 +906,7 @@ def qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
                        + i * L * H * DD
                        + pid * H * DD
                        + DD * tl.arange(0, H)[:, None]
-                       + tl.arange(0, D)[:, None]).to(tl.float32)
+                       + tl.arange(0, D)[None, :]).to(tl.float32)
         gq_1 = tl.load(gq_ptr
                        + i * L * H * DD
                        + pid * H * DD
@@ -1012,7 +1021,7 @@ def qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
                        + i * L * h * DD
                        + pid * h * DD
                        + DD * tl.arange(0, h)[:, None]
-                       + tl.arange(0, D)[:, None]).to(tl.float32)
+                       + tl.arange(0, D)[None, :]).to(tl.float32)
         gk_1 = tl.load(gk_ptr
                        + i * L * h * DD
                        + pid * h * DD
@@ -1122,11 +1131,10 @@ def qk_norm_and_half_rope_backward_kernel(gq_ptr, gk_ptr, gv_ptr,
                        + i * L * h * DD
                        + pid * h * DD
                        + DD * tl.arange(0, h)[:, None]
-                       + tl.arange(0, D)[:, None]).to(tl.float32)
+                       + tl.arange(0, D)[None, :]).to(tl.float32)
         gv_1 = tl.load(gv_ptr
                        + i * L * h * DD
                        + pid * h * DD
-
                        + D + DD * tl.arange(0, h)[:, None]
                        + tl.arange(0, D)[None, :]).to(tl.float32)
 
@@ -1245,7 +1253,7 @@ def compatible_qk_norm_and_half_rope_backward_kernel(gq_ptr,
                        + i * L * H * DD
                        + pid * H * DD
                        + DD * tl.arange(0, H_p)[:, None]
-                       + tl.arange(0, D)[:, None],
+                       + tl.arange(0, D)[None, :],
                        mask=tl.arange(0, H_p)[:, None] < H).to(tl.float32)
         gq_1 = tl.load(gq_ptr
                        + i * L * H * DD
@@ -1386,7 +1394,7 @@ def compatible_qk_norm_and_half_rope_backward_kernel(gq_ptr,
                        + i * L * h * DD
                        + pid * h * DD
                        + DD * tl.arange(0, h_p)[:, None]
-                       + tl.arange(0, D)[:, None],
+                       + tl.arange(0, D)[None, :],
                        mask=tl.arange(0, h_p)[:, None] < h).to(tl.float32)
         gk_1 = tl.load(gk_ptr
                        + i * L * h * DD
@@ -1517,7 +1525,7 @@ def compatible_qk_norm_and_half_rope_backward_kernel(gq_ptr,
                        + i * L * h * DD
                        + pid * h * DD
                        + DD * tl.arange(0, h_p)[:, None]
-                       + tl.arange(0, D)[:, None],
+                       + tl.arange(0, D)[None, :],
                        mask=tl.arange(0, h_p)[:, None] < h).to(tl.float32)
         gv_1 = tl.load(gv_ptr
                        + i * L * h * DD
@@ -3035,12 +3043,12 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
         kv_ptr
         + pid * H * 256
         + 256 * tl.arange(0, H)[:, None]
-        + tl.arange(0, 128)[:, None]).to(tl.float32)
+        + tl.arange(0, 128)[None, :]).to(tl.float32)
     if TRANSPOSE:
         tl.store(ko_ptr
                  + (bid * L + pos) * H * 192
                  + 192 * tl.arange(0, H)[:, None]
-                 + tl.arange(0, 128)[:, None],
+                 + tl.arange(0, 128)[None, :],
                  k)
     else:
         tl.store(ko_ptr
@@ -3059,7 +3067,7 @@ def mla_rope_forward_kernel(q_ptr, kv_ptr, k_pos_emb_ptr,
         tl.store(vo_ptr
                  + (bid * L + pos) * H * 128
                  + 128 * tl.arange(0, H)[:, None]
-                 + tl.arange(0, 128)[:, None],
+                 + tl.arange(0, 128)[None, :],
                  v)
     else:
         tl.store(vo_ptr

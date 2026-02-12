@@ -156,8 +156,8 @@ def torch_batch_transpose_smooth_permute_with_indices(x,
         y_q, y_scale = torch_smooth_quant(y.t().contiguous(),
                                                  smooth_scale, reverse=True,
                                                  round_scale=round_scale)
-        scale_refs.append(y_scale.view(-1))
-        q_refs.append(y_q.view(-1))
+        scale_refs.append(y_scale)
+        q_refs.append(y_q.view(N, DIM))
         s += c
     q_ref = torch.cat(q_refs, 0)
     scale_ref = torch.stack(scale_refs, 0)
