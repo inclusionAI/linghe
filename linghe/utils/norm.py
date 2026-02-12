@@ -29,11 +29,9 @@ def rms_norm_forward_kernel(x_ptr,
     offs = pid * W * T * n + tl.arange(0, W)[:, None] * n + tl.arange(0, N)[
                                                             None, :]
     for i in range(T):
-        mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (
-                    tl.arange(0, N) < n)
+        mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (tl.arange(0, N) < n)
         x = tl.load(x_ptr + offs,
-                    mask=mask).to(
-            tl.float32)
+                    mask=mask).to(tl.float32)
         if REUSE:
             rms = tl.load(rms_ptr + pid * W * T + i * W + tl.arange(0, W),
                           mask=pid * W * T + i * W + tl.arange(0, W) < M,
@@ -95,8 +93,7 @@ def triton_rms_norm_forward(x, weight, eps=1e-6, out=None, rms=None):
         W,
         REUSE,
         num_stages=3,
-        num_warps=4
-    )
+        num_warps=4)
     return out, rms
 
 
@@ -114,8 +111,7 @@ def rms_norm_backward_kernel(
         n,
         N: tl.constexpr,
         W: tl.constexpr,
-        REUSE: tl.constexpr
-):
+        REUSE: tl.constexpr):
     pid = tl.program_id(0)
 
     w = tl.load(w_ptr + tl.arange(0, N), mask=tl.arange(0, N) < n).to(
@@ -125,8 +121,7 @@ def rms_norm_backward_kernel(
                                                             None, :]
     w_grads = tl.zeros((N,), dtype=tl.float32)
     for i in range(T):
-        mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (
-                    tl.arange(0, N) < n)
+        mask = (pid * W * T + i * W + tl.arange(0, W)[:, None] < M) & (tl.arange(0, N) < n)
 
         x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
         g = tl.load(grad_output_ptr + offs, mask=mask).to(tl.float32)
@@ -182,8 +177,7 @@ def triton_rms_norm_backward(grad_output, x, w, eps=1e-6, rms=None):
         W,
         REUSE,
         num_stages=3,
-        num_warps=4
-    )
+        num_warps=4)
     return dx, tmp_dw.sum(dim=0)
 
 
@@ -299,8 +293,7 @@ def rms_norm_and_block_quant_forward_n_kernel(x_ptr,
 
         tl.store(scale_ptr + tl.arange(0, NB)[:, None] * M + indices[None, :],
                  tl.trans(scale),
-                 mask=(indices[None, :] < M) & (
-                             tl.arange(0, NB)[:, None] < n // 128))
+                 mask=(indices[None, :] < M) & (tl.arange(0, NB)[:, None] < n // 128))
         tl.store(out_ptr + offs, x, mask=masks)
         offs += n * W
 
@@ -395,22 +388,20 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
         W = 8192 // N
         T = 16 // W
         grid = (triton.cdiv(M, 16),)
-        rms_norm_and_block_quant_forward_n_kernel[grid](
-            x,
-            weight,
-            out,
-            scale,
-            rms,
-            eps,
-            M,
-            n,
-            N,
-            T,
-            W,
-            round_scale,
-            num_stages=3,
-            num_warps=4
-        )
+        rms_norm_and_block_quant_forward_n_kernel[grid](x,
+                                                        weight,
+                                                        out,
+                                                        scale,
+                                                        rms,
+                                                        eps,
+                                                        M,
+                                                        n,
+                                                        N,
+                                                        T,
+                                                        W,
+                                                        round_scale,
+                                                        num_stages=3,
+                                                        num_warps=4)
 
     elif output_mode == 1:  # only output transposed tensor
         assert rms is not None
@@ -439,45 +430,41 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
             H = 32
             assert n % 128 == 0
             grid = (triton.cdiv(M, 128),)
-            rms_norm_and_block_quant_forward_kernel[grid](
-                x,
-                weight,
-                out,
-                scale,
-                transpose_output,
-                transpose_scale,
-                rms,
-                eps,
-                M,
-                n,
-                N,
-                T,
-                W,
-                H,
-                round_scale,
-                num_stages=2,
-                num_warps=4
-            )
+            rms_norm_and_block_quant_forward_kernel[grid](x,
+                                                          weight,
+                                                          out,
+                                                          scale,
+                                                          transpose_output,
+                                                          transpose_scale,
+                                                          rms,
+                                                          eps,
+                                                          M,
+                                                          n,
+                                                          N,
+                                                          T,
+                                                          W,
+                                                          H,
+                                                          round_scale,
+                                                          num_stages=2,
+                                                          num_warps=4)
         else:
             W = 8192 // N
             T = 16 // W
             grid = (triton.cdiv(M, 16),)
-            rms_norm_and_block_quant_forward_n_kernel[grid](
-                x,
-                weight,
-                out,
-                scale,
-                rms,
-                eps,
-                M,
-                n,
-                N,
-                T,
-                W,
-                round_scale,
-                num_stages=3,
-                num_warps=4
-            )
+            rms_norm_and_block_quant_forward_n_kernel[grid](x,
+                                                            weight,
+                                                            out,
+                                                            scale,
+                                                            rms,
+                                                            eps,
+                                                            M,
+                                                            n,
+                                                            N,
+                                                            T,
+                                                            W,
+                                                            round_scale,
+                                                            num_stages=3,
+                                                            num_warps=4)
 
             W = 32
             assert n % W == 0, f' {n=} {W=}'
@@ -498,38 +485,32 @@ def triton_rms_norm_and_block_quant_forward(x: torch.Tensor,
 
 
 @triton.jit
-def rms_norm_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
+def rms_norm_and_smooth_quant_forward_kernel(x_ptr,
+                                             weight_ptr,
                                              smooth_scale_ptr,
-                                             out_ptr, scale_ptr, max_ptr,
+                                             out_ptr,
+                                             scale_ptr,
                                              rms_ptr,
                                              eps,
                                              M,
                                              T,
                                              N: tl.constexpr,
                                              W: tl.constexpr,
-                                             CALIBRATE: tl.constexpr,
-                                             OUTPUT: tl.constexpr,
                                              ROUND: tl.constexpr):
     pid = tl.program_id(axis=0)
     # row-wise read, row-wise write
     weight = tl.load(weight_ptr + tl.arange(0, N)).to(tl.float32)[None, :]
     smooth_scale = tl.load(smooth_scale_ptr + tl.arange(0, N))[None, :]
     smooth_scale = 1.0 / tl.maximum(smooth_scale, 1e-30)
-    if CALIBRATE:
-        # triton 3.3.1 has bug with N = 2048 and calibrate=True
-        maxs = tl.zeros((N,), dtype=tl.float32)
+
     offs = pid * W * T * N + tl.arange(0, W)[:, None] * N + tl.arange(0, N)[
                                                             None, :]
     for i in range(T):
         indices = pid * W * T + i * W + tl.arange(0, W)
         x = tl.load(x_ptr + offs, mask=indices[:, None] < M).to(tl.float32)
         rms = tl.rsqrt(tl.sum(x * x, axis=1) / N + eps)
-        if OUTPUT:
-            tl.store(rms_ptr + indices, rms, mask=indices < M)
+        tl.store(rms_ptr + indices, rms, mask=indices < M)
         x = x * rms[:, None] * weight
-
-        if CALIBRATE:
-            maxs = tl.maximum(maxs, tl.max(tl.abs(x), 0))
 
         x = x * smooth_scale
         scale = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
@@ -540,16 +521,15 @@ def rms_norm_and_smooth_quant_forward_kernel(x_ptr, weight_ptr,
         tl.store(out_ptr + offs, q, mask=indices[:, None] < M)
         offs += N * W
 
-    if CALIBRATE:
-        tl.store(max_ptr + pid * N + tl.arange(0, N), maxs)
-
 
 # rms is used for moe routing, it is stored as 1/rms
-def triton_rms_norm_and_smooth_quant_forward(x, weight, smooth_scale=None,
+def triton_rms_norm_and_smooth_quant_forward(x,
+                                             weight,
+                                             smooth_scale=None,
                                              eps=1e-6,
-                                             out=None, scale=None, rms=None,
-                                             calibrate=False,
-                                             output_rms=False,
+                                             out=None,
+                                             scale=None,
+                                             rms=None,
                                              round_scale=False):
     """"""
     assert x.is_contiguous() and weight.is_contiguous()
@@ -566,11 +546,7 @@ def triton_rms_norm_and_smooth_quant_forward(x, weight, smooth_scale=None,
     T = 8 if M // W >= 4096 else 4
     assert M % (T * W) == 0
     g = M // (T * W)
-    if calibrate:
-        maxs = torch.empty((g, N), dtype=torch.float32, device=device)
-    else:
-        maxs = None
-    if output_rms and rms is None:
+    if rms is None:
         rms = torch.empty((M,), dtype=torch.float32, device=device)
     grid = (g,)
     rms_norm_and_smooth_quant_forward_kernel[grid](
@@ -579,23 +555,17 @@ def triton_rms_norm_and_smooth_quant_forward(x, weight, smooth_scale=None,
         smooth_scale,
         out,
         scale,
-        maxs,
         rms,
         eps,
         M,
         T,
         N,
         W,
-        calibrate,
-        output_rms,
         round_scale,
         num_stages=3,
-        num_warps=2 if N == 2048 else 4
-    )
-    if calibrate:
-        maxs = maxs.amax(0)
+        num_warps=2 if N == 2048 else 4)
 
-    return out, scale, maxs, rms
+    return out, scale, rms
 
 
 @triton.jit
@@ -643,12 +613,12 @@ def rms_norm_and_mxfp8_quant_forward_n_kernel(x_ptr,
 
         # tl.store(scale_ptr + indices[:, None] * nb + tl.arange(0, nb)[None, :], scale, mask=indices[:, None] < M)
         # tl.store(out_ptr + offs, x, mask=indices[:, None] < M)
-        scale_mask = (indices[:, None] < M) & (
-                    tl.arange(0, nb)[None, :] < (n // 32))
-        tl.store(
-            scale_ptr + indices[:, None] * (n // 32) + tl.arange(0, nb)[None,
-                                                       :], log_scale + 127,
-            mask=scale_mask)
+        scale_mask = (indices[:, None] < M) & (tl.arange(0, nb)[None, :] < (n // 32))
+        tl.store(scale_ptr
+                 + indices[:, None] * (n // 32)
+                 + tl.arange(0, nb)[None, :],
+                 log_scale + 127,
+                 mask=scale_mask)
         tl.store(out_ptr + offs, x, mask=mask)
         offs += n * W
 
@@ -738,17 +708,18 @@ def rms_norm_and_mxfp8_quant_forward_kernel(x_ptr,
 
         # tl.store(scale_ptr + indices[:, None] * nb + tl.arange(0, nb)[None, :], scale, mask=indices[:, None] < M)
         # tl.store(out_ptr + offs, x, mask=indices[:, None] < M)
-        scale_mask = (indices[:, None] < M) & (
-                    tl.arange(0, nb)[None, :] < (n // 32))
-        tl.store(
-            scale_ptr + indices[:, None] * (n // 32) + tl.arange(0, nb)[None,
-                                                       :], log_scale + 127,
-            mask=scale_mask)
+        scale_mask = (indices[:, None] < M) & (tl.arange(0, nb)[None, :] < (n // 32))
+        tl.store(scale_ptr
+                 + indices[:, None] * (n // 32)
+                 + tl.arange(0, nb)[None, :],
+                 log_scale + 127,
+                 mask=scale_mask)
         tl.store(out_ptr + offs, x, mask=mask)
         offs += n * W
 
-    offs = pid * 32 * n + tl.arange(0, 32)[:, None] * n + tl.arange(0, H)[
-                                                          None, :]
+    offs = (pid * 32 * n
+            + tl.arange(0, 32)[:, None] * n
+            + tl.arange(0, H)[None, :])
     # toffs = pid * 32 + tl.arange(0, H)[:, None] * M + tl.arange(0, 32)[
     #                                                         None, :]
     indices = pid * 32 + tl.arange(0, 32)
@@ -791,31 +762,31 @@ def triton_rms_norm_and_mxfp8_quant_forward(x, weight, eps=1e-6,
     if rms is None:
         rms = torch.empty((M,), dtype=torch.float32, device=device)
     # transpose_output should be initialized, or else can not make splitted tensors
-    transpose_output = torch.empty((M, n), device=device,
+    transpose_output = torch.empty((M, n),
+                                   device=device,
                                    dtype=torch.float8_e4m3fn)
     # transpose_scale = torch.empty(((M+31)//32, n), device=device, dtype=torch.float32)
-    transpose_scale = torch.empty(((M + 31) // 32, n), device=device,
+    transpose_scale = torch.empty(((M + 31) // 32, n),
+                                  device=device,
                                   dtype=torch.uint8)
     if output_mode == 0:  # only output non-transpose tensor
         W = 8192 // N
         T = 16 // W
         grid = (triton.cdiv(M, 16),)
-        rms_norm_and_mxfp8_quant_forward_n_kernel[grid](
-            x,
-            weight,
-            out,
-            scale,
-            rms,
-            eps,
-            n,
-            M,
-            T,
-            N,
-            N // 32,
-            W,
-            num_stages=3,
-            num_warps=4
-        )
+        rms_norm_and_mxfp8_quant_forward_n_kernel[grid](x,
+                                                        weight,
+                                                        out,
+                                                        scale,
+                                                        rms,
+                                                        eps,
+                                                        n,
+                                                        M,
+                                                        T,
+                                                        N,
+                                                        N // 32,
+                                                        W,
+                                                        num_stages=3,
+                                                        num_warps=4)
 
     elif output_mode == 1:  # only output transposed tensor
         # W = N//512
@@ -839,25 +810,23 @@ def triton_rms_norm_and_mxfp8_quant_forward(x, weight, eps=1e-6,
         T = 32 // W
         H = 64
         grid = (triton.cdiv(M, 32),)
-        rms_norm_and_mxfp8_quant_forward_kernel[grid](
-            x,
-            weight,
-            out,
-            scale,
-            transpose_output,
-            transpose_scale,
-            rms,
-            eps,
-            n,
-            M,
-            T,
-            N,
-            N // 32,
-            W,
-            H,
-            num_stages=3,
-            num_warps=16
-        )
+        rms_norm_and_mxfp8_quant_forward_kernel[grid](x,
+                                                      weight,
+                                                      out,
+                                                      scale,
+                                                      transpose_output,
+                                                      transpose_scale,
+                                                      rms,
+                                                      eps,
+                                                      n,
+                                                      M,
+                                                      T,
+                                                      N,
+                                                      N // 32,
+                                                      W,
+                                                      H,
+                                                      num_stages=3,
+                                                      num_warps=16)
 
     return out, scale, rms, transpose_output, transpose_scale
 
@@ -879,8 +848,7 @@ def rms_norm_fp32_gemm_block_quant_forward_n_kernel(
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-        ROUND: tl.constexpr
-):
+        ROUND: tl.constexpr):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = tl.cdiv(K, BLOCK_SIZE_K)
@@ -903,8 +871,7 @@ def rms_norm_fp32_gemm_block_quant_forward_n_kernel(
     w_ptrs = route_weight_ptr + offs_n[None, :] * K + offs_k[:, None]
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     for i in range(k):
-        norm_weight = tl.load(norm_weight_ptr + i * BLOCK_SIZE_K + offs_k).to(
-            tl.float32)
+        norm_weight = tl.load(norm_weight_ptr + i * BLOCK_SIZE_K + offs_k).to(tl.float32)
         x = tl.load(x_ptr + x_offs).to(tl.float32)
         w = tl.load(w_ptrs).to(tl.float32)
 
@@ -919,9 +886,8 @@ def rms_norm_fp32_gemm_block_quant_forward_n_kernel(
 
         x = x / scale[:, None]
 
-        tl.store(
-            xs_ptr + M * i + pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M),
-            scale)
+        tl.store(xs_ptr + M * i + pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M),
+                 scale)
         tl.store(xq_ptr + x_offs, x)
 
         x_offs += BLOCK_SIZE_K
@@ -933,15 +899,14 @@ def rms_norm_fp32_gemm_block_quant_forward_n_kernel(
     tl.store(c_ptrs, c)
 
 
-def triton_rms_norm_fp32_gemm_block_quant_forward(x: torch.Tensor,
-                                                  norm_weight: torch.Tensor,
-                                                  route_weight: torch.Tensor,
-                                                  rms: Optional[
-                                                      torch.Tensor] = None,
-                                                  eps: float = 1e-6,
-                                                  output_mode: int = 0,
-                                                  round_scale=False
-                                                  ):
+def triton_rms_norm_fp32_gemm_block_quant_forward(
+        x: torch.Tensor,
+        norm_weight: torch.Tensor,
+        route_weight: torch.Tensor,
+        rms: Optional[torch.Tensor] = None,
+        eps: float = 1e-6,
+        output_mode: int = 0,
+        round_scale=False):
     """
     y = rms_norm(x)
     logits = y@w_route
@@ -1003,8 +968,7 @@ def triton_rms_norm_fp32_gemm_block_quant_forward(x: torch.Tensor,
                                                               BLOCK_SIZE_N,
                                                               round_scale,
                                                               num_warps=num_warps,
-                                                              num_stages=num_stages
-                                                              )
+                                                              num_stages=num_stages)
     else:
         W = 32
         grid = (triton.cdiv(M, 128), K // W)

@@ -32,8 +32,7 @@ def fp32_gemm_kernel(
         K: tl.constexpr,
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
-):
+        BLOCK_SIZE_N: tl.constexpr, ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = tl.cdiv(K, BLOCK_SIZE_K)
@@ -86,8 +85,7 @@ def triton_fp32_gemm(x: torch.Tensor, w: torch.Tensor):
                            BLOCK_SIZE_M,
                            BLOCK_SIZE_N,
                            num_warps=num_warps,
-                           num_stages=num_stages
-                           )
+                           num_stages=num_stages)
     return c
 
 
@@ -102,8 +100,7 @@ def fp32_gemm_for_backward_kernel(
         K: tl.constexpr,
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
-):
+        BLOCK_SIZE_N: tl.constexpr, ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = tl.cdiv(K, BLOCK_SIZE_K)
@@ -154,8 +151,7 @@ def triton_fp32_gemm_for_backward(y: torch.Tensor,
                                         BLOCK_SIZE_M,
                                         BLOCK_SIZE_N,
                                         num_warps=num_warps,
-                                        num_stages=num_stages
-                                        )
+                                        num_stages=num_stages)
     return c
 
 
@@ -170,8 +166,7 @@ def fp32_gemm_for_update_kernel(
         K: tl.constexpr,
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
-        BLOCK_SIZE_N: tl.constexpr,
-):
+        BLOCK_SIZE_N: tl.constexpr, ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     k = tl.cdiv(K, BLOCK_SIZE_K)
@@ -221,8 +216,7 @@ def triton_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
                                       BLOCK_SIZE_M,
                                       BLOCK_SIZE_N,
                                       num_warps=num_warps,
-                                      num_stages=num_stages
-                                      )
+                                      num_stages=num_stages)
     return c
 
 
@@ -237,8 +231,7 @@ def split_fp32_gemm_kernel(
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-        SPLIT_COUNT: tl.constexpr
-):
+        SPLIT_COUNT: tl.constexpr):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     pid_k = tl.program_id(axis=2)
@@ -247,10 +240,14 @@ def split_fp32_gemm_kernel(
     offs_m = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M))
     offs_n = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
     offs_k = tl.arange(0, BLOCK_SIZE_K)
-    a_ptrs = a_ptr + pid_k * K // SPLIT_COUNT + offs_m[:, None] * K + offs_k[
-                                                                      None, :]
-    b_ptrs = b_ptr + pid_k * K // SPLIT_COUNT + offs_n[None, :] * K + offs_k[:,
-                                                                      None]
+    a_ptrs = (a_ptr
+              + pid_k * K // SPLIT_COUNT
+              + offs_m[:, None] * K
+              + offs_k[None, :])
+    b_ptrs = (b_ptr
+              + pid_k * K // SPLIT_COUNT
+              + offs_n[None, :] * K
+              + offs_k[:, None])
 
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     for i in range(k):
@@ -307,8 +304,7 @@ def triton_split_fp32_gemm(x: torch.Tensor, w: torch.Tensor):
                                  BLOCK_SIZE_N,
                                  SPLIT_COUNT,
                                  num_warps=num_warps,
-                                 num_stages=num_stages
-                                 )
+                                 num_stages=num_stages)
     return c
 
 
@@ -324,8 +320,7 @@ def split_fp32_gemm_for_backward_kernel(
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-        SPLIT_COUNT: tl.constexpr
-):
+        SPLIT_COUNT: tl.constexpr):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     pid_k = tl.program_id(axis=2)
@@ -391,8 +386,7 @@ def triton_split_fp32_gemm_for_backward(y: torch.Tensor,
                                               BLOCK_SIZE_N,
                                               SPLIT_COUNT,
                                               num_warps=num_warps,
-                                              num_stages=num_stages
-                                              )
+                                              num_stages=num_stages)
     if SPLIT_COUNT > 1:
         c = c.to(w.dtype)
     return c
@@ -410,8 +404,7 @@ def split_fp32_gemm_for_update_kernel(
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-        SPLIT_COUNT: tl.constexpr,
-):
+        SPLIT_COUNT: tl.constexpr, ):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     pid_k = tl.program_id(axis=2)
@@ -420,10 +413,14 @@ def split_fp32_gemm_for_update_kernel(
     offs_m = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M))
     offs_n = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
     offs_k = tl.arange(0, BLOCK_SIZE_K)
-    a_ptrs = a_ptr + pid_k * K // SPLIT_COUNT * M + offs_m[None, :] + offs_k[:,
-                                                                      None] * M
-    b_ptrs = b_ptr + pid_k * K // SPLIT_COUNT * N + offs_n[None, :] + offs_k[:,
-                                                                      None] * N
+    a_ptrs = (a_ptr
+              + pid_k * K // SPLIT_COUNT * M
+              + offs_m[None, :]
+              + offs_k[:, None] * M)
+    b_ptrs = (b_ptr
+              + pid_k * K // SPLIT_COUNT * N
+              + offs_n[None, :]
+              + offs_k[:, None] * N)
 
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     for i in range(k):
@@ -475,10 +472,8 @@ def triton_split_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
                                             BLOCK_SIZE_N,
                                             SPLIT_COUNT,
                                             num_warps=num_warps,
-                                            num_stages=num_stages
-                                            )
+                                            num_stages=num_stages)
     return c
-
 
 
 @triton.jit
@@ -493,18 +488,17 @@ def _compute_pid(tile_id, num_pid_in_group, num_pid_m, GROUP_SIZE_M):
 
 @triton.jit
 def tma_persistent_matmul_kernel(
-    a_desc,
-    b_desc,
-    c_desc,
-    M,
-    N,
-    K,
-    BLOCK_SIZE_M: tl.constexpr,
-    BLOCK_SIZE_N: tl.constexpr,
-    BLOCK_SIZE_K: tl.constexpr,
-    GROUP_SIZE_M: tl.constexpr,
-    SM: tl.constexpr,
-):
+        a_desc,
+        b_desc,
+        c_desc,
+        M,
+        N,
+        K,
+        BLOCK_SIZE_M: tl.constexpr,
+        BLOCK_SIZE_N: tl.constexpr,
+        BLOCK_SIZE_K: tl.constexpr,
+        GROUP_SIZE_M: tl.constexpr,
+        SM: tl.constexpr, ):
     start_pid = tl.program_id(axis=0)
     num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
     num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
@@ -515,7 +509,8 @@ def tma_persistent_matmul_kernel(
     num_pid_in_group = GROUP_SIZE_M * num_pid_n
 
     for tid in tl.range(start_pid, num_tiles, SM, flatten=True):
-        pid_m, pid_n = _compute_pid(tid, num_pid_in_group, num_pid_m, GROUP_SIZE_M)
+        pid_m, pid_n = _compute_pid(tid, num_pid_in_group, num_pid_m,
+                                    GROUP_SIZE_M)
         offs_a = pid_m * BLOCK_SIZE_M
         offs_b = pid_n * BLOCK_SIZE_N
 
@@ -527,9 +522,7 @@ def tma_persistent_matmul_kernel(
             accumulator = tl.dot(a, b.T, accumulator)
 
         tid_c += SM
-        pid_m, pid_n = _compute_pid(
-            tid_c, num_pid_in_group, num_pid_m, GROUP_SIZE_M
-        )
+        pid_m, pid_n = _compute_pid(tid_c, num_pid_in_group, num_pid_m, GROUP_SIZE_M)
         offs_a_acc = pid_m * BLOCK_SIZE_M
         offs_b_acc = pid_n * BLOCK_SIZE_N
 
@@ -554,18 +547,21 @@ def triton_tma_persistent_matmul(a, b):
     BLOCK_N = 64
     GROUP_SIZE_M = 8
 
-    a_desc = triton.tools.tensor_descriptor.TensorDescriptor(a, a.shape, a.stride(), [BLOCK_M, BLOCK_K])
-    b_desc = triton.tools.tensor_descriptor.TensorDescriptor(b, b.shape, b.stride(), [BLOCK_N, BLOCK_K])
-    c_desc = triton.tools.tensor_descriptor.TensorDescriptor(c, c.shape, c.stride(), [BLOCK_M, BLOCK_N // 2])
+    a_desc = triton.tools.tensor_descriptor.TensorDescriptor(a, a.shape,
+                                                             a.stride(),
+                                                             [BLOCK_M, BLOCK_K])
+    b_desc = triton.tools.tensor_descriptor.TensorDescriptor(b, b.shape,
+                                                             b.stride(),
+                                                             [BLOCK_N, BLOCK_K])
+    c_desc = triton.tools.tensor_descriptor.TensorDescriptor(c, c.shape,
+                                                             c.stride(),
+                                                             [BLOCK_M,
+                                                              BLOCK_N // 2])
 
     def grid(META):
         nonlocal a_desc, b_desc, c_desc
-        return (
-            min(
-                SM,
-                triton.cdiv(M, BLOCK_M) * triton.cdiv(N, BLOCK_N),
-            ),
-        )
+        return (min(SM,
+                    triton.cdiv(M, BLOCK_M) * triton.cdiv(N, BLOCK_N), ),)
 
     tma_persistent_matmul_kernel[grid](
         a_desc,
@@ -578,7 +574,5 @@ def triton_tma_persistent_matmul(a, b):
         BLOCK_K,
         BLOCK_N,
         GROUP_SIZE_M,
-        SM=SM,
-    )
+        SM=SM, )
     return c
-

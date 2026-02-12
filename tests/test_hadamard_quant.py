@@ -5,7 +5,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import torch
 
-from linghe.facade.hadamard_quant_linear import HadamardQuantLinear
+from linghe.facade.linear import HadamardQuantLinear
 from linghe.quant.hadamard import triton_hadamard_quant
 from linghe.tools.check import output_check
 from linghe.tools.util import (make_hadamard_matrix,

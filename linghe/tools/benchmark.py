@@ -34,7 +34,8 @@ def benchmark_func(fn, *args, n_warmup=10, n_repeat=100, ref_flops=None,
     if n_profile > 0:
         with profile(activities=[ProfilerActivity.CPU,
                                  ProfilerActivity.CUDA,
-                                 ProfilerActivity.XPU]) as prof:
+                                 ProfilerActivity.XPU],
+                     with_stack=True) as prof:
             for i in range(n_profile):
                 fn(*args, **kwargs)
         print(prof.key_averages().table(sort_by="cuda_time_total",

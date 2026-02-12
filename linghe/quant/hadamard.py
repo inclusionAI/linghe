@@ -17,8 +17,7 @@ def hadamard_quant_row_kernel(
         M,
         N,
         BLOCK_SIZE: tl.constexpr,
-        R: tl.constexpr,
-):
+        R: tl.constexpr, ):
     pid = tl.program_id(0)
     row_start = pid * R * BLOCK_SIZE
     rows = row_start + tl.arange(0, R * BLOCK_SIZE)
@@ -71,8 +70,7 @@ def hadamard_quant_col_kernel(
         M,
         N,
         BLOCK_SIZE: tl.constexpr,
-        R: tl.constexpr,
-):
+        R: tl.constexpr, ):
     pid = tl.program_id(0)
     col_start = pid * R * BLOCK_SIZE
     cols = col_start + tl.arange(0, R * BLOCK_SIZE)
@@ -150,8 +148,7 @@ def triton_hadamard_quant(x, hm):
         BLOCK_SIZE,
         R,
         num_stages=6,
-        num_warps=4
-    )
+        num_warps=4)
 
     grid_col = (triton.cdiv(N, R * BLOCK_SIZE),)
     hadamard_quant_col_kernel[grid_col](
@@ -164,7 +161,6 @@ def triton_hadamard_quant(x, hm):
         BLOCK_SIZE,
         R,
         num_stages=6,
-        num_warps=4
-    )
+        num_warps=4)
 
     return x_q, x_scale, xt_q, xt_scale

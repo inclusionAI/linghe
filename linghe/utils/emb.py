@@ -49,8 +49,7 @@ def triton_embedding_forward(x, w_ptr, dim=4096, dtype=torch.bfloat16):
         dim,
         DIM,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)
     return y
 
 
@@ -63,8 +62,7 @@ def atomic_embedding_backward_kernel(
         stride_1,
         dim,
         DIM: tl.constexpr,
-        T: tl.constexpr
-):
+        T: tl.constexpr):
     bid = tl.program_id(axis=0).to(tl.int64)
     lid = tl.program_id(axis=1)
     B = tl.num_programs(0)
@@ -73,8 +71,10 @@ def atomic_embedding_backward_kernel(
 
     if T == 0:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.float32))
-    else:
+    elif T == 1:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.bfloat16))
+    else:
+        grad_ptr = g_ptr.to(tl.pointer_type(tl.float16))
 
     y = tl.load(y_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0, DIM),
                 mask=tl.arange(0, DIM) < dim)
@@ -92,10 +92,15 @@ def triton_atomic_embedding_backward(y, x, g_ptr, dtype=torch.bfloat16):
     Returns:
         None
     """
-    assert dtype in (torch.bfloat16, torch.float32)
+    assert dtype in (torch.float32, torch.bfloat16, torch.float16)
     shape = x.shape
     assert len(shape) == 2
-    T = 0 if dtype == torch.float32 else 1
+    if dtype == torch.float32:
+        T = 0
+    elif dtype == torch.bfloat16:
+        T = 1
+    else:
+        T = 2
     B, L, dim = y.shape
     stride_0 = y.stride(0)
     stride_1 = y.stride(1)
@@ -115,8 +120,7 @@ def triton_atomic_embedding_backward(y, x, g_ptr, dtype=torch.bfloat16):
         DIM,
         T,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)
 
 
 @triton.jit
@@ -131,8 +135,7 @@ def sync_embedding_backward_kernel(grad_output_ptr,
                                    B,
                                    L,
                                    DIM: tl.constexpr,
-                                   T: tl.constexpr,
-                                   ):
+                                   T: tl.constexpr, ):
     pid = tl.program_id(axis=0).to(tl.int64)
 
     if pid == 0:
@@ -147,8 +150,10 @@ def sync_embedding_backward_kernel(grad_output_ptr,
 
     if T == 0:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.float32))
-    else:
+    elif T == 1:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.bfloat16))
+    else:
+        grad_ptr = g_ptr.to(tl.pointer_type(tl.float16))
 
     outputs = tl.zeros((DIM,), dtype=tl.float32)
 
@@ -156,12 +161,14 @@ def sync_embedding_backward_kernel(grad_output_ptr,
         pos = tl.load(sorted_indices_ptr + c0 + i)
         bid = pos // L
         lid = pos % L
-        g = tl.load(
-            grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
-                                                                          DIM),
-            mask=tl.arange(0, DIM) < dim).to(tl.float32)
+        g = tl.load(grad_output_ptr
+                    + bid * stride_0
+                    + lid * stride_1
+                    + tl.arange(0, DIM),
+                    mask=tl.arange(0, DIM) < dim).to(tl.float32)
         outputs += g
-    tl.store(grad_ptr + input_id * dim + tl.arange(0, DIM), outputs,
+    tl.store(grad_ptr + input_id * dim + tl.arange(0, DIM),
+             outputs,
              mask=tl.arange(0, DIM) < dim)
 
 
@@ -175,8 +182,13 @@ def triton_sync_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
     Returns:
         None
     """
-    assert dtype in (torch.bfloat16, torch.float32)
-    T = 0 if dtype == torch.float32 else 1
+    assert dtype in (torch.float32, torch.bfloat16, torch.float16)
+    if dtype == torch.float32:
+        T = 0
+    elif dtype == torch.bfloat16:
+        T = 1
+    else:
+        T = 2
     shape = x.shape
     assert len(shape) == 2
     B, L, dim = grad_output.shape
@@ -206,8 +218,7 @@ def triton_sync_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
         DIM,
         T,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)
 
 
 @triton.jit
@@ -303,8 +314,7 @@ def triton_scan_and_count(ids):
         L,
         BLOCK,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)
 
     num_stages = 3
     num_warps = 1
@@ -318,8 +328,7 @@ def triton_scan_and_count(ids):
         BLOCK,
         T,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)
     accum_counts = torch.cumsum(accum_counts, -1)
 
     return accum_counts
@@ -367,8 +376,7 @@ def triton_deprecated_scan_and_count(ids):
         B,
         T,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)
     return accum_counts
 
 
@@ -384,8 +392,7 @@ def embedding_backward_kernel(grad_output_ptr,
                               B,
                               L,
                               DIM: tl.constexpr,
-                              T: tl.constexpr,
-                              ):
+                              T: tl.constexpr, ):
     pid = tl.program_id(axis=0).to(tl.int64)
     c01 = tl.load(accum_counts_ptr + pid + tl.arange(0, 2))
     c0, c1 = tl.split(c01)
@@ -397,23 +404,27 @@ def embedding_backward_kernel(grad_output_ptr,
 
     if T == 0:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.float32))
-    else:
+    elif T == 1:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.bfloat16))
+    else:
+        grad_ptr = g_ptr.to(tl.pointer_type(tl.float16))
 
     # outputs = tl.zeros((DIM,), dtype=tl.float32)
-    outputs = tl.load(grad_ptr + input_id * dim + tl.arange(0, DIM), 
+    outputs = tl.load(grad_ptr + input_id * dim + tl.arange(0, DIM),
                       mask=tl.arange(0, DIM) < dim).to(tl.float32)
 
     for i in range(count):
         pos = tl.load(sorted_indices_ptr + c0 + i)
         bid = pos // L
         lid = pos % L
-        g = tl.load(
-            grad_output_ptr + bid * stride_0 + lid * stride_1 + tl.arange(0,
-                                                                          DIM),
-            mask=tl.arange(0, DIM) < dim).to(tl.float32)
+        g = tl.load(grad_output_ptr
+                    + bid * stride_0
+                    + lid * stride_1
+                    + tl.arange(0, DIM),
+                    mask=tl.arange(0, DIM) < dim).to(tl.float32)
         outputs += g
-    tl.store(grad_ptr + input_id * dim + tl.arange(0, DIM), outputs,
+    tl.store(grad_ptr + input_id * dim + tl.arange(0, DIM),
+             outputs,
              mask=tl.arange(0, DIM) < dim)
 
 
@@ -427,8 +438,13 @@ def triton_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
     Returns:
         None
     """
-    assert dtype in (torch.bfloat16, torch.float32)
-    T = 0 if dtype == torch.float32 else 1
+    assert dtype in (torch.bfloat16, torch.float32, torch.float16)
+    if dtype == torch.float32:
+        T = 0
+    elif dtype == torch.bfloat16:
+        T = 1
+    else:
+        T = 2
     shape = x.shape
     assert len(shape) == 2
     B, L, dim = grad_output.shape
@@ -456,5 +472,4 @@ def triton_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
         DIM,
         T,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)

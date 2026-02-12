@@ -51,7 +51,7 @@ def test_dist_mm(M=4096, N=2048, K=4096, coef=1.0, grad_coef=1.0,
     dist.all_gather_into_tensor(global_weights, local_weights.detach(),
                                 group=group)
     global_weights = torch.reshape(torch.permute(global_weights, (1, 0, 2)), (
-    N, group_size * K)).contiguous().requires_grad_()
+        N, group_size * K)).contiguous().requires_grad_()
 
     local_states = torch.randn((M, K), dtype=dtype, device=device)
     global_states = torch.empty((group_size, M, K), dtype=dtype, device=device)
@@ -68,8 +68,7 @@ def test_dist_mm(M=4096, N=2048, K=4096, coef=1.0, grad_coef=1.0,
     output = triton_split_tp_gemm(local_states,
                                   local_weights,
                                   hdl,
-                                  group,
-                                  )
+                                  group, )
     output_check(output_ref, output, name=f'output:{group_rank}', atol=10.0)
 
     if bench:

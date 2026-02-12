@@ -26,8 +26,7 @@ class MultiLatentAttention(torch.autograd.Function):
                 max_q_length: Optional[int] = None,
                 causal: bool = True,
                 safe: bool = True,
-                clip_value: Optional[float] = None,
-                ):
+                clip_value: Optional[float] = None, ):
         ctx.cu_seqlens = cu_seqlens
         ctx.padded_cu_seqlens = padded_cu_seqlens
         ctx.max_q_length = max_q_length
@@ -95,8 +94,7 @@ def multi_latend_attention(q: torch.Tensor,
                            max_q_length: Optional[int] = None,
                            causal: bool = True,
                            safe: bool = True,
-                           clip_value: float = 0.0,
-                           ):
+                           clip_value: float = 0.0, ):
     """
     inplace add y to x with mix precise
     Args:

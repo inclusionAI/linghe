@@ -5,8 +5,8 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import torch
 
-from linghe.experimental.norm import triton_rms_norm_forward, \
-    triton_parallel_rms_norm_and_block_quant_forward
+from linghe.experimental.norm import (triton_rms_norm_forward,
+                                      triton_parallel_rms_norm_and_block_quant_forward)
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.norm import triton_rms_norm_and_block_quant_forward
@@ -21,8 +21,7 @@ def torch_rms_forward(x, weight):
         normalized_shape=N,
         eps=1e-6,
         dtype=torch.float32,
-        device=x.device
-    )
+        device=x.device)
     with torch.no_grad():
         rmsnorm.weight.copy_(weight)
     rms = torch.rsqrt(torch.sum(x ** 2, 1) / N + 1e-6)
@@ -48,7 +47,6 @@ def test_norm(M=4096, N=4096, bench=False):
     # output, rms = triton_rms_norm_forward(x, weight)
     # output_check(rms_ref, rms, name="rms", rtol=0.001)
     # output_check(output_ref, output, name="output", rtol=0.001)
-
 
     if bench:
         benchmark_func(triton_rms_norm_forward, x, weight,

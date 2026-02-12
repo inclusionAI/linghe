@@ -73,9 +73,10 @@ def blockwise_quant_kernel(x_ptr,
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
 
-    offs = rid * 128 * N + cid * 128 + tl.arange(0, 128)[:,
-                                       None] * N + tl.arange(0, 128)[
-                                                   None, :]
+    offs = (rid * 128 * N
+            + cid * 128
+            + tl.arange(0, 128)[:, None] * N
+            + tl.arange(0, 128)[None, :])
     indices = rid * 128 + tl.arange(0, 128)
     mask = indices[:, None] < M
 
@@ -105,8 +106,7 @@ def blockwise_quant_kernel(x_ptr,
         tl.store(xt_q_ptr + rid * 128 + cid * 128 * M + tl.arange(0,
                                                                   128)[
                                                         :,
-                                                        None] * M + tl.arange(
-            0, 128)[
+                                                        None] * M + tl.arange(0, 128)[
                                                                     None,
                                                                     :],
                  tl.trans(xq), mask=indices[None, :] < M)
@@ -155,8 +155,7 @@ def triton_blockwise_quant(x,
         round_scale,
         output_mode,
         num_stages=2,
-        num_warps=2
-    )
+        num_warps=2)
 
     return x_q, x_scale, xt_q, xt_scale
 
@@ -170,8 +169,7 @@ def batch_blockwise_quant_kernel(x_ptr,
                                  xts_ptr,
                                  N: tl.constexpr,
                                  E: tl.constexpr,
-                                 ROUND: tl.constexpr,
-                                 ):
+                                 ROUND: tl.constexpr, ):
     eid = tl.program_id(axis=0)
     rid = tl.program_id(axis=1)
     cid = tl.program_id(axis=2)
@@ -190,9 +188,13 @@ def batch_blockwise_quant_kernel(x_ptr,
     rids = rid * 128 + tl.arange(0, 128)
 
     x = tl.load(
-        x_ptr + si * N + rid * 128 * N + cid * 128 + tl.arange(0, 128)[:,
-                                                     None] * N + tl.arange(
-            0, 128)[None, :], mask=rids[:, None] < count).to(tl.float32)
+        x_ptr
+        + si * N
+        + rid * 128 * N
+        + cid * 128
+        + tl.arange(0, 128)[:, None] * N
+        + tl.arange(0, 128)[None, :],
+        mask=rids[:, None] < count).to(tl.float32)
 
     scale = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
     if ROUND:
@@ -202,9 +204,12 @@ def batch_blockwise_quant_kernel(x_ptr,
     tl.store(xs_ptr + si * nb + cid * count + rid * 128 + tl.arange(0, 128),
              scale,
              mask=rids < count)
-    tl.store(xq_ptr + si * N + rid * 128 * N + cid * 128 + tl.arange(0, 128)[:,
-                                                           None] * N + tl.arange(
-        0, 128)[None, :],
+    tl.store(xq_ptr
+             + si * N
+             + rid * 128 * N
+             + cid * 128
+             + tl.arange(0, 128)[:, None] * N
+             + tl.arange(0, 128)[None, :],
              xq,
              mask=rids[:, None] < count)
 
@@ -216,9 +221,14 @@ def batch_blockwise_quant_kernel(x_ptr,
     tl.store(xts_ptr + m_block * N + rid * N + cid * 128 + tl.arange(0, 128),
              scale)
     tl.store(
-        xtq_ptr + si * N + rid * 128 + cid * 128 * count + tl.arange(0, 128)[:,
-                                                           None] * count + tl.arange(
-            0, 128)[None, :], tl.trans(xq), mask=rids[None, :] < count)
+        xtq_ptr
+        + si * N
+        + rid * 128
+        + cid * 128 * count
+        + tl.arange(0, 128)[:, None] * count
+        + tl.arange(0, 128)[None, :],
+        tl.trans(xq),
+        mask=rids[None, :] < count)
 
 
 def triton_batch_blockwise_quant(xs,
@@ -269,7 +279,6 @@ def triton_batch_blockwise_quant(xs,
         n_experts,
         round_scale,
         num_stages=2,
-        num_warps=4
-    )
+        num_warps=4)
 
     return x_q, x_scale, xt_q, xt_scale

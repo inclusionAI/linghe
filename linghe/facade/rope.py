@@ -50,8 +50,7 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                                      cp_size=cp_size,
                                                                      mscale=mscale,
                                                                      silu=silu,
-                                                                     reuse=reuse
-                                                                     )
+                                                                     reuse=reuse)
         ctx.save_for_backward(qkv, q_norm_weight, k_norm_weight, freqs)
         ctx.H = H
         ctx.h = h
@@ -82,23 +81,22 @@ class QkNormHalfRopeFunction(torch.autograd.Function):
                                                                    interleaved=True,
                                                                    silu=ctx.silu)
         else:
-            dqkv, dqw, dkw = triton_varlen_qk_norm_and_half_rope_backward(
-                grad_q,
-                grad_k,
-                grad_v,
-                qkv,
-                q_norm_weight,
-                k_norm_weight,
-                freqs,
-                ctx.cu_seqlens_q,
-                ctx.cu_seqlens_kv,
-                eps=ctx.eps,
-                interleaved=True,
-                cp_rank=ctx.cp_rank,
-                cp_size=ctx.cp_size,
-                mscale=ctx.mscale,
-                silu=ctx.silu,
-                reuse=ctx.reuse)
+            dqkv, dqw, dkw = triton_varlen_qk_norm_and_half_rope_backward(grad_q,
+                                                                          grad_k,
+                                                                          grad_v,
+                                                                          qkv,
+                                                                          q_norm_weight,
+                                                                          k_norm_weight,
+                                                                          freqs,
+                                                                          ctx.cu_seqlens_q,
+                                                                          ctx.cu_seqlens_kv,
+                                                                          eps=ctx.eps,
+                                                                          interleaved=True,
+                                                                          cp_rank=ctx.cp_rank,
+                                                                          cp_size=ctx.cp_size,
+                                                                          mscale=ctx.mscale,
+                                                                          silu=ctx.silu,
+                                                                          reuse=ctx.reuse)
         return dqkv, dqw, dkw, None, None, None, None, None, None, None, None, None, None, None
 
 

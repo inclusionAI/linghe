@@ -13,17 +13,13 @@ def arrive_gmem_barrier(
         sem: tl.constexpr = "release",
         scope: tl.constexpr = "gpu",
         op: tl.constexpr = "atomic_xchg",
-        skip_sync: tl.constexpr = False,
-):
+        skip_sync: tl.constexpr = False, ):
     tl.static_assert(
         op == "atomic_xchg",
-        "Currently only support atomic_xchg wait on gmem_barriers. ",
-    )
+        "Currently only support atomic_xchg wait on gmem_barriers. ", )
 
     if not skip_sync:
-        tl.inline_asm_elementwise(
-            "bar.sync 0;", "=r", [], dtype=tl.int32, is_pure=False, pack=1
-        )
+        tl.inline_asm_elementwise("bar.sync 0;", "=r", [], dtype=tl.int32, is_pure=False, pack=1)
     return tl.atomic_xchg(addr, update, sem=sem, scope=scope)
 
 
@@ -35,8 +31,7 @@ def wait_gmem_barrier(
         sem: tl.constexpr = "acquire",
         scope: tl.constexpr = "gpu",
         op: tl.constexpr = "ld",
-        skip_sync: tl.constexpr = False,
-):
+        skip_sync: tl.constexpr = False, ):
     """
     Wait for a global memory barrier to reach the expected state.
 
@@ -53,8 +48,7 @@ def wait_gmem_barrier(
     """
     tl.static_assert(
         op == "ld" and update == 0,
-        "Currently only support ld wait on gmem_barriers. "
-    )
+        "Currently only support ld wait on gmem_barriers. ")
     # TODO(joydddd): add support for cas barriers.
 
     tl.static_assert(addr.type.is_ptr(), "Barrier address must be a scalar.")
@@ -68,7 +62,5 @@ def wait_gmem_barrier(
         pass
 
     if not skip_sync:
-        tl.inline_asm_elementwise(
-            "bar.sync 0;", "=r", [], dtype=tl.int32, is_pure=False, pack=1
-        )
+        tl.inline_asm_elementwise("bar.sync 0;", "=r", [], dtype=tl.int32, is_pure=False, pack=1)
     # tl.debug_barrier() cause significant performance loss. (Perhaps breaks triton prefetching?)

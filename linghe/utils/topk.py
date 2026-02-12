@@ -66,8 +66,7 @@ def triton_topk_forward(x, k, dim=-1):
         N,
         k,
         num_stages=2,
-        num_warps=2
-    )
+        num_warps=2)
     return values, indices
 
 
@@ -112,8 +111,7 @@ def triton_topk_backward(grad_output, indices, N, dim=-1):
         N,
         k,
         num_stages=2,
-        num_warps=2
-    )
+        num_warps=2)
     return dx
 
 
@@ -125,8 +123,7 @@ def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
                                     K: tl.constexpr,
                                     G: tl.constexpr,
                                     GK: tl.constexpr,
-                                    BIAS: tl.constexpr
-                                    ):
+                                    BIAS: tl.constexpr):
     pid = tl.program_id(axis=0)
     GS: tl.constexpr = N // G
     k: tl.constexpr = K // GK
@@ -157,8 +154,7 @@ def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
     map_idx = tl.where(xb_group_mask >= min_value, 1, 0)
 
     if tl.sum(map_idx) > K:
-        y = x.to(tl.float64) + b.to(tl.float64) - tl.arange(0, N).to(
-            tl.float64) * 1e-12
+        y = x.to(tl.float64) + b.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
         yb = tl.reshape(y, (G, GS))
         ybsort = tl.sort(yb, dim=1, descending=True)
         ysortmask = tl.where(array < k, ybsort, 0)
@@ -171,8 +167,7 @@ def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
         y_group_mask = tl.where(ybsum[:, None] >= yb_group_min_value, yb, -1e38)
         y_group_mask = tl.reshape(y_group_mask, (N,))
         y_group_mask_sort = tl.sort(y_group_mask, dim=0, descending=True)
-        y_min_value = tl.min(
-            tl.where(expert_array < K, y_group_mask_sort, 1e38))
+        y_min_value = tl.min(tl.where(expert_array < K, y_group_mask_sort, 1e38))
         double_score = tl.where(y_group_mask >= y_min_value, y, 0)
 
         double_score = double_score / (tl.sum(double_score) + eps) * scale
@@ -231,8 +226,7 @@ def triton_group_topk_score_forward(x, k,
         group_topk,
         BIAS,
         num_stages=1,
-        num_warps=1
-    )
+        num_warps=1)
     return probs, routing_map, routing_map.sum(0)
 
 
@@ -284,6 +278,5 @@ def triton_group_topk_score_backward(grad_output, input, routing_map,
         eps,
         N,
         num_stages=2,
-        num_warps=1
-    )
+        num_warps=1)
     return dx

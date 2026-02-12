@@ -87,8 +87,7 @@ def select(x, group):
     B, L, H, D = x.shape
     l = L // (2 * group_size)
     x1 = x[:, group_rank * l:(group_rank + 1) * l]
-    x2 = x[:, (group_size * 2 - group_rank - 1) * l:(
-                                                                group_size * 2 - group_rank) * l]
+    x2 = x[:, (group_size * 2 - group_rank - 1) * l:(group_size * 2 - group_rank) * l]
     return torch.cat([x1, x2], 1)
 
 

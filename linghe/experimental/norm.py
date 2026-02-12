@@ -110,8 +110,7 @@ def triton_rms_norm_forward(x: torch.Tensor,
         H,
         B,
         num_stages=3,
-        num_warps=2
-    )
+        num_warps=2)
     return out, rms
 
 
@@ -242,12 +241,12 @@ def parallel_rms_norm_and_block_quant_forward_kernel(x_ptr,
     if cid == CB - 1:
         tl.store(rms_ptr + indices, rms, mask=indices < M)
 
-    toffs = cid * M * B * K + rid * H + tl.arange(0, B)[:,
-                                        None] * M + tl.arange(0, H)[
-                                                    None, :]
+    toffs = (cid * M * B * K
+             + rid * H
+             + tl.arange(0, B)[:, None] * M
+             + tl.arange(0, H)[None, :])
     for i in range(K):
-        weight = tl.load(weight_ptr + cid * K * B + i * B + tl.arange(0, B)).to(
-            tl.float32)
+        weight = tl.load(weight_ptr + cid * K * B + i * B + tl.arange(0, B)).to(tl.float32)
         x = tl.load(x_ptr + i * B + offs, mask=masks).to(tl.float32)
         x = x * rms[:, None] * weight[None, :]
         scale = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
@@ -262,10 +261,9 @@ def parallel_rms_norm_and_block_quant_forward_kernel(x_ptr,
         scale = tl.maximum(tl.max(x.abs(), 0) / 448.0, 1e-30)
         if ROUND:
             scale = tl.exp2(tl.ceil(tl.log2(scale)))
-        tl.store(
-            transpose_scale_ptr + rid * n + cid * B * K + i * B + tl.arange(0,
-                                                                            B),
-            scale)
+        tl.store(transpose_scale_ptr + rid * n + cid * B * K + i * B + tl.arange(0,
+                                                                                 B),
+                 scale)
 
         q = (tl.trans(x / scale)).to(transpose_output_ptr.dtype.element_ty)
         tl.store(transpose_output_ptr + i * B * M + toffs, q,
@@ -348,6 +346,5 @@ def triton_parallel_rms_norm_and_block_quant_forward(x: torch.Tensor,
         K,
         round_scale,
         num_stages=5,
-        num_warps=4
-    )
+        num_warps=4)
     return out, scale, rms, transpose_output, transpose_scale

@@ -52,8 +52,7 @@ def triton_dot(x, y):
         M, N,
         H, W,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)
     return s
 
 
@@ -86,8 +85,7 @@ def triton_inplace_scale(x, scale):
         m,
         B,
         num_stages=2,
-        num_warps=2
-    )
+        num_warps=2)
     return x
 
 
@@ -153,6 +151,5 @@ def triton_batch_scale(xs, scale):
         B,
         ZERO,
         num_stages=2,
-        num_warps=2
-    )
+        num_warps=2)
     return xs

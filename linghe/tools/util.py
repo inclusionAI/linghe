@@ -103,8 +103,7 @@ def torch_mxfp8_quant(x):
     assert N % 128 == 0
     if m % 128 != 0:
         M = (m + 127) // 128 * 128
-        x = torch.cat(
-            [x, torch.zeros((M - m, N), dtype=x.dtype, device=x.device)], 0)
+        x = torch.cat([x, torch.zeros((M - m, N), dtype=x.dtype, device=x.device)], 0)
     else:
         M = m
     xs = x.view(M, N // 32, 32)
@@ -124,9 +123,36 @@ def torch_mxfp8_quant(x):
     return x_q, x_scale, xt_q, xt_scale
 
 
+def torch_batch_mxfp8_quant(x, token_count_per_expert_list):
+    M, DIM = x.shape
+    q_refs = []
+    s_refs = []
+    qt_refs = []
+    st_refs = []
+    s = 0
+    for i, c in enumerate(token_count_per_expert_list):
+        c = token_count_per_expert_list[i]
+        if c == 0:
+            continue
+        y = x[s:s + c]
+        y = y.float()
+
+        y_q, y_scale, yt_q, yt_scale = torch_mxfp8_quant(y)
+        q_refs.append(y_q)
+        s_refs.append(y_scale)
+        qt_refs.append(yt_q)
+        st_refs.append(yt_scale)
+        s += c
+    q_ref = torch.cat(q_refs, 0)
+    s_ref = torch.cat(s_refs, 0)
+    qt_ref = torch.cat(qt_refs, 0)
+    st_ref = torch.cat(st_refs, 0)
+    return q_ref, s_ref, qt_ref, st_ref
+
+
 def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
     x = x.float()
-    x_maxs = x.abs().amax(0)
+    # x_maxs = x.abs().amax(0)
     if reverse:
         x_smooth = x * smooth_scale
     else:
@@ -137,7 +163,7 @@ def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
     x_q = (x_smooth / scale[:, None]).to(torch.float8_e4m3fn)
-    return x_q, scale, x_maxs
+    return x_q, scale
 
 
 def torch_batch_smooth_quant(xs, smooth_scales, indices, token_count_per_expert,
@@ -178,8 +204,7 @@ def torch_make_indices(logits, topk=8, bias=-0.01):
     # out_tokens = sum(token_count_per_expert_list)
 
     token_indices = (
-        torch.arange(M, device=logits.device).unsqueeze(0).expand(n_experts, -1)
-    )
+        torch.arange(M, device=logits.device).unsqueeze(0).expand(n_experts, -1))
     indices = token_indices.masked_select(route_map.T.contiguous())
     row_id_map = torch.reshape(
         torch.cumsum(route_map.T.contiguous().view(-1), 0), (n_experts, M)) - 1

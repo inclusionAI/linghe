@@ -65,8 +65,7 @@ def triton_aligned_scatter_add(x: torch.Tensor,
         M, N, K,
         SCALE,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)
     return outputs
 
 
@@ -126,8 +125,7 @@ def triton_scatter_add(x, outputs, indices):
         indices,
         M, T, N,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)
 
     m = outputs.shape[0]
     T = triton.cdiv(m, sm)
@@ -136,8 +134,7 @@ def triton_scatter_add(x, outputs, indices):
         float_outputs, outputs,
         m, T, N,
         num_stages=num_stages,
-        num_warps=num_warps
-    )
+        num_warps=num_warps)
 
     return outputs
 
@@ -152,8 +149,7 @@ def unpermute_with_mask_map_kernel(
         n,
         N: tl.constexpr,
         num_experts: tl.constexpr,
-        PROB: tl.constexpr,
-):
+        PROB: tl.constexpr, ):
     pid = tl.program_id(axis=0)
     n = n.to(tl.int64)
     # sums = tl.zeros((N,), dtype=tl.float32)
@@ -169,9 +165,7 @@ def unpermute_with_mask_map_kernel(
     for i in range(count):
         load_mask = (index >= 0) & (tl.arange(0, N) < n)
         sums += tl.load(grads_ptr + index * n + tl.arange(0, N),
-                        mask=load_mask).to(
-            tl.float32
-        )
+                        mask=load_mask).to(tl.float32)
 
         if PROB:
             mask = index >= 0
@@ -184,15 +178,13 @@ def unpermute_with_mask_map_kernel(
         index = tl.min(mask_indices)
 
     tl.store(
-        output_ptr + pid * n + tl.arange(0, N), sums, mask=tl.arange(0, N) < n
-    )
+        output_ptr + pid * n + tl.arange(0, N), sums, mask=tl.arange(0, N) < n)
 
 
 def triton_unpermute_with_mask_map(
         grad: torch.Tensor,
         row_id_map: torch.Tensor,
-        probs: torch.Tensor,
-):
+        probs: torch.Tensor, ):
     """
     scatter add with row id map
     Args:
@@ -236,6 +228,5 @@ def triton_unpermute_with_mask_map(
         num_experts,
         PROB,
         num_stages=4,
-        num_warps=4
-    )
+        num_warps=4)
     return output, restore_probs

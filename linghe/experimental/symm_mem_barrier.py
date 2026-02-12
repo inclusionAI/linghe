@@ -19,8 +19,7 @@ def _get_tid():
         [],
         dtype=(tl.uint32, tl.uint32, tl.uint32),
         is_pure=True,
-        pack=1,
-    )
+        pack=1, )
 
 
 @triton.jit
@@ -35,8 +34,7 @@ def _get_ntid():
         [],
         dtype=(tl.uint32, tl.uint32, tl.uint32),
         is_pure=True,
-        pack=1,
-    )
+        pack=1, )
 
 
 @triton.jit
@@ -48,11 +46,9 @@ def _get_flat_tid():
 
 @triton.jit
 def _get_flat_bid():
-    return (
-            tl.program_id(2) * tl.num_programs(1) * tl.num_programs(0)
+    return (tl.program_id(2) * tl.num_programs(1) * tl.num_programs(0)
             + tl.program_id(1) * tl.num_programs(0)
-            + tl.program_id(0)
-    )
+            + tl.program_id(0))
 
 
 @triton.jit
@@ -73,8 +69,7 @@ def _send_signal(addrs, sem: tl.constexpr):
         [addrs],
         dtype=addrs.dtype,
         is_pure=False,
-        pack=1,
-    )
+        pack=1, )
 
 
 @triton.jit
@@ -95,8 +90,7 @@ def _wait_signal(addrs, sem: tl.constexpr):
         [addrs],
         dtype=tl.int32,
         is_pure=False,
-        pack=1,
-    )
+        pack=1, )
 
 
 @triton.jit
@@ -106,8 +100,7 @@ def symm_mem_sync(
         rank: tl.constexpr,
         world_size: tl.constexpr,
         hasPreviousMemAccess: tl.constexpr = False,
-        hasSubsequentMemAccess: tl.constexpr = False,
-):
+        hasSubsequentMemAccess: tl.constexpr = False, ):
     """
     Synchronizes blocks with matching block_id across participating devices.
 
@@ -143,13 +136,11 @@ def symm_mem_sync(
     remote_ranks = tl.arange(0, world_size)
     signal_pad_ptrs = signal_pad_ptrs.to(tl.pointer_type(tl.uint64))
     remote_signal_pad_addrs = tl.load(signal_pad_ptrs + remote_ranks).to(
-        tl.pointer_type(tl.uint32)
-    )
+        tl.pointer_type(tl.uint32))
     send_addrs = remote_signal_pad_addrs + block_id * world_size + rank
 
     local_signal_pad_addr = tl.load(signal_pad_ptrs + rank).to(
-        tl.pointer_type(tl.uint32)
-    )
+        tl.pointer_type(tl.uint32))
     wait_addrs = local_signal_pad_addr + block_id * world_size + remote_ranks
 
     if hasPreviousMemAccess:

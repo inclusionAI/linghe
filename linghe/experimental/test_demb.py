@@ -43,8 +43,7 @@ def test_tp_emb(B=1, M=4096, N=157184, D=4096, coef=1.0, grad_coef=1.0,
     buffers = symm_mem.empty(
         (B * M, D),
         dtype=torch.bfloat16,
-        device=device,
-    )
+        device=device, )
     hdl = symm_mem.rendezvous(buffers, dist.group.WORLD)
 
     local_weights = torch.randn((N, D), dtype=dtype, device=device,
@@ -56,7 +55,7 @@ def test_tp_emb(B=1, M=4096, N=157184, D=4096, coef=1.0, grad_coef=1.0,
     dist.all_gather_into_tensor(global_weights, local_weights.detach(),
                                 group=group)
     global_weights = torch.reshape(global_weights, (
-    group_size * N, D)).contiguous().requires_grad_()
+        group_size * N, D)).contiguous().requires_grad_()
 
     local_ids = torch.randint(0, N * group_size, (B, M), dtype=torch.long,
                               device=device)
@@ -83,8 +82,7 @@ def test_tp_emb(B=1, M=4096, N=157184, D=4096, coef=1.0, grad_coef=1.0,
     output = triton_tp_embedding_lookup_forward(global_ids,
                                                 local_weights,
                                                 hdl,
-                                                group,
-                                                )
+                                                group, )
     output_check(output_ref, output, name=f'output:{group_rank}', atol=1e-4,
                  rtol=1e-5)
 
@@ -123,8 +121,7 @@ def test_sp_emb(B=1, M=4096, N=157184, D=4096, coef=1.0, grad_coef=1.0,
     buffers = symm_mem.empty(
         (B * M, D),
         dtype=torch.float32,
-        device=device,
-    )
+        device=device, )
     hdl = symm_mem.rendezvous(buffers, dist.group.WORLD)
 
     local_weights = torch.randn((N, D), dtype=dtype, device=device,
@@ -136,7 +133,7 @@ def test_sp_emb(B=1, M=4096, N=157184, D=4096, coef=1.0, grad_coef=1.0,
     dist.all_gather_into_tensor(global_weights, local_weights.detach(),
                                 group=group)
     global_weights = torch.reshape(global_weights, (
-    group_size * N, D)).contiguous().requires_grad_()
+        group_size * N, D)).contiguous().requires_grad_()
 
     local_ids = torch.randint(0, N * group_size, (B, M), dtype=torch.long,
                               device=device)
@@ -164,8 +161,7 @@ def test_sp_emb(B=1, M=4096, N=157184, D=4096, coef=1.0, grad_coef=1.0,
     output = triton_sp_embedding_lookup_forward(local_ids,
                                                 local_weights,
                                                 hdl,
-                                                group,
-                                                )
+                                                group, )
     output_check(output_ref, output, name=f'output:{group_rank}', atol=1e-4,
                  rtol=1e-5)
 

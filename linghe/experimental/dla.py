@@ -35,8 +35,7 @@ def cp_lightning_attention_forward_kernel(
         VD: tl.constexpr,
         BLOCK: tl.constexpr,
         SIZE: tl.constexpr,
-        RANK: tl.constexpr,
-):
+        RANK: tl.constexpr, ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     kvid = tl.program_id(2)
@@ -55,50 +54,38 @@ def cp_lightning_attention_forward_kernel(
     offs_k = tl.arange(0, KD)
     offs_v = tl.arange(0, VD)
 
-    q_ptrs = (
-            Q
-            + c0 * stride_q
-            + hid * D
-            + kid * KD
-            + (offs_b[:, None] * stride_q + offs_k[None, :])
-    )
-    k_ptrs = (
-            K
-            + c0 * stride_k
-            + hid * D
-            + kid * KD
-            + (offs_b[:, None] * stride_k + offs_k[None, :])
-    )
-    v_ptrs = (
-            V
-            + c0 * stride_v
-            + hid * D
-            + vid * VD
-            + (offs_b[:, None] * stride_v + offs_v[None, :])
-    )
-    out_ptrs = (
-            Out
-            + c0 * D * H
-            + hid * D
-            + vid * VD
-            + (offs_b[:, None] * H * D + offs_v[None, :])
-    )
-    s_ptrs = (
-            S
-            + bid * stride_s
-            + hid * 2 * D * D
-            + kid * D * KD
-            + vid * VD
-            + (offs_k[:, None] * D + offs_v[None, :])
-    )
+    q_ptrs = (Q
+              + c0 * stride_q
+              + hid * D
+              + kid * KD
+              + (offs_b[:, None] * stride_q + offs_k[None, :]))
+    k_ptrs = (K
+              + c0 * stride_k
+              + hid * D
+              + kid * KD
+              + (offs_b[:, None] * stride_k + offs_k[None, :]))
+    v_ptrs = (V
+              + c0 * stride_v
+              + hid * D
+              + vid * VD
+              + (offs_b[:, None] * stride_v + offs_v[None, :]))
+    out_ptrs = (Out
+                + c0 * D * H
+                + hid * D
+                + vid * VD
+                + (offs_b[:, None] * H * D + offs_v[None, :]))
+    s_ptrs = (S
+              + bid * stride_s
+              + hid * 2 * D * D
+              + kid * D * KD
+              + vid * VD
+              + (offs_k[:, None] * D + offs_v[None, :]))
 
-    buffer_offs = (
-            bid * stride_s
-            + hid * 2 * D * D
-            + kid * D * KD
-            + vid * VD
-            + (offs_k[:, None] * D + offs_v[None, :])
-    )
+    buffer_offs = (bid * stride_s
+                   + hid * 2 * D * D
+                   + kid * D * KD
+                   + vid * VD
+                   + (offs_k[:, None] * D + offs_v[None, :]))
 
     block_decay = tl.exp(decay_scale * BLOCK)
     mask = tl.exp(decay_scale * (offs_b[:, None] - offs_b[None, :]))
@@ -169,16 +156,14 @@ def cp_lightning_attention_forward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     # accumulate c0
     gcid = RANK
     if (gcid + 1) % 2 == 0:
         pre_rank = RANK - 1
         chunk_decay = tl.exp(L // 2 * decay_scale)
-        pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-            tl.pointer_type(tl.float32))
+        pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
         state0 += tl.load(pre_buffer_ptr + buffer_offs) * chunk_decay
         tl.store(buffer_ptr + buffer_offs, state0)
 
@@ -187,8 +172,7 @@ def cp_lightning_attention_forward_kernel(
     if (gcid + 1) % 2 == 0:
         pre_rank = RANK + 1
         chunk_decay = tl.exp(L // 2 * decay_scale)
-        pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-            tl.pointer_type(tl.float32))
+        pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
         state1 += tl.load(pre_buffer_ptr + DD + buffer_offs) * chunk_decay
         tl.store(buffer_ptr + DD + buffer_offs, state1)
 
@@ -198,16 +182,14 @@ def cp_lightning_attention_forward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     if SIZE >= 4:
         gcid = RANK
         if (gcid + 1) % 4 == 0:
             pre_rank = RANK - 2
             chunk_decay = tl.exp(L * decay_scale)
-            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-                tl.pointer_type(tl.float32))
+            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
             state0 += tl.load(pre_buffer_ptr + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + buffer_offs, state0)
 
@@ -215,8 +197,7 @@ def cp_lightning_attention_forward_kernel(
         if (gcid + 1) % 4 == 0:
             pre_rank = RANK + 2
             chunk_decay = tl.exp(L * decay_scale)
-            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-                tl.pointer_type(tl.float32))
+            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
             state1 += tl.load(pre_buffer_ptr + DD + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + DD + buffer_offs, state1)
 
@@ -226,16 +207,14 @@ def cp_lightning_attention_forward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     if SIZE >= 8:
         gcid = RANK
         if (gcid + 1) % 8 == 0:
             pre_rank = RANK - 4
             chunk_decay = tl.exp(L * 2 * decay_scale)
-            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-                tl.pointer_type(tl.float32))
+            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
             state0 += tl.load(pre_buffer_ptr + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + buffer_offs, state0)
 
@@ -245,8 +224,7 @@ def cp_lightning_attention_forward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     # scatter
     if SIZE >= 8:
@@ -257,10 +235,8 @@ def cp_lightning_attention_forward_kernel(
             pre_rank = pre_gcid if pre_gcid < SIZE else 2 * SIZE - 1 - pre_gcid
             pre_offs = 0 if pre_gcid < SIZE else DD
             chunk_decay = tl.exp(L * decay_scale)
-            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-                tl.pointer_type(tl.float32))
-            state1 += tl.load(
-                pre_buffer_ptr + pre_offs + buffer_offs) * chunk_decay
+            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
+            state1 += tl.load(pre_buffer_ptr + pre_offs + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + buffer_offs, state1)
 
     symm_mem_sync(
@@ -269,8 +245,7 @@ def cp_lightning_attention_forward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     # accumulate c0
 
@@ -281,10 +256,8 @@ def cp_lightning_attention_forward_kernel(
             pre_rank = pre_gcid if pre_gcid < SIZE else 2 * SIZE - 1 - pre_gcid
             pre_offs = 0 if pre_gcid < SIZE else DD
             chunk_decay = tl.exp(L * decay_scale)
-            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-                tl.pointer_type(tl.float32))
-            state0 += tl.load(
-                pre_buffer_ptr + pre_offs + buffer_offs) * chunk_decay
+            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
+            state0 += tl.load(pre_buffer_ptr + pre_offs + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + buffer_offs, state0)
 
         gcid = 2 * SIZE - 1 - RANK
@@ -293,10 +266,8 @@ def cp_lightning_attention_forward_kernel(
             pre_rank = pre_gcid if pre_gcid < SIZE else 2 * SIZE - 1 - pre_gcid
             pre_offs = 0 if pre_gcid < SIZE else DD
             chunk_decay = tl.exp(L * decay_scale)
-            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-                tl.pointer_type(tl.float32))
-            state1 += tl.load(
-                pre_buffer_ptr + pre_offs + buffer_offs) * chunk_decay
+            pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
+            state1 += tl.load(pre_buffer_ptr + pre_offs + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + DD + buffer_offs, state1)
 
     symm_mem_sync(
@@ -305,8 +276,7 @@ def cp_lightning_attention_forward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     gcid = RANK
     if ((gcid + 1) % 2 == 1) and (gcid > 0):
@@ -314,8 +284,7 @@ def cp_lightning_attention_forward_kernel(
         pre_gcid = gcid - 1
         pre_rank = pre_gcid if pre_gcid < SIZE else 2 * SIZE - 1 - pre_gcid
         pre_offs = 0 if pre_gcid < SIZE else DD
-        pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-            tl.pointer_type(tl.float32))
+        pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
         state0 += tl.load(pre_buffer_ptr + pre_offs + buffer_offs) * chunk_decay
         tl.store(buffer_ptr + buffer_offs, state0)
 
@@ -325,8 +294,7 @@ def cp_lightning_attention_forward_kernel(
         pre_gcid = gcid - 1
         pre_rank = pre_gcid if pre_gcid < SIZE else 2 * SIZE - 1 - pre_gcid
         pre_offs = 0 if pre_gcid < SIZE else DD
-        pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-            tl.pointer_type(tl.float32))
+        pre_buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
         state1 += tl.load(pre_buffer_ptr + pre_offs + buffer_offs) * chunk_decay
         tl.store(buffer_ptr + DD + buffer_offs, state1)
 
@@ -336,8 +304,7 @@ def cp_lightning_attention_forward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     tl.store(s_ptrs, state0)
     tl.store(s_ptrs + DD, state1)
@@ -349,12 +316,10 @@ def cp_lightning_attention_forward_kernel(
         pre_gcid = gcid - 1
         pre_rank = pre_gcid if pre_gcid < SIZE else 2 * SIZE - 1 - pre_gcid
         pre_offs = 0 if pre_gcid < SIZE else DD
-        buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-            tl.pointer_type(tl.float32))
+        buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
         # pre_state = tl.load(buffer_ptr + pre_offs + buffer_offs).to(Q.dtype.element_ty)
-        pre_state = tl.load(
-            buffer_ptr + pre_offs + buffer_offs)  # .to(Q.dtype.element_ty)
+        pre_state = tl.load(buffer_ptr + pre_offs + buffer_offs)  # .to(Q.dtype.element_ty)
 
         iter_amps = amps * block_decay
         for n in range(0, L // 2, BLOCK):
@@ -416,17 +381,12 @@ def triton_cp_lightning_attention_forward(q, k, v, decay_scales, hdl, group,
     k_dim_block = D // KD
     v_dim_block = D // VD
     if k_dim_block == 1:
-        outputs = torch.empty(
-            (B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype
-        )
+        outputs = torch.empty((B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype)
     else:
-        outputs = torch.zeros(
-            (B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype
-        )
+        outputs = torch.zeros((B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype)
 
     s = torch.empty(
-        (B, H, 2, D, D), device=device, dtype=torch.float32
-    )
+        (B, H, 2, D, D), device=device, dtype=torch.float32)
     assert L % BLOCK == 0 and BLOCK <= 64
     group_size = hdl.world_size
     group_rank = hdl.rank
@@ -454,8 +414,7 @@ def triton_cp_lightning_attention_forward(q, k, v, decay_scales, hdl, group,
         SIZE=group_size,
         RANK=group_rank,
         num_warps=num_warps,
-        num_stages=num_stages,
-    )
+        num_stages=num_stages, )
 
     o = outputs.to(dtype)
 
@@ -485,8 +444,7 @@ def cp_lightning_attention_q_backward_kernel(
         VD: tl.constexpr,
         BLOCK: tl.constexpr,
         SIZE: tl.constexpr,
-        RANK: tl.constexpr,
-):
+        RANK: tl.constexpr, ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     kvid = tl.program_id(2)
@@ -505,50 +463,38 @@ def cp_lightning_attention_q_backward_kernel(
     offs_k = tl.arange(0, KD)
     offs_v = tl.arange(0, VD)
 
-    k_ptrs = (
-            K
-            + c0 * stride_k
-            + hid * D
-            + kid * KD
-            + (offs_b[:, None] * stride_k + offs_k[None, :])
-    )
-    v_ptrs = (
-            V
-            + c0 * stride_v
-            + hid * D
-            + vid * VD
-            + (offs_b[:, None] * stride_v + offs_v[None, :])
-    )
-    s_ptrs = (
-            S
-            + bid * stride_s
-            + hid * 2 * D * D
-            + kid * D * KD
-            + vid * VD
-            + (offs_k[:, None] * D + offs_v[None, :])
-    )
-    g_ptrs = (
-            G
-            + c0 * D * H
-            + hid * D
-            + vid * VD
-            + (offs_b[:, None] * stride_g + offs_v[None, :])
-    )
-    dq_ptrs = (
-            DQ
-            + c0 * D * H
-            + hid * D
-            + kid * KD
-            + (offs_b[:, None] * H * D + offs_k[None, :])
-    )
+    k_ptrs = (K
+              + c0 * stride_k
+              + hid * D
+              + kid * KD
+              + (offs_b[:, None] * stride_k + offs_k[None, :]))
+    v_ptrs = (V
+              + c0 * stride_v
+              + hid * D
+              + vid * VD
+              + (offs_b[:, None] * stride_v + offs_v[None, :]))
+    s_ptrs = (S
+              + bid * stride_s
+              + hid * 2 * D * D
+              + kid * D * KD
+              + vid * VD
+              + (offs_k[:, None] * D + offs_v[None, :]))
+    g_ptrs = (G
+              + c0 * D * H
+              + hid * D
+              + vid * VD
+              + (offs_b[:, None] * stride_g + offs_v[None, :]))
+    dq_ptrs = (DQ
+               + c0 * D * H
+               + hid * D
+               + kid * KD
+               + (offs_b[:, None] * H * D + offs_k[None, :]))
 
-    buffer_offs = (
-            bid * stride_s
-            + hid * 2 * D * D
-            + kid * D * KD
-            + vid * VD
-            + (offs_k[:, None] * D + offs_v[None, :])
-    )
+    buffer_offs = (bid * stride_s
+                   + hid * 2 * D * D
+                   + kid * D * KD
+                   + vid * VD
+                   + (offs_k[:, None] * D + offs_v[None, :]))
 
     # store state to buffer
     state = tl.load(s_ptrs)
@@ -567,8 +513,7 @@ def cp_lightning_attention_q_backward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     mask = tl.exp((offs_b[:, None] - offs_b[None, :]) * decay_scale)
     mask = tl.where(offs_b[None, :] <= offs_b[:, None], mask,
@@ -584,11 +529,9 @@ def cp_lightning_attention_q_backward_kernel(
         pre_gcid = gcid - 1
         pre_rank = pre_gcid if pre_gcid < SIZE else 2 * SIZE - 1 - pre_gcid
         pre_offs = 0 if pre_gcid < SIZE else DD
-        buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(
-            tl.pointer_type(tl.float32))
+        buffer_ptr = tl.load(buffer_ptrs + pre_rank).to(tl.pointer_type(tl.float32))
         buffer_ptr = tl.multiple_of(buffer_ptr, 16)
-        state += tl.load(
-            buffer_ptr + pre_offs + buffer_offs)  # .to(Q.dtype.element_ty)
+        state += tl.load(buffer_ptr + pre_offs + buffer_offs)  # .to(Q.dtype.element_ty)
 
     for n in range(0, L // 2, BLOCK):
         n = tl.multiple_of(n, BLOCK)
@@ -601,8 +544,7 @@ def cp_lightning_attention_q_backward_kernel(
 
         dqk = tl.dot(g, tl.trans(v)) * mask
 
-        dq = tl.dot(dqk.to(k.dtype), k) + tl.dot(g * decays[:, None], tl.trans(
-            state)) * softmax_scale
+        dq = tl.dot(dqk.to(k.dtype), k) + tl.dot(g * decays[:, None], tl.trans(state)) * softmax_scale
 
         if VD == D:
             tl.store(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty))
@@ -618,8 +560,7 @@ def cp_lightning_attention_q_backward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     # c1
     state = tl.zeros((KD, VD), dtype=tl.float32)
@@ -643,8 +584,7 @@ def cp_lightning_attention_q_backward_kernel(
 
         dqk = tl.dot(g, tl.trans(v)) * mask
 
-        dq = tl.dot(dqk.to(k.dtype), k) + tl.dot(g * decays[:, None], tl.trans(
-            state)) * softmax_scale
+        dq = tl.dot(dqk.to(k.dtype), k) + tl.dot(g * decays[:, None], tl.trans(state)) * softmax_scale
 
         if VD == D:
             tl.store(dq_ptrs + n * H * D, dq.to(DQ.dtype.element_ty))
@@ -677,8 +617,7 @@ def cp_lightning_attention_kv_backward_kernel(
         VD: tl.constexpr,
         BLOCK: tl.constexpr,
         SIZE: tl.constexpr,
-        RANK: tl.constexpr,
-):
+        RANK: tl.constexpr, ):
     bid = tl.program_id(0)
     hid = tl.program_id(1)
     kvid = tl.program_id(2)
@@ -697,56 +636,42 @@ def cp_lightning_attention_kv_backward_kernel(
     offs_k = tl.arange(0, KD)
     offs_v = tl.arange(0, VD)
 
-    q_ptrs = (
-            Q
-            + c0 * stride_q
-            + hid * D
-            + kid * KD
-            + (offs_b[:, None] * stride_q + offs_k[None, :])
-    )
-    k_ptrs = (
-            K
-            + c0 * stride_k
-            + hid * D
-            + kid * KD
-            + (offs_b[:, None] * stride_k + offs_k[None, :])
-    )
-    v_ptrs = (
-            V
-            + c0 * stride_v
-            + hid * D
-            + vid * VD
-            + (offs_b[:, None] * stride_v + offs_v[None, :])
-    )
-    g_ptrs = (
-            G
-            + c0 * D * H
-            + hid * D
-            + vid * VD
-            + (offs_b[:, None] * stride_g + offs_v[None, :])
-    )
+    q_ptrs = (Q
+              + c0 * stride_q
+              + hid * D
+              + kid * KD
+              + (offs_b[:, None] * stride_q + offs_k[None, :]))
+    k_ptrs = (K
+              + c0 * stride_k
+              + hid * D
+              + kid * KD
+              + (offs_b[:, None] * stride_k + offs_k[None, :]))
+    v_ptrs = (V
+              + c0 * stride_v
+              + hid * D
+              + vid * VD
+              + (offs_b[:, None] * stride_v + offs_v[None, :]))
+    g_ptrs = (G
+              + c0 * D * H
+              + hid * D
+              + vid * VD
+              + (offs_b[:, None] * stride_g + offs_v[None, :]))
 
-    dk_ptrs = (
-            DK
-            + c0 * H * D
-            + hid * D
-            + kid * KD
-            + (offs_b[:, None] * H * D + offs_k[None, :])
-    )
-    dv_ptrs = (
-            DV
-            + c0 * H * D
-            + hid * D
-            + vid * VD
-            + (offs_b[:, None] * H * D + offs_v[None, :])
-    )
-    buffer_offs = (
-            bid * H * 2 * D * D
-            + hid * 2 * D * D
-            + kid * D * KD
-            + vid * VD
-            + (offs_k[:, None] * D + offs_v[None, :])
-    )
+    dk_ptrs = (DK
+               + c0 * H * D
+               + hid * D
+               + kid * KD
+               + (offs_b[:, None] * H * D + offs_k[None, :]))
+    dv_ptrs = (DV
+               + c0 * H * D
+               + hid * D
+               + vid * VD
+               + (offs_b[:, None] * H * D + offs_v[None, :]))
+    buffer_offs = (bid * H * 2 * D * D
+                   + hid * 2 * D * D
+                   + kid * D * KD
+                   + vid * VD
+                   + (offs_k[:, None] * D + offs_v[None, :]))
 
     b_offs = BLOCK - 1 - offs_b
 
@@ -847,8 +772,7 @@ def cp_lightning_attention_kv_backward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     # accumulate c0
     gcid = RANK
@@ -856,8 +780,7 @@ def cp_lightning_attention_kv_backward_kernel(
         if (gcid + 1) % 2 == 1:
             next_rank = RANK + 1
             chunk_decay = tl.exp(L // 2 * decay_scale)
-            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-                tl.pointer_type(tl.float32))
+            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
             gs0 += tl.load(next_buffer_ptr + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + buffer_offs, gs0)
 
@@ -866,8 +789,7 @@ def cp_lightning_attention_kv_backward_kernel(
     if (gcid + 1) % 2 == 1:
         next_rank = RANK - 1
         chunk_decay = tl.exp(L // 2 * decay_scale)
-        next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-            tl.pointer_type(tl.float32))
+        next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
         gs1 += tl.load(next_buffer_ptr + DD + buffer_offs) * chunk_decay
         tl.store(buffer_ptr + DD + buffer_offs, gs1)
 
@@ -877,8 +799,7 @@ def cp_lightning_attention_kv_backward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     if RANK >= 4:
         # accumulate c0
@@ -887,8 +808,7 @@ def cp_lightning_attention_kv_backward_kernel(
             if (gcid + 1) % 4 == 1:
                 next_rank = RANK + 2
                 chunk_decay = tl.exp(L * decay_scale)
-                next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-                    tl.pointer_type(tl.float32))
+                next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
                 gs0 += tl.load(next_buffer_ptr + buffer_offs) * chunk_decay
                 tl.store(buffer_ptr + buffer_offs, gs0)
 
@@ -897,8 +817,7 @@ def cp_lightning_attention_kv_backward_kernel(
         if (gcid + 1) % 4 == 1:
             next_rank = RANK - 2
             chunk_decay = tl.exp(L * decay_scale)
-            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-                tl.pointer_type(tl.float32))
+            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
             gs1 += tl.load(next_buffer_ptr + DD + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + DD + buffer_offs, gs1)
 
@@ -908,8 +827,7 @@ def cp_lightning_attention_kv_backward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     if SIZE >= 8:
         # accumulate c1
@@ -917,8 +835,7 @@ def cp_lightning_attention_kv_backward_kernel(
         if (gcid + 1) % 8 == 1:
             next_rank = RANK - 4
             chunk_decay = tl.exp(L * 2 * decay_scale)
-            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-                tl.pointer_type(tl.float32))
+            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
             gs1 += tl.load(next_buffer_ptr + DD + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + DD + buffer_offs, gs1)
 
@@ -928,8 +845,7 @@ def cp_lightning_attention_kv_backward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     # scatter
     if SIZE >= 8:
@@ -940,10 +856,8 @@ def cp_lightning_attention_kv_backward_kernel(
             next_rank = next_gcid if next_gcid < SIZE else 2 * SIZE - 1 - next_gcid
             next_offs = 0 if next_gcid < SIZE else DD
             chunk_decay = tl.exp(L * 2 * decay_scale)
-            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-                tl.pointer_type(tl.float32))
-            gs0 += tl.load(
-                next_buffer_ptr + next_offs + buffer_offs) * chunk_decay
+            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
+            gs0 += tl.load(next_buffer_ptr + next_offs + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + buffer_offs, gs0)
 
     symm_mem_sync(
@@ -952,8 +866,7 @@ def cp_lightning_attention_kv_backward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     # scatter
     if SIZE >= 4:
@@ -964,10 +877,8 @@ def cp_lightning_attention_kv_backward_kernel(
             next_rank = next_gcid if next_gcid < SIZE else 2 * SIZE - 1 - next_gcid
             next_offs = 0 if next_gcid < SIZE else DD
             chunk_decay = tl.exp(L * decay_scale)
-            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-                tl.pointer_type(tl.float32))
-            gs0 += tl.load(
-                next_buffer_ptr + next_offs + buffer_offs) * chunk_decay
+            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
+            gs0 += tl.load(next_buffer_ptr + next_offs + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + buffer_offs, gs0)
 
         gcid = 2 * SIZE - 1 - RANK
@@ -976,10 +887,8 @@ def cp_lightning_attention_kv_backward_kernel(
             next_rank = next_gcid if next_gcid < SIZE else 2 * SIZE - 1 - next_gcid
             next_offs = 0 if next_gcid < SIZE else DD
             chunk_decay = tl.exp(L * decay_scale)
-            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-                tl.pointer_type(tl.float32))
-            gs1 += tl.load(
-                next_buffer_ptr + next_offs + buffer_offs) * chunk_decay
+            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
+            gs1 += tl.load(next_buffer_ptr + next_offs + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + buffer_offs, gs1)
 
     symm_mem_sync(
@@ -988,8 +897,7 @@ def cp_lightning_attention_kv_backward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     # accumulate c0
     gcid = RANK
@@ -998,8 +906,7 @@ def cp_lightning_attention_kv_backward_kernel(
         next_rank = next_gcid if next_gcid < SIZE else 2 * SIZE - 1 - next_gcid
         next_offs = 0 if next_gcid < SIZE else DD
         chunk_decay = tl.exp(L // 2 * decay_scale)
-        next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-            tl.pointer_type(tl.float32))
+        next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
         gs0 += tl.load(next_buffer_ptr + next_offs + buffer_offs) * chunk_decay
         tl.store(buffer_ptr + buffer_offs, gs0)
 
@@ -1011,8 +918,7 @@ def cp_lightning_attention_kv_backward_kernel(
             next_rank = next_gcid if next_gcid < SIZE else 2 * SIZE - 1 - next_gcid
             next_offs = 0 if next_gcid < SIZE else DD
             chunk_decay = tl.exp(L * decay_scale)
-            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-                tl.pointer_type(tl.float32))
+            next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
             gs1 += tl.load(next_buffer_ptr + DD + buffer_offs) * chunk_decay
             tl.store(buffer_ptr + DD + buffer_offs, gs1)
 
@@ -1022,8 +928,7 @@ def cp_lightning_attention_kv_backward_kernel(
         RANK,
         SIZE,
         hasPreviousMemAccess=True,
-        hasSubsequentMemAccess=True,
-    )
+        hasSubsequentMemAccess=True, )
 
     gcid = RANK
     next_gcid = gcid + 1
@@ -1059,8 +964,7 @@ def cp_lightning_attention_kv_backward_kernel(
         next_rank = next_gcid if next_gcid < SIZE else 2 * SIZE - 1 - next_gcid
         next_offs = 0 if next_gcid < SIZE else DD
         chunk_decay = tl.exp(L // 2 * decay_scale)
-        next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(
-            tl.pointer_type(tl.float32))
+        next_buffer_ptr = tl.load(buffer_ptrs + next_rank).to(tl.pointer_type(tl.float32))
         gs = tl.load(next_buffer_ptr + next_offs + buffer_offs)
 
         n_steps = tl.cdiv(L // 2, BLOCK)
@@ -1100,13 +1004,9 @@ def triton_cp_lightning_attention_backward(output_grad, q, k, v, s,
     k_dim_block = D // KD
     v_dim_block = D // VD
     if v_dim_block > 1:
-        dq = torch.zeros(
-            (B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype
-        )
+        dq = torch.zeros((B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype)
     else:
-        dq = torch.empty(
-            (B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype
-        )
+        dq = torch.empty((B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype)
     assert L % BLOCK == 0 and BLOCK <= 64
     group_size = hdl.world_size
     group_rank = hdl.rank
@@ -1138,8 +1038,7 @@ def triton_cp_lightning_attention_backward(output_grad, q, k, v, s,
         SIZE=group_size,
         RANK=group_rank,
         num_warps=num_warps,
-        num_stages=num_stages,
-    )
+        num_stages=num_stages, )
 
     KD = 32
     VD = 128
@@ -1147,21 +1046,13 @@ def triton_cp_lightning_attention_backward(output_grad, q, k, v, s,
     k_dim_block = D // KD
     v_dim_block = D // VD
     if v_dim_block > 1:
-        dk = torch.zeros(
-            (B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype
-        )
+        dk = torch.zeros((B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype)
     else:
-        dk = torch.empty(
-            (B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype
-        )
+        dk = torch.empty((B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype)
     if k_dim_block > 1:
-        dv = torch.zeros(
-            (B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype
-        )
+        dv = torch.zeros((B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype)
     else:
-        dv = torch.empty(
-            (B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype
-        )
+        dv = torch.empty((B, L, H, D), device=device, dtype=torch.float32 if hpc else dtype)
     num_warps = 4  # 4
     num_stages = 5  # 5
     grid = (B, H, k_dim_block * v_dim_block)
@@ -1188,8 +1079,7 @@ def triton_cp_lightning_attention_backward(output_grad, q, k, v, s,
         SIZE=group_size,
         RANK=group_rank,
         num_warps=num_warps,
-        num_stages=num_stages,
-    )
+        num_stages=num_stages, )
 
     dq = dq.to(dtype)
     dk = dk.to(dtype)

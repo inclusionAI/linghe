@@ -3,29 +3,26 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
-from typing import Optional
 import torch
 import triton
 import triton.language as tl
 
+
 @triton.jit
 def silu_and_block_quant_kernel(
-    x_ptr,
-    out_ptr,
-    scale_ptr,
-    M,
-    n: tl.constexpr,
-    ROUND: tl.constexpr,
-):
+        x_ptr,
+        out_ptr,
+        scale_ptr,
+        M,
+        n: tl.constexpr,
+        ROUND: tl.constexpr, ):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
 
-    offs = (
-        rid * 128 * n * 2
-        + cid * 128
-        + tl.arange(0, 128)[:, None] * n * 2
-        + tl.arange(0, 128)[None, :]
-    )
+    offs = (rid * 128 * n * 2
+            + cid * 128
+            + tl.arange(0, 128)[:, None] * n * 2
+            + tl.arange(0, 128)[None, :])
     indices = rid * 128 + tl.arange(0, 128)
     mask = indices[:, None] < M
 
@@ -52,13 +49,11 @@ def silu_and_block_quant_kernel(
         + tl.arange(0, 128)[:, None] * n
         + tl.arange(0, 128)[None, :],
         xq,
-        mask=mask,
-    )
+        mask=mask, )
 
 
 def triton_silu_and_block_quant(
-    x, out=None, scale=None, round_scale=False
-):
+        x, out=None, scale=None, round_scale=False):
     """
     fused silu and blockwise quantization, used in shared expert
     Args:
@@ -74,8 +69,8 @@ def triton_silu_and_block_quant(
     if out is None:
         out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
     if scale is None:
-        scale = torch.zeros((n // 128, (M + 3) // 4 * 4), device=device, dtype=torch.float32)
-    
+        scale = torch.zeros((n // 128, (M + 3) // 4 * 4), device=device,
+                            dtype=torch.float32)
 
     grid = (triton.cdiv(M, 128), n // 128)
     silu_and_block_quant_kernel[grid](
@@ -86,7 +81,6 @@ def triton_silu_and_block_quant(
         n,
         round_scale,
         num_stages=2,
-        num_warps=8,
-    )
+        num_warps=8, )
 
-    return out, scale[:,:M].t()
+    return out, scale[:, :M].t()
