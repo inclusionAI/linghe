@@ -144,7 +144,7 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
     tl.store(
         ko_ptr
         + pid * h * DD
-        + DD * tl.arange(0, ph)[: None]
+        + DD * tl.arange(0, ph)[:, None]
         + tl.arange(0, D)[None, :],
         k0,
         mask=k_mask)
