@@ -80,7 +80,7 @@ def triton_split_fp32_gemm(x: torch.Tensor, w: torch.Tensor):
 
     if M * N >= 128 * 128 * 128:
         SPLIT_COUNT = 1
-        BLOCK_SIZE_M = 128
+        BLOCK_SIZE_M = 64
         BLOCK_SIZE_N = 128
     elif M * N >= 32 * 128 * 128:
         SPLIT_COUNT = 1
@@ -107,7 +107,7 @@ def triton_split_fp32_gemm(x: torch.Tensor, w: torch.Tensor):
                          triton.cdiv(N, META["BLOCK_SIZE_N"]),
                          )  # noqa
     num_warps = 4
-    num_stages = 3
+    num_stages = 2
     split_fp32_gemm_kernel[grid](x, w, c,
                                  M, N, K,
                                  SPLIT_COUNT,
