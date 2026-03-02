@@ -27,7 +27,9 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
         logits_view = logits.view(-1, shape[-1]) if len(shape) == 3 else logits
         parallel = tp_group is not None and tp_group.size() > 1
         if parallel:
-            loss, sum_exp, max_logit = triton_parallel_softmax_cross_entropy_forward(logits, labels, tp_group,
+            loss, sum_exp, max_logit = triton_parallel_softmax_cross_entropy_forward(logits_view,
+                                                                                     labels,
+                                                                                     tp_group,
                                                                                      ignore_index=ignore_index)
         else:
             loss, sum_exp, max_logit = triton_softmax_cross_entropy_forward(logits_view,
@@ -37,6 +39,7 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
         ctx.ignore_index = ignore_index
         ctx.inplace = inplace
         ctx.shape = shape
+        ctx.tp_group = tp_group
         ctx.parallel = parallel
         if len(shape) == 3:
             loss = loss.view(shape[0], shape[1])

@@ -1,6 +1,11 @@
 # Changelog
 
 
+## linghe 0.3.5
+
+- fix parameter mismatching in parallel ce loss kernel
+
+
 ## linghe 0.3.4
 
 - add tma persistent fp32 gemm kernel

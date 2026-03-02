@@ -299,7 +299,6 @@ def triton_parallel_softmax_cross_entropy_forward(logits, labels, group,
                                     group_size,
                                     num_stages=3,
                                     num_warps=2)
-
     return loss, sum_exp, max_logit
 
 
