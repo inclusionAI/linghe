@@ -2171,7 +2171,14 @@ def triton_varlen_qk_norm_and_half_rope_forward(qkv, q_norm_weight,
     assert qkv.is_contiguous() and q_norm_weight.is_contiguous()
     assert k_norm_weight.is_contiguous() and freqs.is_contiguous()
     T, Dim = qkv.shape
+    D = k_norm_weight.size(0)
     stride = qkv.stride(0)  # qkv may be a slice of a tensor
+
+    tp = (H + 2 * h) * D // Dim
+    if tp > 1:
+        H = H // tp
+        h = h // tp
+
     D = Dim // (H + 2 * h)
     B = cu_seqlens_q.size(0) - 1
     PB = 128

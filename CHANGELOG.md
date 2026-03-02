@@ -4,6 +4,8 @@
 ## linghe 0.3.5
 
 - fix parameter mismatching in parallel ce loss kernel
+- support tp in varlen rope
+- refine infer kernels
 
 
 ## linghe 0.3.4
