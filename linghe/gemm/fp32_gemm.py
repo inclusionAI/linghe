@@ -70,7 +70,7 @@ def triton_fp32_gemm(x: torch.Tensor, w: torch.Tensor):
     assert x.is_contiguous() and w.is_contiguous()
     M, K = x.size()
     N, K = w.size()
-    assert M % 32 == 0 and K % 128 == 0 and N % 16 == 0
+    assert M % 32 == 0 and K % 128 == 0 and N % 16 == 0, f'{M=} {K=} {N=}'
     c = torch.empty(M, N, dtype=torch.float32, device=x.device)
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa

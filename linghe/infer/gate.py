@@ -50,8 +50,9 @@ def triton_group_rms_norm_gate(x: torch.Tensor,
     """
     # row-wise read, row-wise write
     tokens, dim = gate.shape
-    assert dim <= 8192 and triton.next_power_of_2(
-        dim) == dim and triton.next_power_of_2(group_size) == group_size
+    assert (dim <= 8192
+            and triton.next_power_of_2(dim) == dim
+            and triton.next_power_of_2(group_size) == group_size)
     d = dim // group_size
     device = x.device
     out = torch.empty((tokens, dim), device=device, dtype=x.dtype)
