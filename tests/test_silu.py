@@ -798,6 +798,7 @@ if __name__ == '__main__':
     test_silu_and_smooth_quant(M=4096, N=5120, bench=False)
 
     test_silu_and_block_quant(M=16384, N=1024, bench=False)
+    test_silu_and_block_quant(M=31, N=1024, bench=False)
     test_silu_and_block_quant(M=8192, N=4096, bench=False)
     test_silu_and_block_quant(M=16384, N=1536, bench=False)
     test_silu_and_block_quant(M=4096, N=1536 * 8, bench=False)

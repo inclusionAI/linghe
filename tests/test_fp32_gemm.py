@@ -159,6 +159,7 @@ if __name__ == '__main__':
     test_fp32_matmul(M=4096, N=256, K=8192, bench=False)
     test_fp32_matmul(M=16384, N=256, K=2048, bench=False)
     test_fp32_matmul(M=128, N=16, K=128, bench=False)
+    test_fp32_matmul(M=32, N=16, K=128, bench=False)
     test_BMK_fp32_matmul(B=2, M=2048, N=16, K=8192, bench=False)
     test_BMK_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False)
     test_BMK_fp32_matmul(B=2, M=128, N=16, K=128, bench=False)

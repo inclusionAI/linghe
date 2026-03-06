@@ -205,7 +205,7 @@ def triton_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
     c = torch.empty((M, N), dtype=torch.float32, device=x.device)
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
-    BLOCK_SIZE_K = 128
+    BLOCK_SIZE_K = 128 if K % 128 == 0 else 32
     BLOCK_SIZE_M = max([x for x in [16, 32] if M % x == 0])
     BLOCK_SIZE_N = 128
     num_warps = 4
@@ -281,7 +281,7 @@ def triton_split_fp32_gemm(x: torch.Tensor, w: torch.Tensor):
     M, K = x.size()
     N, K = w.size()
     BLOCK_SIZE_K = 128
-    BLOCK_SIZE_M = 128
+    BLOCK_SIZE_M = 128 if M % 128 == 0 else 32
     BLOCK_SIZE_N = max([x for x in [16, 32, 64, 128] if N % x == 0])
     SPLIT_COUNT = min(triton.cdiv(K, 2048), 4)
     assert M % BLOCK_SIZE_M == 0 and K % BLOCK_SIZE_K == 0
@@ -451,7 +451,7 @@ def triton_split_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
     assert y.is_contiguous() and x.is_contiguous()
     K, M = y.size()
     K, N = x.size()
-    BLOCK_SIZE_K = 64
+    BLOCK_SIZE_K = 64 if K % 64 == 0 else 32
     BLOCK_SIZE_M = max([x for x in [16, 32, 64] if M % x == 0])
     BLOCK_SIZE_N = 128
     SPLIT_COUNT = min(triton.cdiv(K, 2048), 8)

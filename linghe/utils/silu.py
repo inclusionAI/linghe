@@ -450,8 +450,8 @@ def triton_silu_and_block_quant_backward(g, x,
     transpose_dx_scale = torch.empty(scale_shape, device=device,
                                      dtype=torch.float32)
 
-    assert M % 128 == 0 and N % 256 == 0
-    grid = (M // 128, N // 256)
+    assert N % 256 == 0
+    grid = (triton.cdiv(M, 128), N // 256)
     silu_and_block_quant_backward_kernel[grid](
         g,
         x,
