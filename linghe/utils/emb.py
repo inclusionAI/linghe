@@ -283,20 +283,30 @@ def triton_scan_and_count(ids):
     shape = ids.shape
     device = ids.device
     assert len(shape) in (1, 2)
+
+    BLOCK = 256
+
     if len(shape) == 2:
-        B, L = ids.shape
-        BLOCK = 256
-        assert L % BLOCK == 0
+        B, L_orig = ids.shape
+        L = L_orig
+        if L % BLOCK != 0:
+            pad_len = BLOCK - (L % BLOCK)
+            padding = torch.full((B, pad_len), 2 ** 30, dtype=ids.dtype, device=device)
+            ids = torch.cat([ids, padding], dim=1)
+            L = L + pad_len
         T = L // BLOCK
         counts = torch.empty((B, L,), dtype=torch.int32, device=device)
         unique_ids = torch.empty((B, L), dtype=torch.int32, device=device)
         unique_counts = torch.empty((B, T), dtype=torch.int32, device=device)
         accum_counts = torch.zeros((B, L + 1), dtype=torch.int32, device=device)
     else:
-        L = shape[0]
-        B = 1
-        BLOCK = 256
-        assert L % BLOCK == 0
+        B, L_orig = 1, shape[0]
+        L = L_orig
+        if L % BLOCK != 0:
+            pad_len = BLOCK - (L % BLOCK)
+            padding = torch.full((pad_len,), 2 ** 30, dtype=ids.dtype, device=device)
+            ids = torch.cat([ids, padding], dim=0)
+            L = L + pad_len
         T = L // BLOCK
         counts = torch.empty((L,), dtype=torch.int32, device=device)
         unique_ids = torch.empty((L,), dtype=torch.int32, device=device)
@@ -330,6 +340,10 @@ def triton_scan_and_count(ids):
         num_stages=num_stages,
         num_warps=num_warps)
     accum_counts = torch.cumsum(accum_counts, -1)
+
+    if L != L_orig:
+        accum_counts = (accum_counts[:, :L_orig + 1] if len(shape) == 2 \
+        else accum_counts[:L_orig + 1]).contiguous()
 
     return accum_counts
 
