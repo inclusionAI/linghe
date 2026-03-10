@@ -75,7 +75,7 @@ def triton_fp32_gemm(x: torch.Tensor, w: torch.Tensor):
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
     BLOCK_SIZE_K = 128
-    BLOCK_SIZE_M = 32
+    BLOCK_SIZE_M = max([x for x in [32, 64, 128] if M % x == 0])
     BLOCK_SIZE_N = max([x for x in [16, 32, 64, 128] if N % x == 0])
     num_warps = 4
     num_stages = 3
@@ -141,7 +141,7 @@ def triton_fp32_gemm_for_backward(y: torch.Tensor,
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
     BLOCK_SIZE_K = max([x for x in [16, 32, 64, 128] if K % x == 0])
-    BLOCK_SIZE_M = 32
+    BLOCK_SIZE_M = max([x for x in [32, 64, 128] if M % x == 0])
     BLOCK_SIZE_N = 128
     num_warps = 4
     num_stages = 2
@@ -205,7 +205,7 @@ def triton_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
     c = torch.empty((M, N), dtype=torch.float32, device=x.device)
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]))  # noqa
-    BLOCK_SIZE_K = 128 if K % 128 == 0 else 32
+    BLOCK_SIZE_K = max([x for x in [32, 64, 128] if K % x == 0])
     BLOCK_SIZE_M = max([x for x in [16, 32] if M % x == 0])
     BLOCK_SIZE_N = 128
     num_warps = 4
@@ -398,13 +398,14 @@ def split_fp32_gemm_for_update_kernel(
         a_ptr,
         b_ptr,
         c_ptr,
+        K,
         M,
         N: tl.constexpr,
-        K: tl.constexpr,
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
-        SPLIT_COUNT: tl.constexpr, ):
+        SPLIT_COUNT: tl.constexpr, 
+        EVEN_K: tl.constexpr):
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
     pid_k = tl.program_id(axis=2)
@@ -414,18 +415,23 @@ def split_fp32_gemm_for_update_kernel(
     offs_n = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N))
     offs_k = tl.arange(0, BLOCK_SIZE_K)
     a_ptrs = (a_ptr
-              + pid_k * K // SPLIT_COUNT * M
-              + offs_m[None, :]
-              + offs_k[:, None] * M)
+            + pid_k * K // SPLIT_COUNT * M
+            + offs_m[None, :]
+            + offs_k[:, None] * M)
     b_ptrs = (b_ptr
-              + pid_k * K // SPLIT_COUNT * N
-              + offs_n[None, :]
-              + offs_k[:, None] * N)
+            + pid_k * K // SPLIT_COUNT * N
+            + offs_n[None, :]
+            + offs_k[:, None] * N)
 
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     for i in range(k):
-        a = tl.trans(tl.load(a_ptrs)).to(tl.float32)
-        b = tl.load(b_ptrs).to(tl.float32)
+        if EVEN_K:
+            a = tl.trans(tl.load(a_ptrs)).to(tl.float32)
+            b = tl.load(b_ptrs).to(tl.float32)
+        else:
+            mask = i * BLOCK_SIZE_K + offs_k[:, None] < K // SPLIT_COUNT
+            a = tl.trans(tl.load(a_ptrs, mask=mask)).to(tl.float32)
+            b = tl.load(b_ptrs, mask=mask).to(tl.float32)
         c = tl.dot(a, b, c)
         a_ptrs += BLOCK_SIZE_K * M
         b_ptrs += BLOCK_SIZE_K * N
@@ -451,10 +457,11 @@ def triton_split_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
     assert y.is_contiguous() and x.is_contiguous()
     K, M = y.size()
     K, N = x.size()
-    BLOCK_SIZE_K = 64 if K % 64 == 0 else 32
-    BLOCK_SIZE_M = max([x for x in [16, 32, 64] if M % x == 0])
-    BLOCK_SIZE_N = 128
+    BLOCK_SIZE_K = max([x for x in [32, 64] if K % x == 0])
+    BLOCK_SIZE_M = max([x for x in [32, 64] if M % x == 0])
+    BLOCK_SIZE_N = 64
     SPLIT_COUNT = min(triton.cdiv(K, 2048), 8)
+    EVEN_K = K % (SPLIT_COUNT * BLOCK_SIZE_K) == 0
     if SPLIT_COUNT == 1:
         c = torch.empty((M, N), dtype=torch.float32, device=x.device)
     else:
@@ -462,15 +469,15 @@ def triton_split_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
     grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]),
                          triton.cdiv(N, META["BLOCK_SIZE_N"]),
                          SPLIT_COUNT)  # noqa
-
     num_warps = 2
     num_stages = 3
     split_fp32_gemm_for_update_kernel[grid](y, x, c,
-                                            M, N, K,
+                                            K, M, N, 
                                             BLOCK_SIZE_K,
                                             BLOCK_SIZE_M,
                                             BLOCK_SIZE_N,
                                             SPLIT_COUNT,
+                                            EVEN_K,
                                             num_warps=num_warps,
                                             num_stages=num_stages)
     return c
