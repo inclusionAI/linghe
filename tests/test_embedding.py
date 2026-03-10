@@ -17,23 +17,42 @@ from linghe.utils.emb import (triton_embedding_forward,
                               )
 
 
-def test_scan(M=4096, bench=False):
+def test_scan(B=None, M=4096, bench=False):
     device = 'cuda:0'
-    input_ids = torch.randint(0, 10000, (M,), dtype=torch.int32, device=device)
+    if B is None or B == 0:
+        input_ids = torch.randint(0, 10000, (M,), dtype=torch.int32, device=device)
 
-    sorted_ids, sorted_indices = torch.sort(input_ids, stable=False)
-    unique_ids_ref, unique_counts_ref = torch.unique_consecutive(sorted_ids,
-                                                                 return_counts=True)
-    accum_counts_ref = torch.cumsum(
-        torch.tensor([0] + unique_counts_ref.tolist(),
-                     device=unique_counts_ref.device), 0)
-    size = accum_counts_ref.size(0)
+        sorted_ids, sorted_indices = torch.sort(input_ids, stable=False)
+        unique_ids_ref, unique_counts_ref = torch.unique_consecutive(sorted_ids,
+                                                                    return_counts=True)
+        accum_counts_ref = torch.cumsum(
+            torch.tensor([0] + unique_counts_ref.tolist(),
+                        device=unique_counts_ref.device), 0)
+        size = accum_counts_ref.size(0)
 
-    accum_counts = triton_scan_and_count(sorted_ids)
-    output_check(accum_counts_ref, accum_counts[:size], name='accum_counts')
+        accum_counts = triton_scan_and_count(sorted_ids)
+        output_check(accum_counts_ref, accum_counts[:size], name='accum_counts')
 
-    if bench:
-        benchmark_func(triton_scan_and_count, sorted_ids)
+        if bench:
+            benchmark_func(triton_scan_and_count, sorted_ids)
+    else:
+        input_ids = torch.randint(0, 10000, (B, M), dtype=torch.int32, device=device)
+        
+        sorted_ids, sorted_indices = torch.sort(input_ids, dim=-1, stable=False)
+        
+        accum_counts = triton_scan_and_count(sorted_ids)
+        for b in range(B):
+            unique_ids_ref, unique_counts_ref = torch.unique_consecutive(sorted_ids[b], return_counts=True)
+            accum_counts_ref = torch.cumsum(
+                            torch.tensor([0] + unique_counts_ref.tolist(),
+                            device=unique_counts_ref.device), 0
+                            )
+            size = accum_counts_ref.size(0)
+            output_check(accum_counts_ref, accum_counts[b, :size],
+                         name=f'accum_counts (2D, B={B}, M={M}, batch={b})')
+        
+        if bench:
+            benchmark_func(triton_scan_and_count, sorted_ids)
 
 
 def test_embedding(B=2, M=4096, V=150000, D=4096, transpose=False, bench=False):
@@ -128,14 +147,24 @@ def test_fused_embedding(B=2, M=4096, V=150000, D=4096, use_main_grad=True,
 
 
 if __name__ == '__main__':
-    # test_scan(M=8192, bench=False)
-    # test_embedding(B=1, M=8192, V=150000, D=8192, transpose=False, bench=False)
-    # test_embedding(B=2, M=4096, V=150000, D=4096, transpose=True, bench=True)
-    # test_fused_embedding(B=1, M=8192, V=150000, D=8192, transpose=False,
-    #                      bench=False)
-    # test_fused_embedding(B=1, M=4096, V=150000, D=8192, transpose=False,
-    #                      bench=False)
+    test_scan(B=None, M=8192, bench=False)
+    test_scan(B=None, M=4097, bench=False)
+    test_scan(B=4, M=8192, bench=False)
+    test_scan(B=2, M=4097, bench=False)
+
+    test_embedding(B=1, M=8192, V=150000, D=8192, transpose=False, bench=False)
+    test_embedding(B=2, M=4096, V=150000, D=4096, transpose=True, bench=False)
+    test_embedding(B=1, M=4097, V=150000, D=4096, transpose=False, bench=False)
+    test_embedding(B=3, M=4097, V=150000, D=4096, bench=False)
+
+    test_fused_embedding(B=1, M=8192, V=150000, D=8192, transpose=False,
+                         bench=False)
+    test_fused_embedding(B=1, M=4096, V=150000, D=8192, transpose=False,
+                         bench=False)
     test_fused_embedding(B=2, M=4096, V=150000, D=8192, transpose=True,
-                         bench=True)
-    # test_fused_embedding(B=0, M=4096, V=150000, D=8192, transpose=True,
-    #                      bench=False)
+                         bench=False)
+    test_fused_embedding(B=2, M=4097, V=150000, D=4096, transpose=True,
+                         bench=False)
+    test_fused_embedding(B=0, M=4096, V=150000, D=8192, transpose=True,
+                         bench=False)
+    test_fused_embedding(B=1, M=8100, V=150000, D=8192, bench=False)
