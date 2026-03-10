@@ -391,9 +391,10 @@ def embedding_backward_kernel(grad_output_ptr,
                               dim,
                               B,
                               L,
-                              DIM: tl.constexpr,
+                              BLOCK: tl.constexpr,
                               T: tl.constexpr, ):
     pid = tl.program_id(axis=0).to(tl.int64)
+    cid = tl.program_id(axis=1)
     c01 = tl.load(accum_counts_ptr + pid + tl.arange(0, 2))
     c0, c1 = tl.split(c01)
     if c0 == c1:
@@ -409,9 +410,9 @@ def embedding_backward_kernel(grad_output_ptr,
     else:
         grad_ptr = g_ptr.to(tl.pointer_type(tl.float16))
 
-    # outputs = tl.zeros((DIM,), dtype=tl.float32)
-    outputs = tl.load(grad_ptr + input_id * dim + tl.arange(0, DIM),
-                      mask=tl.arange(0, DIM) < dim).to(tl.float32)
+    mask = cid * BLOCK + tl.arange(0, BLOCK) < dim
+    outputs = tl.load(grad_ptr + input_id * dim + cid * BLOCK + tl.arange(0, BLOCK),
+                      mask=mask).to(tl.float32)
 
     for i in range(count):
         pos = tl.load(sorted_indices_ptr + c0 + i)
@@ -420,12 +421,13 @@ def embedding_backward_kernel(grad_output_ptr,
         g = tl.load(grad_output_ptr
                     + bid * stride_0
                     + lid * stride_1
-                    + tl.arange(0, DIM),
-                    mask=tl.arange(0, DIM) < dim).to(tl.float32)
+                    + cid * BLOCK
+                    + tl.arange(0, BLOCK),
+                    mask=mask).to(tl.float32)
         outputs += g
-    tl.store(grad_ptr + input_id * dim + tl.arange(0, DIM),
+    tl.store(grad_ptr + input_id * dim + cid * BLOCK + tl.arange(0, BLOCK),
              outputs,
-             mask=tl.arange(0, DIM) < dim)
+             mask=mask)
 
 
 def triton_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
@@ -453,11 +455,12 @@ def triton_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
 
     sorted_ids, sorted_indices = torch.sort(x.view(-1), stable=False)
     accum_counts = triton_scan_and_count(sorted_ids)
-    DIM = triton.next_power_of_2(dim)
+    BLOCK = 512
+    assert dim % BLOCK == 0
     num_stages = 3
     num_warps = 2
 
-    grid = (B * L,)
+    grid = (B * L, dim // BLOCK)
     embedding_backward_kernel[grid](
         grad_output,
         sorted_ids,
@@ -469,7 +472,7 @@ def triton_embedding_backward(grad_output, x, g_ptr, dtype=torch.bfloat16):
         dim,
         B,
         L,
-        DIM,
+        BLOCK,
         T,
         num_stages=num_stages,
         num_warps=num_warps)

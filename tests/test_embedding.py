@@ -128,14 +128,14 @@ def test_fused_embedding(B=2, M=4096, V=150000, D=4096, use_main_grad=True,
 
 
 if __name__ == '__main__':
-    test_scan(M=8192, bench=False)
-    test_embedding(B=1, M=8192, V=150000, D=8192, transpose=False, bench=False)
-    test_embedding(B=2, M=4096, V=150000, D=4096, transpose=True, bench=False)
-    test_fused_embedding(B=1, M=8192, V=150000, D=8192, transpose=False,
-                         bench=False)
-    test_fused_embedding(B=1, M=4096, V=150000, D=8192, transpose=False,
-                         bench=False)
+    # test_scan(M=8192, bench=False)
+    # test_embedding(B=1, M=8192, V=150000, D=8192, transpose=False, bench=False)
+    # test_embedding(B=2, M=4096, V=150000, D=4096, transpose=True, bench=True)
+    # test_fused_embedding(B=1, M=8192, V=150000, D=8192, transpose=False,
+    #                      bench=False)
+    # test_fused_embedding(B=1, M=4096, V=150000, D=8192, transpose=False,
+    #                      bench=False)
     test_fused_embedding(B=2, M=4096, V=150000, D=8192, transpose=True,
-                         bench=False)
-    test_fused_embedding(B=0, M=4096, V=150000, D=8192, transpose=True,
-                         bench=False)
+                         bench=True)
+    # test_fused_embedding(B=0, M=4096, V=150000, D=8192, transpose=True,
+    #                      bench=False)
