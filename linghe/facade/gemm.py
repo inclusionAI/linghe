@@ -192,4 +192,5 @@ def fp32_gemm(input: torch.Tensor, weight: torch.Tensor, impl='native'):
         output of gemm
     """
     assert impl in ('native', 'tma')
+    assert input.dtype == weight.dtype, f'{input.dtype=} {weight.dtype=}'
     return Fp32GEMM.apply(input, weight, impl)

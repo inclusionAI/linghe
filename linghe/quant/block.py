@@ -48,8 +48,10 @@ def triton_block_quant(x,
     if out is None:
         out = torch.empty((M, N), dtype=torch.float8_e4m3fn, device=x.device)
     if scale is None:
-        scale = torch.empty(triton.cdiv(M, block_size), triton.cdiv(N, block_size),
-                    dtype=torch.float32, device=x.device)
+        scale = torch.empty(triton.cdiv(M, block_size),
+                            triton.cdiv(N, block_size),
+                            dtype=torch.float32,
+                            device=x.device)
     grid = (triton.cdiv(M, block_size), triton.cdiv(N, block_size))
     block_quant_kernel[grid](x,
                              out,
