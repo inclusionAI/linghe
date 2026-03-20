@@ -17,7 +17,8 @@ from linghe.utils.gather import (
     triton_batch_smooth_permute_with_indices,
     triton_batch_transpose_smooth_permute_with_indices,
     triton_batch_smooth_fused_permute_with_indices,
-    triton_batch_transpose_smooth_fused_permute_with_indices)
+    triton_batch_transpose_smooth_fused_permute_with_indices,
+    triton_make_chunk_sort_map)
 from linghe.utils.scatter import triton_unpermute_with_mask_map, triton_unpermute_with_reverse_map
 
 
@@ -307,7 +308,7 @@ def block_padded_unpermute(
     return output
 
 
-class _MXFP8Permute(torch.autograd.Function):
+class _MXFP8PermuteDP(torch.autograd.Function):
     @staticmethod
     def forward(ctx,
                 tokens,
@@ -368,7 +369,7 @@ def mxfp8_permute(
         quantizers,
         cls,
         probs: Optional[torch.Tensor] = None, ):
-    permuted_input, permuted_probs, row_id_map, row_id_index = _MXFP8Permute.apply(
+    permuted_input, permuted_probs, row_id_map, row_id_index = _MXFP8PermuteDP.apply(
         tokens,
         probs,
         routing_map,
@@ -379,7 +380,7 @@ def mxfp8_permute(
     return permuted_input, permuted_probs, row_id_map, row_id_index
 
 
-class _MXFP8Unpermute(torch.autograd.Function):
+class _MXFP8UnpermuteDP(torch.autograd.Function):
     @staticmethod
     def forward(ctx,
                 permuted_tokens,
@@ -443,7 +444,7 @@ def mxfp8_unpermute(
         restore_shape: torch.Size,
         quantizers,
         cls, ):
-    output = _MXFP8Unpermute.apply(
+    output = _MXFP8UnpermuteDP.apply(
         permuted_tokens,
         row_id_map,
         row_id_index,
@@ -905,14 +906,13 @@ class _MXFP8Permute(torch.autograd.Function):
         tokens_per_expert,
         tokens_per_expert_cpu,
         quantizers,
-        cls,
-        dispatch_type=None,
+        cls
     ):
         """Forward for alltoall dispatch."""
         if not inp.numel():
             return inp, probs
         
-        row_id_map, reverse_row_id_map = make_chunk_sort_map_pad_unified(
+        row_id_map, reverse_row_id_map = triton_make_chunk_sort_map(
             split_sizes.reshape(-1, tokens_per_expert.size(0)),
             tokens_per_expert_cpu.tolist()
         )
@@ -984,8 +984,7 @@ class _MXFP8Unpermute(torch.autograd.Function):
         quantizers,
         cls,
         row_id_map,
-        reverse_row_id_map,
-        dispatch_type=None
+        reverse_row_id_map
     ):
         """Forward for alltoall dispatch."""
         if not inp.numel():
@@ -1009,15 +1008,14 @@ class _MXFP8Unpermute(torch.autograd.Function):
     def backward(ctx, permuted_act_grad, permuted_probs_grad):
         (row_id_map,) = ctx.saved_tensors
 
-        x_q, x_s, xt_q, xt_s, permuted_probs = (
-            triton_batch_mxfp8_permute_with_indices(
-                permuted_act_grad,
-                ctx.tokens_per_expert,
-                row_id_map,
-                ctx.tokens_per_expert_cpu.tolist(),
-                probs=permuted_probs_grad,
+        x_q, x_s, xt_q, xt_s, permuted_probs = triton_batch_mxfp8_permute_with_indices(
+            permuted_act_grad,
+            ctx.tokens_per_expert,
+            row_id_map,
+            ctx.tokens_per_expert_cpu.tolist(),
+            probs=permuted_probs_grad,
         )
-        
+
         act_grad = ctx.cls(
             shape=x_q.shape,
             dtype=permuted_act_grad.dtype,
