@@ -97,9 +97,15 @@ def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     return wq, scale
 
 
-def torch_mxfp8_quant(x):
+def torch_mxfp8_quant(x, padding=False, zero=False):
+    m_ori, N = x.shape
+    if padding:
+        padding_size = (m_ori + 31) // 32 * 32 - m_ori
+        if padding_size > 0:
+            x = torch.nn.functional.pad(x, (0, 0, 0, padding_size))
+
     x = x.float()
-    m, N = x.shape
+    m, N = x.shape  # current m is multiple of 32
     assert N % 128 == 0
     if m % 128 != 0:
         M = (m + 127) // 128 * 128
@@ -110,7 +116,9 @@ def torch_mxfp8_quant(x):
     xm = xs.abs().amax(2)
     scale = torch.maximum(xm / 448, 1e-30 * torch.ones_like(xm))
     scale = torch.exp2(torch.ceil(torch.log2(scale)))
-    x_q = (xs / scale[:, :, None]).to(torch.float8_e4m3fn).view(M, N)[:m]
+    x_q = (xs / scale[:, :, None]).to(torch.float8_e4m3fn).view(M, N)[:m]  # 取得前m行
+    if zero:
+        scale[m_ori:, :] = 0
     x_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
 
     xs = x.view(M // 32, 32, N)
@@ -118,6 +126,8 @@ def torch_mxfp8_quant(x):
     scale = torch.maximum(xm / 448, 1e-30 * torch.ones_like(xm))
     scale = torch.exp2(torch.ceil(torch.log2(scale)))
     xt_q = (xs / scale[:, None, :]).to(torch.float8_e4m3fn).view(M, N)[:m]
+    if zero:
+        scale[(m_ori + 31) // 32 :, :] = 0
     xt_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
 
     return x_q, x_scale, xt_q, xt_scale
@@ -513,3 +523,40 @@ def torch_fp32_scaler_scaled_mm(x, weight, x_scale, weight_scale):
                               out_dtype=torch.float32,
                               use_fast_accum=True)
     return output
+
+def torch_make_chunk_sort_map(num_global_tokens_per_local_expert: torch.Tensor):
+    device = num_global_tokens_per_local_expert.device
+    num_ranks, num_local_experts = num_global_tokens_per_local_expert.shape
+
+    flat_sizes = num_global_tokens_per_local_expert.flatten()
+    src_chunk_starts = torch.cumsum(flat_sizes, dim=0) - flat_sizes
+    total_tokens = flat_sizes.sum().item()
+
+    tokens_per_expert = num_global_tokens_per_local_expert.sum(dim=0)
+    padded_tokens_per_expert = (tokens_per_expert + 31) // 32 * 32
+    expert_dst_starts = torch.cumsum(padded_tokens_per_expert, dim=0) - padded_tokens_per_expert
+    total_padded_size = padded_tokens_per_expert.sum().item()
+
+    row_id_map = torch.zeros((total_padded_size,), dtype=torch.int32, device=device)
+    row_id_map_inverse = torch.empty((total_tokens,), dtype=torch.int32, device=device)
+
+    for e_idx in range(num_local_experts):
+        current_dst_offset = expert_dst_starts[e_idx].item()
+        
+        for r_idx in range(num_ranks):
+            count = num_global_tokens_per_local_expert[r_idx, e_idx].item()
+            if count == 0:
+                continue
+
+            src_idx_in_flat = r_idx * num_local_experts + e_idx
+            src_start = src_chunk_starts[src_idx_in_flat].item()
+            
+            src_range = torch.arange(src_start, src_start + count, device=device, dtype=torch.int32)
+            dst_range = torch.arange(current_dst_offset, current_dst_offset + count, device=device, dtype=torch.int32)
+            
+            row_id_map[dst_range] = src_range
+            row_id_map_inverse[src_range] = dst_range
+            
+            current_dst_offset += count
+
+    return row_id_map, row_id_map_inverse

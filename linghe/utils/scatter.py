@@ -230,3 +230,84 @@ def triton_unpermute_with_mask_map(
         num_stages=4,
         num_warps=4)
     return output, restore_probs
+
+
+@triton.jit
+def triton_unpermute_with_reverse_map_kernel(
+    input_ptr,      
+    output_ptr,     
+    map_ptr,  
+    prob_ptr, 
+    prob_output_ptr,     
+    M, m, N,        
+    stride_im, stride_in,  
+    stride_om, stride_on,  
+    BLOCK_SIZE_M: tl.constexpr, 
+    BLOCK_SIZE_N: tl.constexpr,
+    PROB: tl.constexpr,
+):
+    pid_m = tl.program_id(0)
+    pid_n = tl.program_id(1)
+
+    rm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    rn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+
+    mask_m = rm < m
+    src_row_indices = tl.load(map_ptr + rm, mask=mask_m, other=0)
+
+    input_offsets = src_row_indices[:, None] * stride_im + rn[None, :] * stride_in
+    output_offsets = rm[:, None] * stride_om + rn[None, :] * stride_on
+
+    mask = (rm[:, None] < m) & (rn[None, :] < N)
+
+    data = tl.load(input_ptr + input_offsets, mask=mask)
+    tl.store(output_ptr + output_offsets, data, mask=mask)
+    if PROB:
+        if pid_n == 0:
+            prob = tl.load(prob_ptr + src_row_indices[:, None])
+            tl.store(prob_output_ptr + rm[:, None], prob)
+
+def triton_unpermute_with_reverse_map(input_tensor, row_id_map, probs=None):
+    """
+    input_tensor: [M, N]
+    row_id_map: [m], 
+    """
+    M, N = input_tensor.shape
+    m = row_id_map.shape[0]
+
+    output_tensor = torch.empty((m, N), device=input_tensor.device, dtype=input_tensor.dtype)
+
+    BLOCK_SIZE_M = 128
+    BLOCK_SIZE_N = 1024 
+
+    PROB = probs is not None
+    if PROB:
+        probs_output = torch.empty((m,), device=input_tensor.device, dtype=probs.dtype)
+    else:
+        probs_output = None
+
+    if M == 0:
+        return output_tensor, probs_output
+
+    grid = (triton.cdiv(m, BLOCK_SIZE_M), triton.cdiv(N, BLOCK_SIZE_N))
+
+    triton_unpermute_with_reverse_map_kernel[grid](
+        input_tensor,
+        output_tensor,
+        row_id_map,
+        probs,
+        probs_output,
+        M,
+        m,
+        N,
+        input_tensor.stride(0),
+        input_tensor.stride(1),
+        output_tensor.stride(0),
+        output_tensor.stride(1),
+        BLOCK_SIZE_M=BLOCK_SIZE_M,
+        BLOCK_SIZE_N=BLOCK_SIZE_N,
+        PROB=PROB,
+        num_warps=8,
+    )
+
+    return output_tensor, probs_output

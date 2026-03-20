@@ -9,6 +9,84 @@ import torch
 import triton
 import triton.language as tl
 
+@triton.jit
+def _chunk_sort_map_kernel(
+    split_sizes_ptr, 
+    row_id_map_ptr,         
+    row_id_map_inv_ptr,     
+    num_ranks: tl.constexpr,
+    num_local_experts: tl.constexpr,
+    BLOCK_SIZE_SPLITS: tl.constexpr, 
+    BLOCK_SIZE_ROW: tl.constexpr,    
+):
+    chunk_idx = tl.program_id(0)
+    num_splits = num_ranks * num_local_experts
+    if chunk_idx >= num_splits:
+        return
+
+    r_idx = chunk_idx // num_local_experts
+    e_idx = chunk_idx % num_local_experts
+
+    split_idx = tl.arange(0, BLOCK_SIZE_SPLITS)
+    mask = split_idx < num_splits
+    all_sizes = tl.load(split_sizes_ptr + split_idx, mask=mask, other=0)
+    
+    src_start = tl.sum(tl.where(split_idx < chunk_idx, all_sizes, 0)).to(tl.int32)
+    count = tl.sum(tl.where(split_idx == chunk_idx, all_sizes, 0)).to(tl.int32)
+
+    rank_mask = (split_idx % num_local_experts == e_idx) & (split_idx < chunk_idx)
+    offset_within_expert = tl.sum(tl.where(rank_mask, all_sizes, 0)).to(tl.int32)
+
+    expert_base_offset = 0
+    for e in range(num_local_experts):
+        e_mask = (split_idx % num_local_experts == e)
+        e_total = tl.sum(tl.where(e_mask, all_sizes, 0)).to(tl.int32)
+        e_padded = ((e_total + 31) // 32) * 32
+        
+        if e < e_idx:
+            expert_base_offset += e_padded
+            
+    dst_start = expert_base_offset + offset_within_expert
+
+    for i in range(0, count, BLOCK_SIZE_ROW):
+        offsets = i + tl.arange(0, BLOCK_SIZE_ROW)
+        row_mask = offsets < count
+        
+        curr_src = src_start + offsets
+        curr_dst = dst_start + offsets
+        
+        tl.store(row_id_map_ptr + curr_dst, curr_src, mask=row_mask)
+        tl.store(row_id_map_inv_ptr + curr_src, curr_dst, mask=row_mask)
+
+def triton_make_chunk_sort_map(
+    num_global_tokens_per_local_expert: torch.Tensor,
+    token_per_expert_cpu
+):
+    device = num_global_tokens_per_local_expert.device
+    num_ranks, num_local_experts = num_global_tokens_per_local_expert.shape
+    num_splits = num_ranks * num_local_experts
+
+    total_padded_size = sum([(x+31) // 32 * 32 for x in token_per_expert_cpu])
+    total_tokens = sum(token_per_expert_cpu)
+
+    row_id_map = torch.zeros((total_padded_size,), dtype=torch.int32, device=device)
+    row_id_map_inverse = torch.empty((total_tokens,), dtype=torch.int32, device=device)
+
+    grid = (num_splits,)
+    block_splits = triton.next_power_of_2(num_splits)
+    
+    _chunk_sort_map_kernel[grid](
+        num_global_tokens_per_local_expert,
+        row_id_map,
+        row_id_map_inverse,
+        num_ranks,
+        num_local_experts,
+        BLOCK_SIZE_SPLITS=block_splits,
+        BLOCK_SIZE_ROW=256,
+        num_warps=4
+    )
+
+    return row_id_map, row_id_map_inverse
 
 @triton.jit
 def block_count_kernel(map_ptr,
@@ -1110,22 +1188,24 @@ def triton_batch_block_pad_permute_with_indices(xs,
 
     return x_q, x_scale, xt_q, xt_scale, prob_output
 
-
 @triton.jit
-def batch_mxfp8_permute_with_indices_kernel(x_ptr,
-                                            prob_ptr,
-                                            indices_ptr,
-                                            count_ptr,
-                                            xq_ptr,
-                                            xs_ptr,
-                                            xtq_ptr,
-                                            xts_ptr,
-                                            output_prob_ptr,
-                                            N,
-                                            E: tl.constexpr,
-                                            B: tl.constexpr,
-                                            PROB: tl.constexpr,
-                                            OUTPUT_MODE: tl.constexpr):
+def batch_mxfp8_permute_with_indices_kernel(
+    x_ptr,
+    prob_ptr,
+    indices_ptr,
+    count_ptr,
+    xq_ptr,
+    xs_ptr,
+    xtq_ptr,
+    xts_ptr,
+    output_prob_ptr,
+    N,
+    E: tl.constexpr,
+    B: tl.constexpr,
+    PROB: tl.constexpr,
+    OUTPUT_MODE: tl.constexpr,
+    ARRAY_PROB: tl.constexpr,
+):
     eid = tl.program_id(axis=0)
     rid = tl.program_id(axis=1)
     cid = tl.program_id(axis=2)
@@ -1138,71 +1218,95 @@ def batch_mxfp8_permute_with_indices_kernel(x_ptr,
 
     N = N.to(tl.int64)
 
-    m_block = tl.sum(tl.where(tl.arange(0, E) < eid,
-                              tl.cdiv(counts, 128),
-                              0)) * 4
-    si = tl.sum(tl.where(tl.arange(0, E) < eid, counts, 0))
+    m_block = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 128), 0)) * 4
+    si = tl.sum(tl.where(tl.arange(0, E) < eid, tl.cdiv(counts, 32) * 32, 0))
 
-    offs = (si * N
-            + rid * 32 * N
-            + cid * B
-            + tl.arange(0, 32)[:, None] * N
-            + tl.arange(0, B)[None, :])
     rids = rid * 32 + tl.arange(0, 32)
-    mask = rids[:, None] < count
+    indices = tl.load(indices_ptr + si + rids, mask=rids < count)
+
+    offs = (
+        si * N
+        + rid * 32 * N
+        + cid * B
+        + tl.arange(0, 32)[:, None] * N
+        + tl.arange(0, B)[None, :]
+    )
+
+    pad_count = tl.cdiv(count, 32) * 32
     b = N // 32
     sb: tl.constexpr = B // 32
 
-    indices = tl.load(indices_ptr + si + rid * 32 + tl.arange(0, 32),
-                      mask=rids < count)
-    x = tl.load(x_ptr
-                + cid * B
-                + indices[:, None] * N
-                + tl.arange(0, B)[None, :],
-                mask=mask).to(tl.float32)
+    x = tl.load(
+        x_ptr + cid * B + indices[:, None] * N + tl.arange(0, B)[None, :],
+        mask=rids[:, None] < count,
+        other=0.0,
+    ).to(tl.float32)
 
     if OUTPUT_MODE % 2 == 0:
         xr = tl.reshape(x, [32, sb, 32])
+        valid_mask = (rids < count)[:, None]
         scale = tl.maximum(tl.max(xr.abs(), 2) / 448, 1e-30)
         log_scale = tl.ceil(tl.log2(scale))
         scale = tl.exp2(log_scale)
-        tl.store(xs_ptr
-                 + m_block * N
-                 + rid * 32 * b
-                 + cid * B // 32
-                 + tl.arange(0, 32)[:, None] * b
-                 + tl.arange(0, sb),
-                 log_scale + 127)
+        stored_log_scale = tl.where(valid_mask, log_scale + 127, 0).to(tl.uint8)
+        tl.store(
+            xs_ptr
+            + m_block * N
+            + rid * 32 * b
+            + cid * B // 32
+            + tl.arange(0, 32)[:, None] * b
+            + tl.arange(0, sb),
+            stored_log_scale,
+        )
+
         xq = tl.reshape(xr / scale[:, :, None], (32, B)).to(xq_ptr.dtype.element_ty)
-        tl.store(xq_ptr + offs, xq,
-                 mask=mask)
+        tl.store(xq_ptr + offs, xq, mask=rids[:, None] < pad_count)
 
     if OUTPUT_MODE > 0:
-        scale = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
-        log_scale = tl.ceil(tl.log2(scale))
-        scale = tl.exp2(log_scale)
-        tl.store(xts_ptr + m_block * N + rid * N + cid * B + tl.arange(0, B),
-                 log_scale + 127)
-        xq = (x / scale).to(xtq_ptr.dtype.element_ty)
-        tl.store(xtq_ptr + offs,
-                 xq, mask=mask)
+        valid_mask_t = rid * 32 < count
+        scale_t = tl.maximum(tl.max(x.abs(), 0) / 448, 1e-30)
+        log_scale_t = tl.ceil(tl.log2(scale_t))
+        scale_t = tl.exp2(log_scale_t)
+        stored_log_scale_t = tl.where(valid_mask_t, log_scale_t + 127, 0).to(tl.uint8)
+        tl.store(
+            xts_ptr + m_block * N + rid * N + cid * B + tl.arange(0, B),
+            stored_log_scale_t,
+        )
+
+        xq = (x / scale_t).to(xtq_ptr.dtype.element_ty)
+        tl.store(xtq_ptr + offs, xq, mask=rids[:, None] < pad_count)
 
     if PROB:
-        prob = tl.load(prob_ptr + eid + indices * E,
-                       mask=rid * 32 + tl.arange(0, 32) < count)
-        tl.store(output_prob_ptr + si + rid * 32 + tl.arange(0, 32),
-                 prob,
-                 mask=rid * 32 + tl.arange(0, 32) < count)
+        if cid == 0:
+            if ARRAY_PROB:  #for all to all
+                prob = tl.load(prob_ptr + indices, mask=rid * 32 + tl.arange(0, 32) < count)
+                tl.store(
+                    output_prob_ptr + si + rid * 32 + tl.arange(0, 32),
+                    prob,
+                    mask=rid * 32 + tl.arange(0, 32) < pad_count,
+                )
+            else:
+                prob = tl.load(
+                    prob_ptr + eid + indices * E, mask=rid * 32 + tl.arange(0, 32) < count
+                )
+                tl.store(
+                    output_prob_ptr + si + rid * 32 + tl.arange(0, 32),
+                    prob,
+                    mask=rid * 32 + tl.arange(0, 32) < pad_count,
+                )
 
 
-def triton_batch_mxfp8_permute_with_indices(xs,
-                                            token_count_per_expert,
-                                            indices,
-                                            splits,
-                                            probs=None,
-                                            output_mode=2):
+def triton_batch_mxfp8_permute_with_indices(
+    xs,
+    token_count_per_expert,
+    indices,
+    splits,
+    probs=None,
+    output_mode=2,
+    dispatch_type="alltoall",
+):
     """
-    select and quant, used in megatron 0.12 flex backend
+    select and quant, use in dispatch type in deepep or alltoall.
     Args:
         xs: [bs, dim]
         token_count_per_expert: [n_experts]
@@ -1213,6 +1317,7 @@ def triton_batch_mxfp8_permute_with_indices(xs,
             0: only output non-transposed quantized tensor
             1: only output transposed quantized tensor
             2: output both
+        dispatch_type: ("alltoall", "deepep")
 
     Returns:
         x_q: 
@@ -1233,26 +1338,21 @@ def triton_batch_mxfp8_permute_with_indices(xs,
 
     x_q = torch.empty((m, N), device=device, dtype=torch.float8_e4m3fn)
     x_scale = torch.empty((M, N // 32), device=device, dtype=torch.uint8)
-    xt_q = torch.empty((m, N), device=device,
-                       dtype=torch.float8_e4m3fn)
-    xt_scale = torch.empty((M // 32, N), device=device,
-                           dtype=torch.uint8)
+    xt_q = torch.empty((m, N), device=device, dtype=torch.float8_e4m3fn)
+    xt_scale = torch.empty((M // 32, N), device=device, dtype=torch.uint8)
 
     PROB = probs is not None
     if PROB:
         prob_output = torch.empty((m,), device=device, dtype=probs.dtype)
-
     else:
         prob_output = None
+
+    ARRAY_PROB = dispatch_type == "alltoall" 
 
     if bs == 0:
         return x_q, x_scale, xt_q, xt_scale, prob_output
 
-    if N % 256 == 0:
-        B = 256
-    else:
-        assert N % 128 == 0
-        B = 128
+    B = 128
     grid = (n_experts, triton.cdiv(max(splits), 128) * 4, N // B)
     batch_mxfp8_permute_with_indices_kernel[grid](
         xs,
@@ -1269,7 +1369,9 @@ def triton_batch_mxfp8_permute_with_indices(xs,
         B,
         PROB,
         output_mode,
+        ARRAY_PROB,
         num_stages=2,
-        num_warps=2)
+        num_warps=2
+    )
 
     return x_q, x_scale, xt_q, xt_scale, prob_output
