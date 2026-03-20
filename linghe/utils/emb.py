@@ -287,7 +287,7 @@ def triton_scan_and_count(ids):
     device = ids.device
     assert len(shape) in (1, 2)
 
-    BLOCK = 256
+    BLOCK = 128
     if len(shape) == 2:
         B, L = ids.shape
     else:
@@ -300,7 +300,7 @@ def triton_scan_and_count(ids):
     accum_counts = torch.zeros((B, L + 1), dtype=torch.int32, device=device)
     
     num_stages = 3
-    num_warps = 1
+    num_warps = 4
     grid = (B, T)
     scan_and_count_split_kernel[grid](
         ids,
@@ -313,7 +313,7 @@ def triton_scan_and_count(ids):
         num_warps=num_warps)
 
     num_stages = 3
-    num_warps = 1
+    num_warps = 4
     grid = (B,)
     scan_and_count_merge_kernel[grid](
         counts,

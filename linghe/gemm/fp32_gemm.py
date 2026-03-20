@@ -458,9 +458,9 @@ def triton_split_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
     K, M = y.size()
     K, N = x.size()
     BLOCK_SIZE_K = max([x for x in [32, 64] if K % x == 0])
-    BLOCK_SIZE_M = max([x for x in [32, 64] if M % x == 0])
+    BLOCK_SIZE_M = max([x for x in [16, 32, 64] if M % x == 0])
     BLOCK_SIZE_N = 64
-    SPLIT_COUNT = min(triton.cdiv(K, 2048), 8)
+    SPLIT_COUNT = min(triton.cdiv(K, 4096), 8)
     EVEN_K = K % (SPLIT_COUNT * BLOCK_SIZE_K) == 0
     if SPLIT_COUNT == 1:
         c = torch.empty((M, N), dtype=torch.float32, device=x.device)
