@@ -13,8 +13,10 @@ from linghe.utils.gate import (triton_group_rms_norm_gate_forward,
 
 
 # @torch.compile
-def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4):
+def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4, native=True):
     dtype = x.dtype
+    if not native:
+        x = torch.permute(x, [1,0,2])
     x = x.float()
     gate = gate.float()
     weight = weight.float()
@@ -53,35 +55,42 @@ def torch_group_rms_norm_gate_backward(
 
 def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
                              contiguous=True, share=False, coef=1.0,
-                             grad_coef=1.0,
+                             grad_coef=1.0, native=True,
                              bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
-    x = torch.randn(bs, length, dim, dtype=dtype, requires_grad=True,
-                    device=device)
+    if native:
+        x = torch.randn(bs, length, dim, dtype=dtype, requires_grad=True,
+                        device=device)
+    else:
+        x = torch.randn(length, bs, dim, dtype=dtype, requires_grad=True,
+                        device=device)
     weight = torch.randn(dim // group_size if share else dim, dtype=dtype,
                          requires_grad=True, device=device)
     if contiguous:
         gate = (torch.randn(length, bs, dim, dtype=dtype,
                             device=device) * coef).requires_grad_()
     else:
-        qkvfaga = (torch.randn(length, bs, 3*dim, dtype=dtype,
-                            device=device) * coef).requires_grad_()
+        tmp = (torch.randn(length, bs, 3*dim, dtype=dtype,
+                            device=device) * coef)
         split_sizes = [dim, dim, dim]
-        qkv, g, gate = torch.split(qkvfaga, split_sizes, dim=-1)
+        _, _, gate = torch.split(tmp, split_sizes, dim=-1)
+        gate = gate.requires_grad_()
 
     grad_output = torch.randn(length, bs, dim, dtype=dtype,
                             device=device) * grad_coef
 
     output_ref = torch_group_rms_norm_gate_forward(
-        x, gate, weight, group_size=group_size
+        x, gate, weight, group_size=group_size, native=native
     )
+    output_ref.backward(gradient=grad_output)
+    dx_ref = x.grad.to(dtype)
+    dg_ref = gate.grad.to(dtype)
+    dw_ref = weight.grad.to(dtype)
+
     output = triton_group_rms_norm_gate_forward(x, gate, weight, group_size=group_size)
     output_check(output_ref, output, name="group_norm_gate.y")
 
-    dx_ref, dg_ref, dw_ref = torch_group_rms_norm_gate_backward(grad_output, x,
-                                                                gate, weight,
-                                                                group_size=group_size)
     dx, dg, dw = triton_group_rms_norm_gate_backward(grad_output, x, gate,
                                                      weight,
                                                      group_size=group_size)
@@ -128,5 +137,8 @@ if __name__ == '__main__':
                              contiguous=False,
                              bench=False)
     test_group_rms_norm_gate(bs=2, length=4096, dim=1536, group_size=4,
-                            contiguous=False,
-                            bench=False)
+                             contiguous=False,
+                             bench=False)
+    test_group_rms_norm_gate(bs=2, length=4096, dim=1536, group_size=4,
+                             contiguous=False, native=False,
+                             bench=False)

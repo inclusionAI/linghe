@@ -3,14 +3,13 @@ import triton
 import triton.language as tl
 
 
-# TOOD(nanxiao): opt performance
 @triton.jit
 def group_rms_norm_gate_forward_kernel(
     x_ptr,
     gate_ptr,
     weight_ptr,
     out_ptr,
-    stride_g1,
+    stride_g,
     eps,
     bs,
     length,
@@ -19,6 +18,7 @@ def group_rms_norm_gate_forward_kernel(
     D: tl.constexpr,
     GROUP_SIZE: tl.constexpr,
     SHARE: tl.constexpr,
+    NATIVE: tl.constexpr,
 ):
     pid = tl.program_id(axis=0)
     bid = pid // length
@@ -33,31 +33,39 @@ def group_rms_norm_gate_forward_kernel(
                          + tl.arange(0, D),
                          mask=tl.arange(0, D)[None, :] < d)
 
-    x_offs = (pid * DIM
-              + tl.arange(0, GROUP_SIZE)[:, None] * d
-              + tl.arange(0, D)[None, :])
+    if NATIVE:
+        x_offs = (pid * DIM
+                + tl.arange(0, GROUP_SIZE)[:, None] * d
+                + tl.arange(0, D)[None, :])
+    else:
+        x_offs = (sid * bs * DIM
+                + bid * DIM
+                + tl.arange(0, GROUP_SIZE)[:, None] * d
+                + tl.arange(0, D)[None, :])
+
     x_offs_mask = tl.arange(0, D)[None, :] < d
     x = tl.load(x_ptr + x_offs, mask=x_offs_mask).to(tl.float32)
 
     g_offs = (
-        sid * bs * stride_g1
-        + bid * stride_g1
+        sid * bs * stride_g
+        + bid * stride_g
         + tl.arange(0, GROUP_SIZE)[:, None] * d
         + tl.arange(0, D)[None, :]
     )
-    g_offs_write = (
-        sid * bs * DIM
-        + bid * DIM
-        + tl.arange(0, GROUP_SIZE)[:, None] * d
-        + tl.arange(0, D)[None, :]
-    )
+
     g = tl.load(gate_ptr + g_offs, mask=tl.arange(0, D)[None, :] < d).to(tl.float32)
 
     rms = tl.rsqrt(tl.sum(x * x, axis=1) / d + eps)
 
     x = (x * rms[:, None]) * weight * tl.sigmoid(g)
 
-    tl.store(out_ptr + g_offs_write, x, mask=tl.arange(0, D)[None, :] < d)
+    g_offs = (
+        sid * bs * DIM
+        + bid * DIM
+        + tl.arange(0, GROUP_SIZE)[:, None] * d
+        + tl.arange(0, D)[None, :]
+    )
+    tl.store(out_ptr + g_offs, x, mask=tl.arange(0, D)[None, :] < d)
 
 
 def triton_group_rms_norm_gate_forward(x: torch.Tensor,
@@ -73,21 +81,21 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
         weight: rms norm weight, [dim]
         eps: epsilon of rms norm
         group_size: group size of group rms norm
-        transpose: whether gate tensor has been transposed and output will be transposed
+        layout: layout of x, should in {'bsd', 'sbd}
 
     Returns:
-        output tensor, [length, bs, dim] if transpose=True else [bs, length, dim]
+        output tensor, [length, bs, dim]
     """
-    # row-wise read, row-wise write
     length, bs, dim = gate.shape
 
     assert (dim <= 8192
             and triton.next_power_of_2(group_size) == group_size)
-    # assert x.is_contiguous() and gate.is_contiguous() and weight.is_contiguous()
-    gate_contiguous = (gate.stride(2) == 1) and (gate.stride(0) == (gate.stride(1) * bs))
-    assert x.is_contiguous() and weight.is_contiguous() and gate_contiguous
+    assert x.is_contiguous() and weight.is_contiguous()
+    assert gate.stride(2) == 1 and gate.stride(0) == gate.stride(1) * bs
+    assert length != bs
     wd = weight.shape[0]
-    share = wd != dim  # all groups share the same weight
+    SHARE = wd != dim  # all groups share the same weight
+    NATIVE = x.size(0) == bs
     d = dim // group_size
     device = x.device
 
@@ -95,7 +103,7 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
 
     out = torch.empty((length, bs, dim), device=device, dtype=x.dtype)
 
-    grid = (bs * length,)
+    grid = (bs * length, )
     group_rms_norm_gate_forward_kernel[grid](
         x,
         gate,
@@ -109,7 +117,8 @@ def triton_group_rms_norm_gate_forward(x: torch.Tensor,
         d,
         D,
         group_size,
-        share,
+        SHARE,
+        NATIVE,
         num_stages=3,
         num_warps=4,
     )
@@ -128,13 +137,14 @@ def group_rms_norm_gate_backward_kernel(
     eps,
     bs,
     length,
-    stride_g1,
+    stride_g,
     DIM: tl.constexpr,
     d: tl.constexpr,
     D: tl.constexpr,
     GROUP_SIZE: tl.constexpr,
     T: tl.constexpr,
-    SHARE: tl.constexpr
+    SHARE: tl.constexpr,
+    NATIVE: tl.constexpr,
 ):
     pid = tl.program_id(0)
     bid = pid * T // length
@@ -146,11 +156,18 @@ def group_rms_norm_gate_backward_kernel(
         w = tl.load(w_ptr
                     + tl.arange(0, GROUP_SIZE)[:, None] * d
                     + tl.arange(0, D),
-                    mask=tl.arange(0, D)[None, :] < d, )
+                    mask=tl.arange(0, D)[None, :] < d)
 
-    x_offs = (pid * DIM * T
-              + tl.arange(0, GROUP_SIZE)[:, None] * d
-              + tl.arange(0, D)[None, :])
+    if NATIVE:
+        x_offs = (pid * DIM * T
+                + tl.arange(0, GROUP_SIZE)[:, None] * d
+                + tl.arange(0, D)[None, :])
+    else:
+        x_offs = (sid * bs * DIM
+                + bid * DIM
+                + tl.arange(0, GROUP_SIZE)[:, None] * d
+                + tl.arange(0, D)[None, :])
+
     x_offs_mask = tl.arange(0, D)[None, :] < d
     offs = (
         sid * bs * DIM
@@ -160,8 +177,8 @@ def group_rms_norm_gate_backward_kernel(
     )
     offs_mask = tl.arange(0, D)[None, :] < d
     g_offs = (
-        sid * bs * stride_g1
-        + bid * stride_g1
+        sid * bs * stride_g
+        + bid * stride_g
         + tl.arange(0, GROUP_SIZE)[:, None] * d
         + tl.arange(0, D)[None, :]
     )
@@ -169,8 +186,8 @@ def group_rms_norm_gate_backward_kernel(
     dw = tl.zeros((GROUP_SIZE, D), dtype=tl.float32)
     for i in range(T):
         x = tl.load(x_ptr + x_offs, mask=x_offs_mask).to(tl.float32)
-        g = tl.load(grad_output_ptr + offs, offs_mask).to(tl.float32)
-        gate = tl.load(gate_ptr + g_offs, offs_mask).to(tl.float32)
+        g = tl.load(grad_output_ptr + offs, mask=offs_mask).to(tl.float32)
+        gate = tl.load(gate_ptr + g_offs, mask=offs_mask).to(tl.float32)
         gate = tl.sigmoid(gate)
         r = tl.rsqrt(tl.sum(x * x, 1) / d + eps)[:, None]
         w_grad = x * g * r * gate
@@ -186,9 +203,12 @@ def group_rms_norm_gate_backward_kernel(
         dg = x * r * w * g * gate * (1 - gate)
         tl.store(dg_ptr + offs, dg, mask=offs_mask)
 
-        x_offs += DIM
+        if NATIVE:
+            x_offs += DIM
+        else:
+            x_offs += DIM * bs
         offs += DIM * bs
-        g_offs += (bs * stride_g1)
+        g_offs += (bs * stride_g)
 
     if SHARE:
         dw = tl.sum(dw, 0)
@@ -200,17 +220,23 @@ def group_rms_norm_gate_backward_kernel(
                  + tl.arange(0, GROUP_SIZE)[:, None] * d
                  + tl.arange(0, D)[None, :],
                  dw,
-                 mask=tl.arange(0, D)[None, :] < d, )
+                 mask=tl.arange(0, D)[None, :] < d)
 
 
-def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6,
+def triton_group_rms_norm_gate_backward(grad_output,
+                                        x,
+                                        gate,
+                                        weight,
+                                        eps=1e-6,
                                         group_size=4):
     length, bs, dim = gate.shape
     assert dim <= 8192 and triton.next_power_of_2(group_size) == group_size
     assert grad_output.is_contiguous()
+    assert length != bs
     d = dim // group_size
     wd = weight.shape[0]
-    share = wd != dim  # all groups share the same weight
+    SHARE = wd != dim  # all groups share the same weight
+    NATIVE = x.size(0) == bs
 
     device = x.device
     dx = torch.empty_like(x)
@@ -218,7 +244,7 @@ def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6,
 
     T = 8
     g = (bs * length) // T
-    if share:
+    if SHARE:
         tmp_dw = torch.empty(g, d, dtype=torch.float32, device=device)
     else:
         tmp_dw = torch.empty(g, dim, dtype=torch.float32, device=device)
@@ -242,7 +268,8 @@ def triton_group_rms_norm_gate_backward(grad_output, x, gate, weight, eps=1e-6,
         D,
         group_size,
         T,
-        share,
+        SHARE,
+        NATIVE,
         num_stages=3,
         num_warps=8,
     )
