@@ -13,18 +13,15 @@ class GroupRMSNormGateFunction(torch.autograd.Function):
     """"""
 
     @staticmethod
-    def forward(ctx, attn_output, gate, weight, eps=1e-6, group_size=4,
-                transpose=True):
-        output = triton_group_rms_norm_gate_forward(attn_output,
-                                                    gate,
-                                                    weight,
-                                                    eps=eps,
-                                                    group_size=group_size,
-                                                    transpose=transpose)
+    def forward(ctx, attn_output, gate, weight, eps=1e-6, group_size=4):
+
+        output = triton_group_rms_norm_gate_forward(
+            attn_output, gate, weight, eps=eps, group_size=group_size
+        )
+
         ctx.save_for_backward(attn_output, gate, weight)
         ctx.eps = eps
         ctx.group_size = group_size
-        ctx.transpose = transpose
 
         return output
 
@@ -32,15 +29,11 @@ class GroupRMSNormGateFunction(torch.autograd.Function):
     def backward(ctx, dy):
         attn_output, gate, weight = ctx.saved_tensors
 
-        dx, dg, dw = triton_group_rms_norm_gate_backward(dy,
-                                                         attn_output,
-                                                         gate,
-                                                         weight,
-                                                         eps=ctx.eps,
-                                                         group_size=ctx.group_size,
-                                                         transpose=ctx.transpose)
+        dx, dg, dw = triton_group_rms_norm_gate_backward(
+            dy, attn_output, gate, weight, eps=ctx.eps, group_size=ctx.group_size
+        )
 
-        return dx, dg, dw, None, None, None
+        return dx, dg, dw, None, None
 
 
 def group_rms_norm_gate(attn_output: torch.Tensor,
@@ -61,5 +54,6 @@ def group_rms_norm_gate(attn_output: torch.Tensor,
     Returns:
         output with shape [length, bs, dim]
     """
+    assert transpose
     return GroupRMSNormGateFunction.apply(attn_output, gate, weight, eps,
-                                          group_size, transpose)
+                                          group_size)

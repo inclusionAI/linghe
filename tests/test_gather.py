@@ -339,7 +339,7 @@ def test_make_id_map(M=4098, n_experts=32, topk=2, bias=0.0, ep=4, bench=False):
     
     assert torch.equal(row_id_map_torch, row_id_map)
     assert torch.equal(resort_row_id_map_torch, resort_row_id_map)
-    
+
 
 def test_triton_permute_with_mask_map(M=4096, N=4096, n_experts=256, topk=8,
                                       bench=False):
@@ -685,6 +685,11 @@ def test_batch_mxfp8_permute_with_indices(M=16384, N=2048, n_experts=32, topk=2,
         logits, topk=topk, bias=-0.01)
     token_count_per_expert_list = token_count_per_expert.tolist()
 
+    num_out_tokens = sum([(x + 31) // 32 * 32 for x in token_count_per_expert_list])
+    row_id_map, pad_indices = triton_make_row_id_map_and_index(
+        mask_map, num_out_tokens, multiple_of=32
+    )
+
     x = torch.randn((M, N), dtype=torch.bfloat16, device=device)
 
     x_q_ref, x_s_ref, xt_q_ref, xt_s_ref, p_ref = (
@@ -696,7 +701,7 @@ def test_batch_mxfp8_permute_with_indices(M=16384, N=2048, n_experts=32, topk=2,
     x_q, x_s, xt_q, xt_s, p = triton_batch_mxfp8_permute_with_indices(
         x,
         token_count_per_expert,
-        indices,
+        pad_indices,
         token_count_per_expert_list,
         probs=probs,
         dispatch_type="deepep",
@@ -778,4 +783,3 @@ if __name__ == '__main__':
                                           bench=False)
     test_batch_mxfp8_permute_with_indices(M=1024, N=1536, n_experts=32, topk=2,
                                           bench=False)
-
