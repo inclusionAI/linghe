@@ -11,9 +11,7 @@ echo "test_gate.py" && python test_gate.py &&
 echo "test_gather.py" && python test_gather.py  && 
 echo "test_group_quant.py" && python test_group_quant.py  && 
 echo "test_hadamard_quant.py" && python test_hadamard_quant.py  && 
-# echo "test_la.py" && python test_la.py && 
 echo "test_loss.py" && python test_loss.py && 
-# echo "test_mla.py" && python test_mla.py && 
 echo "test_mul.py" && python test_mul.py  && 
 echo "test_mxfp8_quant.py" && python test_mxfp8_quant.py  && 
 echo "test_norm.py" && python test_norm.py  && 
@@ -26,5 +24,9 @@ echo "test_smooth_quant.py" && python test_smooth_quant.py  &&
 echo "test_topk.py" && python test_topk.py  && 
 echo "test_transpose.py" && python test_transpose.py && 
 echo "test_unary.py" && python test_unary.py && 
+
+# echo "test_la.py" && python test_la.py && 
+# echo "test_mla.py" && python test_mla.py && 
+
 echo "success!"
 

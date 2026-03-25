@@ -21,7 +21,7 @@ def group_quant_kernel(
     offs = pid * N + tl.arange(0, K * BLOCK_SIZE)
     n = tl.cdiv(N, K * BLOCK_SIZE)
     soffs = pid * (N // BLOCK_SIZE) + tl.arange(0, K)
-    for i in tl.range(n, flatten=True):
+    for i in tl.range(n):
         x = tl.load(x_ptr + offs).to(tl.float32)
         x = tl.reshape(x, (K, BLOCK_SIZE), can_reorder=False)
         s = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)

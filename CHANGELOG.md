@@ -1,7 +1,19 @@
 # Changelog
 
 
-## linghe 0.3.5
+## linghe 0.3.7(26.03.25)
+
+- support native format for attention gate kernel
+- optimize infer kernels
+
+
+## linghe 0.3.6(26.03.24)
+
+- split dim for embedding backward
+- tune param for gemm
+
+
+## linghe 0.3.5(26.03.02)
 
 - fix parameter mismatching in parallel ce loss kernel
 - support tp in varlen rope
