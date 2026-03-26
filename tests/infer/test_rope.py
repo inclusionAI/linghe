@@ -151,7 +151,7 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048, 2048], H=32, h=4, dim=128,
     dtype = torch.bfloat16 if len(lengths) < 8 else torch.float32
     device = 'cuda:0'
     N = sum(lengths)
-    qkv = torch.ones(N, (H + 2 * h) * dim, dtype=dtype, device=device)
+    qkv = torch.randn(N, (H + 2 * h) * dim, dtype=dtype, device=device)
     
     position_ids = torch.cat([torch.arange(l, dtype=torch.int64, device=device) for l in lengths], 0)
 
@@ -159,8 +159,8 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048, 2048], H=32, h=4, dim=128,
     freqs = torch.cat([freq, freq], -1)
     cache = torch.cat([freq.cos(), freq.sin()], -1)
 
-    qw = torch.ones(dim, dtype=dtype, device=device)
-    kw = torch.ones(dim, dtype=dtype, device=device)
+    qw = torch.randn(dim, dtype=dtype, device=device)
+    kw = torch.randn(dim, dtype=dtype, device=device)
 
     qo_ref, ko_ref, vo_ref = torch_varlen_qk_norm_and_half_rope(qkv, qw, kw,
                                                                 freqs,
@@ -203,16 +203,35 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048, 2048], H=32, h=4, dim=128,
 if __name__ == '__main__':
     test_varlen_qk_norm_and_half_rope(lengths=[2048], H=32, h=8, dim=128,
                                       rope_theta=10000.0, silu=False,
-                                      interleaved=False, 
+                                      interleaved=False,
                                       bench=False)
     test_varlen_qk_norm_and_half_rope(lengths=[1024, 4096, 4096, 568], H=24,
                                       h=6, dim=128, rope_theta=10000.0,
                                       silu=False,
-                                      interleaved=False, 
+                                      interleaved=False,
                                       bench=False)
     test_varlen_qk_norm_and_half_rope(lengths=[16] * 512, H=32, h=4,
                                       dim=128, rope_theta=10000.0, silu=True,
-                                      interleaved=True, 
+                                      interleaved=True,
                                       bench=False,
                                       linear_scale=True, scaling=2.0)
-    
+    test_varlen_qk_norm_and_half_rope(lengths=[16] * 512, H=24, h=6,
+                                      dim=128, rope_theta=10000.0, silu=True,
+                                      interleaved=False,
+                                      bench=False,
+                                      linear_scale=True, scaling=2.0)
+    test_varlen_qk_norm_and_half_rope(lengths=[1] * 1, H=32, h=4,
+                                      dim=128, rope_theta=10000.0, silu=True,
+                                      interleaved=False,
+                                      bench=False,
+                                      linear_scale=True, scaling=2.0)
+    test_varlen_qk_norm_and_half_rope(lengths=[1] * 1, H=32, h=4,
+                                      dim=128, rope_theta=10000.0, silu=True,
+                                      interleaved=True,
+                                      bench=False,
+                                      linear_scale=True, scaling=2.0)
+    test_varlen_qk_norm_and_half_rope(lengths=[1] * 1, H=24, h=6,
+                                      dim=128, rope_theta=10000.0, silu=True,
+                                      interleaved=True,
+                                      bench=False,
+                                      linear_scale=True, scaling=2.0)

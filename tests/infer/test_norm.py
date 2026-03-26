@@ -1,6 +1,6 @@
 
 import torch
-from linghe.infer.norm import triton_rms_norm_and_block_quant, triton_residual_rms_norm_and_block_quant
+from linghe.infer.norm import triton_rms_norm_and_block_quant
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.tools.util import torch_group_quant
@@ -53,9 +53,9 @@ def test_rmsnorm_and_block_quant_infer(M=4096, N=4096, bench=False):
                                                                     residual,
                                                                     round_scale=False)
 
-    _, q, scale, ro = triton_residual_rms_norm_and_block_quant(x,
+    q, scale, ro = triton_rms_norm_and_block_quant(x,
                                                                   weight,
-                                                                  residual,
+                                                                  residual=residual,
                                                                   round_scale=False)
     output_check(q_ref, q, name="1.block.with_residual.data", rtol=0.125)
     output_check(scale_ref, scale, name='1.block.with_residual.scale')
@@ -66,7 +66,7 @@ def test_rmsnorm_and_block_quant_infer(M=4096, N=4096, bench=False):
         benchmark_func(triton_rms_norm_and_block_quant, x, weight,
                        round_scale=False,
                        ref_bytes=M * N * 3)
-        benchmark_func(triton_residual_rms_norm_and_block_quant, x, weight, residual,
+        benchmark_func(triton_rms_norm_and_block_quant, x, weight, residual=residual,
                 round_scale=False,
                 ref_bytes=M * N * 3)
 

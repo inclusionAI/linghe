@@ -8,7 +8,7 @@ import torch
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.add import triton_inplace_add
-from .add_ws import triton_inplace_add_warp_specialized
+from linghe.experimental.add_ws import triton_inplace_add_warp_specialized
 
 
 def torch_add(x, outputs, accum=True):

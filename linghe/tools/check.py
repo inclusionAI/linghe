@@ -80,6 +80,7 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
             # torch.testing.assert_close(opt_out, org_out, rtol=rtol, atol=atol)
             mistake_mask = diff >= (rtol * org_out.abs() + atol)
             if mistake_mask.float().sum().item() > 0:
+                mistake_indices = torch.where(mistake_mask)[0]
                 org_val = org_out[mistake_mask]
                 opt_val = opt_out[mistake_mask]
                 mismatch_count = org_val.numel()
@@ -87,6 +88,7 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
                 itv = max(mismatch_count // digest, 1)
                 org_val = org_val[::itv].tolist()
                 opt_val = opt_val[::itv].tolist()
+                mistake_indices = ', '.join([f'{x}' for x in mistake_indices[::itv].tolist()])
                 if org_dtype == torch.float64:
                     org_str = ', '.join([f'{x:.8g}' for x in org_val])
                     opt_str = ', '.join([f'{x:.8g}' for x in opt_val])
@@ -97,7 +99,8 @@ def output_check(org_out, opt_out, name='', rtol=None, atol=None, itol=0,
                     org_str = ', '.join([f'{x:.3g}' for x in org_val])
                     opt_str = ', '.join([f'{x:.3g}' for x in opt_val])
                 info = f"Mismatched elements: {mismatch_count} / {tot_cnt} ({mismatch_count / tot_cnt * 100:.1f}%) " \
-                       f"with {rtol} rtol and {atol} atol \n        org: {org_str} \n        opt: {opt_str} \n"
+                       f"with {rtol} rtol and {atol} atol \n        org: {org_str} \n        " \
+                        f"opt: {opt_str} \n        idx: {mistake_indices} \n"
                 assert mismatch_count == 0, info
         return rel_error
     else:

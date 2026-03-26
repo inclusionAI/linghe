@@ -19,12 +19,14 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
                                         h: tl.constexpr,
                                         PH: tl.constexpr,
                                         ph: tl.constexpr,
+                                        B: tl.constexpr,
                                         D: tl.constexpr,
                                         d: tl.constexpr,
                                         INTERLEAVED: tl.constexpr,
                                         SILU: tl.constexpr,
                                         SCALE: tl.constexpr):
     pid = tl.program_id(0)
+    hid = tl.program_id(1)
 
     pos = tl.load(position_ids + pid)
 
@@ -39,16 +41,27 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
     q_weight_0 = tl.load(q_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
     q_weight_1 = tl.load(q_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
     q_ptr = qkv_ptr
-    w = H // h
+    G: tl.constexpr = H // h
 
-    # [len, bs, q_head, head_dim] -> [bs, len, q_head, head_dim]
     if INTERLEAVED:
-        row_offs = tl.arange(0, PH) + tl.arange(0, PH) // w * 2
-        row_mask = row_offs[:, None] < (H + 2 * h)
+        if B == 1:
+            # query per token
+            row_offs = tl.arange(0, PH) + tl.arange(0, PH) // G * 2
+            row_mask = tl.arange(0, PH)[:, None] < H
+        else:
+            # query per kv head
+            row_offs = hid * (G + 2) + tl.arange(0, G)
+            row_mask = None
     else:
-        row_offs = tl.arange(0, PH)
-        row_mask = row_offs[:, None] < H
-    q_mask = tl.arange(0, PH)[:, None] < H
+        if B == 1:
+            # query per token
+            row_offs = tl.arange(0, PH)
+            row_mask = row_offs[:, None] < H
+        else:
+            # query per kv head
+            row_offs = hid * G + tl.arange(0, G)
+            row_mask = None
+
 
     q0 = tl.load(q_ptr
                  + pid * stride
@@ -72,14 +85,26 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
     if SCALE:
         q1 *= linear_scale_value
 
-    tl.store(
-        qo_ptr
-        + pid * H * DD
-        + D
-        + DD * tl.arange(0, PH)[:, None]
-        + tl.arange(0, D)[None, :],
-        q1,
-        mask=q_mask)
+    if B == 1:
+        q_mask = tl.arange(0, PH)[:, None] < H
+        tl.store(
+            qo_ptr
+            + pid * H * DD
+            + D
+            + DD * tl.arange(0, PH)[:, None]
+            + tl.arange(0, D)[None, :],
+            q1,
+            mask=q_mask)
+    else:
+        tl.store(
+            qo_ptr
+            + pid * H * DD
+            + D
+            + hid * G * DD 
+            + DD * tl.arange(0, G)[:, None]
+            + tl.arange(0, D)[None, :],
+            q1,
+            mask=None)
 
     q0 *= rms[:, None]
     q0 *= q_weight_0
@@ -87,33 +112,62 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
     if SCALE:
         q0 *= linear_scale_value
 
-    qr = tl.reshape(tl.permute(
-        tl.flip(tl.permute(tl.reshape(q0,
-                                      (PH, 2, d)),
-                           (0, 2, 1)),
-                dim=2) * signs,
-        (0, 2, 1)),
-        (PH, D))
-    q0 = q0 * cos + qr * sin
-    tl.store(
-        qo_ptr
-        + pid * H * DD
-        + DD * tl.arange(0, PH)[:, None]
-        + tl.arange(0, D)[None, :],
-        q0,
-        mask=q_mask)
+
+    if B == 1:
+        qr = tl.reshape(tl.permute(
+            tl.flip(tl.permute(tl.reshape(q0,
+                                        (PH, 2, d)),
+                            (0, 2, 1)),
+                    dim=2) * signs,
+            (0, 2, 1)),
+            (PH, D))
+        q0 = q0 * cos + qr * sin
+        tl.store(
+            qo_ptr
+            + pid * H * DD
+            + DD * tl.arange(0, PH)[:, None]
+            + tl.arange(0, D)[None, :],
+            q0,
+            mask=q_mask)
+    else:
+        qr = tl.reshape(tl.permute(
+            tl.flip(tl.permute(tl.reshape(q0,
+                                        (G, 2, d)),
+                            (0, 2, 1)),
+                    dim=2) * signs,
+            (0, 2, 1)),
+            (G, D))
+        q0 = q0 * cos + qr * sin
+        tl.store(
+            qo_ptr
+            + pid * H * DD
+            + hid * G * DD
+            + DD * tl.arange(0, G)[:, None]
+            + tl.arange(0, D)[None, :],
+            q0,
+            mask=None)
 
     k_weight_0 = tl.load(k_norm_weight_ptr + tl.arange(0, D)).to(tl.float32)
     k_weight_1 = tl.load(k_norm_weight_ptr + D + tl.arange(0, D)).to(tl.float32)
 
     if INTERLEAVED:
-        row_offs = tl.arange(0, ph) * (w + 2)
-        k_ptr = qkv_ptr + DD * w
-        row_mask = row_offs[:, None] < (h * (w + 2))
+        if B == 1:
+            k_ptr = qkv_ptr + DD * G
+            row_offs = tl.arange(0, ph) * (G + 2)
+            row_mask = row_offs[:, None] < (h * (G + 2))
+        else:
+            k_ptr = qkv_ptr + DD * G
+            row_offs = hid * (G + 2) + tl.arange(0, 1) * (G + 2)
+            row_mask = None
     else:
-        row_offs = tl.arange(0, ph)
-        k_ptr = qkv_ptr + DD * H
-        row_mask = tl.arange(0, ph)[:, None] < h
+        if B == 1:
+            row_offs = tl.arange(0, ph)
+            k_ptr = qkv_ptr + DD * H
+            row_mask = tl.arange(0, ph)[:, None] < h
+        else:
+            row_offs = hid + tl.arange(0, 1)
+            k_ptr = qkv_ptr + DD * H
+            row_mask = None
 
     k0 = tl.load(k_ptr
                  + pid * stride
@@ -133,41 +187,80 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
     rms = tl.rsqrt((tl.sum(k0 * k0, 1) + tl.sum(k1 * k1, 1)) / DD + eps)
     k1 *= rms[:, None]
     k1 *= k_weight_1
-    k_mask = tl.arange(0, ph)[:, None] < h
-    tl.store(ko_ptr
-             + pid * h * DD
-             + D
-             + DD * tl.arange(0, ph)[:, None]
-             + tl.arange(0, D)[None, :],
-             k1,
-             mask=k_mask)
+    
+    if B == 1:
+        k_mask = tl.arange(0, ph)[:, None] < h
+        tl.store(ko_ptr
+                + pid * h * DD
+                + D
+                + DD * tl.arange(0, ph)[:, None]
+                + tl.arange(0, D)[None, :],
+                k1,
+                mask=k_mask)
+    else:
+        tl.store(ko_ptr
+                + pid * h * DD
+                + D
+                + hid * DD
+                + DD * tl.arange(0, 1)[:, None]
+                + tl.arange(0, D)[None, :],
+                k1,
+                mask=None)
 
     k0 *= rms[:, None]
     k0 *= k_weight_0
-    kr = tl.reshape(tl.permute(
-        tl.flip(tl.permute(tl.reshape(k0,
-                                      (ph, 2, d)),
-                           (0, 2, 1)),
-                dim=2) * signs,
-        (0, 2, 1)),
-        (ph, D))
-    k0 = k0 * cos + kr * sin
-    tl.store(
-        ko_ptr
-        + pid * h * DD
-        + DD * tl.arange(0, ph)[:, None]
-        + tl.arange(0, D)[None, :],
-        k0,
-        mask=k_mask)
+    if B == 1:
+        kr = tl.reshape(tl.permute(
+            tl.flip(tl.permute(tl.reshape(k0,
+                                        (ph, 2, d)),
+                            (0, 2, 1)),
+                    dim=2) * signs,
+            (0, 2, 1)),
+            (ph, D))
+        k0 = k0 * cos + kr * sin
+        tl.store(
+            ko_ptr
+            + pid * h * DD
+            + DD * tl.arange(0, ph)[:, None]
+            + tl.arange(0, D)[None, :],
+            k0,
+            mask=k_mask)
+    else:
+        kr = tl.reshape(tl.permute(
+            tl.flip(tl.permute(tl.reshape(k0,
+                                        (1, 2, d)),
+                            (0, 2, 1)),
+                    dim=2) * signs,
+            (0, 2, 1)),
+            (1, D))
+        k0 = k0 * cos + kr * sin
+        tl.store(
+            ko_ptr
+            + pid * h * DD
+            + hid * DD
+            + DD * tl.arange(0, 1)[:, None]
+            + tl.arange(0, D)[None, :],
+            k0,
+            mask=None)
 
     if INTERLEAVED:
-        row_offs = tl.arange(0, ph) * (w + 2)
-        row_mask = row_offs[:, None] < (h * (w + 2))
-        v_ptr = qkv_ptr + DD * w + DD
+        if B == 1:
+            v_ptr = qkv_ptr + DD * G + DD
+            row_offs = hid * h * (G + 2) + tl.arange(0, ph) * (G + 2)
+            row_mask = row_offs[:, None] < (h * (G + 2))
+        else:
+            v_ptr = qkv_ptr + DD * G + DD
+            row_offs = hid * (G + 2) + tl.arange(0, 1) * (G + 2)
+            row_mask = None
     else:
-        row_offs = tl.arange(0, ph)
-        row_mask = tl.arange(0, ph)[:, None] < h
-        v_ptr = qkv_ptr + DD * H + DD * h
+        if B == 1:
+            v_ptr = qkv_ptr + DD * H + DD * h
+            row_offs = hid * h + tl.arange(0, ph)
+            row_mask = tl.arange(0, ph)[:, None] < h
+        else:
+            v_ptr = qkv_ptr + DD * H + DD * h
+            row_offs = hid + tl.arange(0, 1)
+            row_mask = None
 
     v0 = tl.load(v_ptr
                  + pid * stride
@@ -186,21 +279,40 @@ def varlen_qk_norm_and_half_rope_kernel(qkv_ptr,
         v1 = v1 * tl.sigmoid(v1)
 
     v_mask = tl.arange(0, ph)[:, None] < h
-    tl.store(
-        vo_ptr
-        + pid * h * DD
-        + DD * tl.arange(0, ph)[:, None]
-        + tl.arange(0, D)[None, :],
-        v0,
-        mask=v_mask)
-    tl.store(
-        vo_ptr
-        + pid * h * DD
-        + D
-        + DD * tl.arange(0, ph)[:, None]
-        + tl.arange(0, D)[None, :],
-        v1,
-        mask=v_mask)
+    if B == 1:
+        tl.store(
+            vo_ptr
+            + pid * h * DD
+            + DD * tl.arange(0, ph)[:, None]
+            + tl.arange(0, D)[None, :],
+            v0,
+            mask=v_mask)
+        tl.store(
+            vo_ptr
+            + pid * h * DD
+            + D
+            + DD * tl.arange(0, ph)[:, None]
+            + tl.arange(0, D)[None, :],
+            v1,
+            mask=v_mask)
+    else:
+        tl.store(
+            vo_ptr
+            + pid * h * DD
+            + hid * DD
+            + DD * tl.arange(0, 1)[:, None]
+            + tl.arange(0, D)[None, :],
+            v0,
+            mask=None)
+        tl.store(
+            vo_ptr
+            + pid * h * DD
+            + hid * DD
+            + D
+            + DD * tl.arange(0, 1)[:, None]
+            + tl.arange(0, D)[None, :],
+            v1,
+            mask=None)
 
 
 def triton_varlen_qk_norm_and_half_rope(qkv,
@@ -248,12 +360,17 @@ def triton_varlen_qk_norm_and_half_rope(qkv,
     ko = torch.empty((T, h, D), dtype=dtype, device=device)
     vo = torch.empty((T, h, D), dtype=dtype, device=device)
 
-    num_stages = 5
+    num_stages = 3
     num_warps = 2
-    grid = (T,)
 
     PH = triton.next_power_of_2(H)
     ph = triton.next_power_of_2(h)
+
+    if h >= 2 and T < 128:
+        B = h
+    else:
+        B = 1
+    grid = (T, B)
 
     varlen_qk_norm_and_half_rope_kernel[grid](
         qkv,
@@ -271,6 +388,7 @@ def triton_varlen_qk_norm_and_half_rope(qkv,
         h,
         PH,
         ph,
+        B,
         D // 2,
         D // 4,
         interleaved,
