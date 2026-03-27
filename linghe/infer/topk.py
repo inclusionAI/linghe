@@ -20,7 +20,7 @@ def group_topk_score_kernel(input_ptr,
                             K: tl.constexpr,
                             G: tl.constexpr,
                             GK: tl.constexpr,
-                            DIV: tl.constexpr,
+                            SHARE_EXPERTS: tl.constexpr,
                             ):
     pid = tl.program_id(axis=0)
     GS: tl.constexpr = N // G
@@ -28,11 +28,8 @@ def group_topk_score_kernel(input_ptr,
 
     logit = tl.load(input_ptr + pid * N + tl.arange(0, N))
     x = tl.sigmoid(logit)
-    if bias_ptr is not None:
-        b = tl.load(bias_ptr + tl.arange(0, N))
-        m = tl.reshape(x + b, (G, GS))
-    else:
-        m = tl.reshape(x, (G, GS))
+    b = tl.load(bias_ptr + tl.arange(0, N))
+    m = tl.reshape(x + b, (G, GS))
     o = tl.reshape(x, (G, GS))
 
     gt = tl.topk(m, k, dim=1)
@@ -51,11 +48,9 @@ def group_topk_score_kernel(input_ptr,
     binary_mask = tl.where(mask, 1, 0)
     acc = tl.cumsum(binary_mask, 0) - 1
 
-    if DIV:
+    if SHARE_EXPERTS == 1:
         tl.store(topk_weight_ptr + pid * (K + 1) + K, 1.0/scale)
-    else:
-        tl.store(topk_weight_ptr + pid * (K + 1) + K, 1.0)
-    tl.store(topk_ids_ptr + pid * (K + 1) + K, N)
+        tl.store(topk_ids_ptr + pid * (K + 1) + K, N)
 
     if tl.sum(binary_mask) > K:
         fillings = filling.to(tl.float64) + tl.arange(0, N).to(tl.float64) * 1e-12
@@ -66,28 +61,23 @@ def group_topk_score_kernel(input_ptr,
         mask = filling >= 0
         binary_mask = tl.where(mask, 1, 0)
         acc = tl.cumsum(binary_mask, 0) - 1
-        if DIV:
-            tl.store(topk_weight_ptr + pid * (K + 1) + acc, score, mask=mask)
-        else:
-            tl.store(topk_weight_ptr + pid * (K + 1) + acc, score * scale , mask=mask)
+
+    if SHARE_EXPERTS == 1:
+        tl.store(topk_weight_ptr + pid * (K + 1) + acc, score, mask=mask)
         tl.store(topk_ids_ptr + pid * (K + 1) + acc, tl.arange(0, N), mask=mask)
     else:
-        if DIV:
-            tl.store(topk_weight_ptr + pid * (K + 1) + acc, score, mask=mask)
-        else:
-            tl.store(topk_weight_ptr + pid * (K + 1) + acc, score * scale, mask=mask)
-        tl.store(topk_ids_ptr + pid * (K + 1) + acc, tl.arange(0, N), mask=mask)
+        tl.store(topk_weight_ptr + pid * K + acc, score * scale, mask=mask)
+        tl.store(topk_ids_ptr + pid * K + acc, tl.arange(0, N), mask=mask)
 
 
 def triton_group_topk_score(x: torch.Tensor,
                             k: int,
-                            expert_bias: Optional[torch.Tensor]=None,
+                            expert_bias: torch.Tensor,
                             num_groups=32,
                             group_topk=4,
                             scaling_factor=1.0,
                             score_function='sigmoid',
-                            num_shared_experts=1,
-                            div=True,
+                            num_shared_experts=0,
                             eps=1e-20):
     """
     calculate topk.
@@ -101,10 +91,11 @@ def triton_group_topk_score(x: torch.Tensor,
     """
     device = x.device
     M, N = x.shape
-    assert x.is_contiguous() and score_function == 'sigmoid' and num_shared_experts == 1
+    assert x.is_contiguous() and score_function == 'sigmoid'
+    assert num_shared_experts in (0, 1)
 
-    topk_weights = torch.empty((M, k + 1), device=device, dtype=torch.float32)
-    topk_ids = torch.empty((M, k + 1), device=device, dtype=torch.int32)
+    topk_weights = torch.empty((M, k + num_shared_experts), device=device, dtype=torch.float32)
+    topk_ids = torch.empty((M, k + num_shared_experts), device=device, dtype=torch.int32)
     grid = (M, )
     group_topk_score_kernel[grid](
         x,
@@ -117,7 +108,7 @@ def triton_group_topk_score(x: torch.Tensor,
         k,
         num_groups,
         group_topk,
-        div,
+        num_shared_experts,
         num_stages=2,
         num_warps=2)
     return topk_weights, topk_ids

@@ -19,7 +19,6 @@ def torch_silu_and_block_quant(x, weight=None, round_scale=True):
     return y_q, y_scale, yt_q, yt_scale
 
 
-
 def test_silu_and_block_quant(M=4096, N=4096, coef=1.0, weighted=False,
                               bench=False):
     device = 'cuda:0'
@@ -39,6 +38,13 @@ def test_silu_and_block_quant(M=4096, N=4096, coef=1.0, weighted=False,
     y_q, y_scale = triton_silu_and_block_quant(x,
                                                weight=weights,
                                                round_scale=round_scale)
+    output_check(y_q_ref, y_q, 'block.0.y_q', rtol=0.125)
+    output_check(y_scale_ref, y_scale, 'block.0.y_scale')
+
+    y_q, y_scale = triton_silu_and_block_quant(x,
+                                               weight=weights,
+                                               round_scale=round_scale,
+                                               transpose_scale=True)
     output_check(y_q_ref, y_q, 'block.0.y_q', rtol=0.125)
     output_check(y_scale_ref, y_scale, 'block.0.y_scale')
 

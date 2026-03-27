@@ -115,3 +115,99 @@ def triton_rms_norm_and_block_quant(
         num_warps=4)
 
     return out, scale[:, :M].t(), residual
+
+
+
+
+@triton.jit
+def rms_norm_and_token_quant_kernel(
+    x_ptr,
+    weight_ptr,
+    residual_ptr,
+    out_ptr,
+    scale_ptr,
+    eps,
+    n,
+    N: tl.constexpr,
+    ROUND: tl.constexpr
+):
+    pid = tl.program_id(axis=0)
+
+    weight = tl.load(weight_ptr + tl.arange(0, N)).to(tl.float32)
+    offs = pid * n + tl.arange(0, N)
+    mask = tl.arange(0, N) < n
+    x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+
+    if residual_ptr is not None:
+        r = tl.load(residual_ptr + offs, mask=mask).to(tl.float32)
+        x = x + r
+        tl.debug_barrier()
+        tl.store(residual_ptr + offs, x, mask=mask)
+
+    rms = tl.rsqrt(tl.sum(x * x, axis=0) / n + eps)
+    x = x * rms * weight
+    
+    scale = tl.max(tl.abs(x), 0) / 448.0
+    scale = tl.where(scale==0.0, 1.0, scale)
+    if ROUND:
+        scale = tl.exp2(tl.ceil(tl.log2(scale)))
+    tl.store(scale_ptr + pid, scale, mask=mask)
+
+    x = x / scale
+
+    tl.store(out_ptr + offs, x.to(out_ptr.dtype.element_ty), mask=mask)
+
+
+def triton_rms_norm_and_token_quant(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    residual: Optional[torch.Tensor] = None,
+    eps: float = 1e-6,
+    out: Optional[torch.Tensor] = None,
+    scale: Optional[torch.Tensor] = None,
+    round_scale: bool = False,
+):
+    """
+    Fused RMSNorm forward and block quantization.
+    Args:
+        x: Input tensor, shape [M, N]
+        weight: RMSNorm weight,  shape [N]
+        residual: Residual tensor, shape [M, N]
+        eps: epsilon value for L2 normalization.
+        out: output of quantization data
+        scale: output of quantization scale.
+        rms: output of rms
+        round_scale: Set whether to force power of 2 scales.
+    Returns:
+        - out: quantization data.
+        - scale: quantization scale.
+        - residual: residual tensor.
+    """
+    assert x.is_contiguous() and weight.is_contiguous() and (residual is None or residual.is_contiguous())
+    M, n = x.shape
+    N = triton.next_power_of_2(n)
+    device = x.device
+
+    if out is None:
+        out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
+
+    if scale is None:
+        scale = torch.zeros((M, 1), device=device, dtype=torch.float32)
+
+    grid = (M, )
+
+    rms_norm_and_token_quant_kernel[grid](
+        x,
+        weight,
+        residual,
+        out,
+        scale,
+        eps,
+        n,
+        N,
+        round_scale,
+        num_stages=3,
+        num_warps=2
+    )
+    
+    return out, scale, residual

@@ -110,18 +110,18 @@ def test_fp8_matmul(M=2048, N=1024, K=8192, bench=False):
 
 
 if __name__ == '__main__':
-    test_fp32_matmul(M=4096, N=256, K=8192, bench=True)
-    test_fp32_matmul(M=16384, N=256, K=2048, bench=True)
-    test_fp32_matmul(M=1235, N=256, K=8192, bench=True)
+    # test_fp32_matmul(M=4096, N=256, K=8192, bench=True)
+    # test_fp32_matmul(M=16384, N=256, K=2048, bench=True)
+    # test_fp32_matmul(M=1235, N=256, K=8192, bench=True)
 
-    test_fp32_matmul(M=2048, N=157184, K=2048, bench=True)
-    test_fp32_matmul(M=2048-32, N=157184, K=4096, bench=True)
-    test_fp32_matmul(M=2048-1, N=157184, K=8192, bench=True)
-    test_fp32_matmul(M=4, N=157184, K=8192, bench=True)
+    # test_fp32_matmul(M=2048, N=157184, K=2048, bench=True)
+    # test_fp32_matmul(M=2048-32, N=157184, K=4096, bench=True)
+    # test_fp32_matmul(M=2048-1, N=157184, K=8192, bench=True)
+    # test_fp32_matmul(M=4, N=157184, K=8192, bench=True)
 
-    test_fp32_matmul(M=128, N=256, K=8192, bench=True)
-    test_fp32_matmul(M=4, N=256, K=4096, bench=True)
-    test_fp32_matmul(M=0, N=256, K=8192, bench=True)
+    # test_fp32_matmul(M=128, N=256, K=8192, bench=True)
+    # test_fp32_matmul(M=4, N=256, K=4096, bench=True)
+    # test_fp32_matmul(M=0, N=256, K=8192, bench=True)
 
     test_fp8_matmul(M=4096, N=1024, K=4096, bench=True)
     test_fp8_matmul(M=4, N=1024, K=4096, bench=True)
