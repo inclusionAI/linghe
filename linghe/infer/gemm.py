@@ -281,33 +281,16 @@ def triton_split_tile_block_fp8_gemm(a: torch.Tensor,
     num_warps = 4
     num_stages = 3
 
-    # if BLOCK_SIZE_M == 16:
-    #     if N <= 16 * 128:
-    #         SPLIT_COUNT = min(K // BLOCK_SIZE_K, 4)
-    #         BLOCK_SIZE_N = 16
-    #     elif N <= 16 * 256:
-    #         BLOCK_SIZE_N = 16
-    #     else:
-    #         BLOCK_SIZE_N = 32
-    #     num_warps = 2
-    # elif M >= 256:
-    #     BLOCK_SIZE_N = 128
-    if BLOCK_SIZE_M == 16:
-        if N <= 32 * 128:
+    if BLOCK_SIZE_M <= 32:
+        if N <= 16 * 256:
             SPLIT_COUNT = min(K // BLOCK_SIZE_K, 4)
             BLOCK_SIZE_N = 16
+            num_warps = 2
         else:
-            SPLIT_COUNT = 1
-            BLOCK_SIZE_N = 32
-        num_warps = 2
-    elif BLOCK_SIZE_M == 32:
-        SPLIT_COUNT = 1
-        BLOCK_SIZE_N = 64
-        num_warps = 4
-    else:
-        SPLIT_COUNT = 1
+            BLOCK_SIZE_N = 16
+            num_warps = 2
+    elif M >= 1024 and N >= 4096:
         BLOCK_SIZE_N = 128
-        num_warps = 4
 
     grid = (SPLIT_COUNT,
             triton.cdiv(M, BLOCK_SIZE_M),

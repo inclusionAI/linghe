@@ -20,7 +20,8 @@ def torch_fp64_matmul(x, w):
 
 
 def torch_fp32_matmul(x, w):
-    return torch.nn.functional.linear(x.to(torch.float32), w.to(torch.float32))
+    return torch.nn.functional.linear(x.to(torch.float32),
+                                      w.to(torch.float32))
 
 
 def torch_group_gemm(xq,
@@ -33,7 +34,8 @@ def torch_group_gemm(xq,
                      c=None,
                      block_size_m=16,
                      padding_value=9,
-                     topk=9,
+                     topk=8,
+                     n_share_experts=1,
                      ):
     x = torch_group_dequant(xq, xs)
     weights = []
@@ -49,28 +51,32 @@ def torch_group_gemm(xq,
         weight = weights[eid]
         token_ids = tids[i]
         token_ids = token_ids[token_ids != padding_value]
-        a = x[token_ids // topk]
+        a = x[token_ids // (topk + n_share_experts)]
         y = a@weight.t()
         c[token_ids] = y.to(c.dtype)
     return c
 
 
 
-def test_fp8_group_gemm(M=4, N=512, K=4096, n_experts=257, topk=9, block_size_m=16, bench=False):
+def test_fp8_group_gemm(M=4, N=512, K=4096, n_experts=256,
+                        topk=8, n_share_experts=0, block_size_m=16,
+                        bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
 
-    x = torch.randn(M, K, dtype=dtype, device=device, requires_grad=True)
-    w = torch.randn(n_experts * N, K, dtype=dtype, device=device) * 0.1
+    nes = n_experts + n_share_experts
+    x = torch.randn(M, K, dtype=dtype, device=device)
+    w = torch.randn(nes * N, K, dtype=dtype, device=device) * 0.1
     A, A_scale = torch_group_quant(x)
     wq, ws = torch_block_quant(w)
-    B = wq.view(n_experts, N, K)
-    B_scale = ws.view(n_experts, N//128, K//128)
+    B = wq.view(nes, N, K)
+    B_scale = ws.view(nes, N//128, K//128)
 
-    padding_value = M * topk
+    padding_value = M * (topk + n_share_experts)
 
-    top_indices = (torch.rand(M, topk, dtype=dtype) * (n_experts - 1)).to(torch.int32)
-    top_indices[:, topk-1] = n_experts-1
+    top_indices = (torch.rand(M, topk + n_share_experts, dtype=dtype) * n_experts).to(torch.int32)
+    if n_share_experts == 1:
+        top_indices[:, topk] = n_experts
     top_indices = top_indices.view(-1)
     counts = torch.bincount(top_indices)
     top_indices = top_indices.tolist()
@@ -93,33 +99,33 @@ def test_fp8_group_gemm(M=4, N=512, K=4096, n_experts=257, topk=9, block_size_m=
     expert_ids = torch.tensor(expert_ids, device=device, dtype=torch.int32)
     y_ref = torch.zeros(padding_value, N, dtype=dtype, device=device)
     y_ref = torch_group_gemm(A,
-                     B,
-                     A_scale,
-                     B_scale,
-                     sorted_token_ids,
-                     expert_ids,
-                     num_tokens_post_padded,
-                     c=y_ref,
-                     block_size_m=block_size_m,
-                     padding_value=padding_value,
-                     topk=topk)
+                             B,
+                             A_scale,
+                             B_scale,
+                             sorted_token_ids,
+                             expert_ids,
+                             num_tokens_post_padded,
+                             c=y_ref,
+                             block_size_m=block_size_m,
+                             padding_value=padding_value,
+                             topk=topk,
+                             n_share_experts=n_share_experts)
     y = torch.zeros(padding_value, N, dtype=dtype, device=device)
     y = triton_fp8_grouped_gemm(A,
-                     B,
-                     A_scale,
-                    #  A_scale.t().contiguous().t(),
-                     B_scale,
-                     sorted_token_ids,
-                     expert_ids,
-                     num_tokens_post_padded,
-                     c=y,
-                     block_size_m=block_size_m,
-                     padding_value=padding_value,
-                     topk=topk
+                                B,
+                                A_scale,
+                                #  A_scale.t().contiguous().t(),
+                                B_scale,
+                                sorted_token_ids,
+                                expert_ids,
+                                num_tokens_post_padded,
+                                c=y,
+                                block_size_m=block_size_m,
+                                padding_value=padding_value,
+                                topk=topk+n_share_experts,
     )
 
     output_check(y_ref, y, name='y', atol=5e-2, rtol=2e-2)
-
 
     if bench:
         M = sorted_token_ids.size(0)
@@ -145,7 +151,11 @@ def test_fp8_group_gemm(M=4, N=512, K=4096, n_experts=257, topk=9, block_size_m=
 
 
 if __name__ == '__main__':
-    test_fp8_group_gemm(M=4, N=512, K=4096, n_experts=257, topk=9, block_size_m=16, bench=True)
-    test_fp8_group_gemm(M=4, N=512, K=4096, n_experts=257, topk=9, block_size_m=32, bench=True)
-    test_fp8_group_gemm(M=255, N=512, K=4096, n_experts=257, topk=9, block_size_m=32, bench=True)
+    test_fp8_group_gemm(M=4, N=512, K=4096, n_experts=256, n_share_experts=1, topk=8, block_size_m=16, bench=True)
+    test_fp8_group_gemm(M=4, N=512, K=4096, n_experts=256,  n_share_experts=0, topk=8, block_size_m=16, bench=True)
+    test_fp8_group_gemm(M=4, N=4096, K=256, n_experts=256, n_share_experts=1, topk=8, block_size_m=16, bench=True)
+    test_fp8_group_gemm(M=4, N=4096, K=256, n_experts=256,  n_share_experts=0, topk=8, block_size_m=16, bench=True)
+    test_fp8_group_gemm(M=255, N=512, K=4096, n_experts=256, n_share_experts=1, topk=8, block_size_m=32, bench=True)
+    test_fp8_group_gemm(M=255, N=512, K=4096, n_experts=256, n_share_experts=0, topk=8, block_size_m=32, bench=True)
+
 

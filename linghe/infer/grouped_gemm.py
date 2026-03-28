@@ -86,6 +86,7 @@ def triton_fp8_grouped_gemm(xq: torch.Tensor,
                           token_count: torch.Tensor,
                           c: Optional[torch.Tensor]=None,
                           block_size_m: int = 16,
+                          block_size_n: int = 128,
                           padding_value: int = 9,
                           topk: int = 9,
                           ):
@@ -106,19 +107,25 @@ def triton_fp8_grouped_gemm(xq: torch.Tensor,
 
     TRANSPOSE_A_SCALE = not xs.is_contiguous()
     xs_stride = xs.stride(1)
-    BLOCK_SIZE_K = 128  # support BLOCK_SIZE_K <= 128
+    BLOCK_SIZE_K = 128  # only support BLOCK_SIZE_K <= 128
+    num_warps = 4
+    num_stages = 5
 
     if block_size_m == 16:
-        BLOCK_SIZE_N = 32
-        num_warps = 4
-        num_stages = 5
-    else:
-        BLOCK_SIZE_N = 128
-        num_warps = 4
-        num_stages = 5
+        if M <= 16 * 64 and N <= 512:
+            block_size_n = 16
+            num_warps = 2
+            num_stages = 3
+        else:
+            block_size_n = 64
+            num_warps = 4
+            num_stages = 3
+    elif block_size_m == 32:
+        block_size_n = 64
+
 
     grid = (triton.cdiv(M, block_size_m),
-            triton.cdiv(N, BLOCK_SIZE_N)
+            triton.cdiv(N, block_size_n)
             )
     fp8_grouped_gemm_kernel[grid](xq, wq,
                                   xs, ws,
@@ -132,7 +139,7 @@ def triton_fp8_grouped_gemm(xq: torch.Tensor,
                                   M, N, K,
                                   BLOCK_SIZE_K,
                                   block_size_m,
-                                  BLOCK_SIZE_N,
+                                  block_size_n,
                                   TRANSPOSE_A_SCALE,
                                   num_warps=num_warps,
                                   num_stages=num_stages
