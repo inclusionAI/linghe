@@ -64,7 +64,7 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
                        n_profile=0)
 
 
-def test_fp8_matmul(M=2048, N=1024, K=8192, bench=False):
+def test_fp8_matmul(M=2048, N=1024, K=8192, transpose_scale=True, bench=False):
     dtype = torch.bfloat16
     device = 'cuda:0'
 
@@ -74,9 +74,10 @@ def test_fp8_matmul(M=2048, N=1024, K=8192, bench=False):
     # y_ref = torch_fp32_matmul(x, w.float())
 
     x_q, x_s = torch_group_quant(x)
-    p = (4 - M % 4) % 4
-    x_s = torch.cat([x_s, torch.zeros(p, K//128, device=device, dtype=torch.float32)], 0)
-    x_s = x_s.t().contiguous()[:,:M].t()
+    if transpose_scale:
+        p = (4 - M % 4) % 4
+        x_s = torch.cat([x_s, torch.zeros(p, K//128, device=device, dtype=torch.float32)], 0)
+        x_s = x_s.t().contiguous()[:,:M].t()
     w_q, w_s = torch_block_quant(w)
 
     x_dq = torch_group_dequant(x_q, x_s)
@@ -88,7 +89,7 @@ def test_fp8_matmul(M=2048, N=1024, K=8192, bench=False):
     output_check(y_ref.to(dtype), y, name='y', atol=atol, rtol=2e-2)
     
     y = triton_split_tile_block_fp8_gemm(x_q, w_q, x_s, w_s)
-    output_check(y_ref.to(dtype), y, name='y', atol=atol, rtol=2e-2)
+    output_check(y_ref.to(dtype), y, name='split', atol=atol, rtol=2e-2)
     
     if bench:
         ref_bytes = M * K + N * K + M * N * 2
@@ -110,18 +111,22 @@ def test_fp8_matmul(M=2048, N=1024, K=8192, bench=False):
 
 
 if __name__ == '__main__':
-    # test_fp32_matmul(M=4096, N=256, K=8192, bench=True)
-    # test_fp32_matmul(M=16384, N=256, K=2048, bench=True)
-    # test_fp32_matmul(M=1235, N=256, K=8192, bench=True)
+    test_fp32_matmul(M=4096, N=256, K=8192, bench=False)
+    test_fp32_matmul(M=16384, N=256, K=2048, bench=False)
+    test_fp32_matmul(M=1235, N=256, K=8192, bench=False)
 
-    # test_fp32_matmul(M=2048, N=157184, K=2048, bench=True)
-    # test_fp32_matmul(M=2048-32, N=157184, K=4096, bench=True)
-    # test_fp32_matmul(M=2048-1, N=157184, K=8192, bench=True)
-    # test_fp32_matmul(M=4, N=157184, K=8192, bench=True)
+    test_fp32_matmul(M=2048, N=157184, K=2048, bench=False)
+    test_fp32_matmul(M=2048-32, N=157184, K=4096, bench=False)
+    test_fp32_matmul(M=2048-1, N=157184, K=8192, bench=False)
+    test_fp32_matmul(M=4, N=157184, K=8192, bench=False)
 
-    # test_fp32_matmul(M=128, N=256, K=8192, bench=True)
-    # test_fp32_matmul(M=4, N=256, K=4096, bench=True)
-    # test_fp32_matmul(M=0, N=256, K=8192, bench=True)
+    test_fp32_matmul(M=128, N=256, K=8192, bench=False)
+    test_fp32_matmul(M=4, N=256, K=4096, bench=False)
+    test_fp32_matmul(M=0, N=256, K=8192, bench=False)
 
-    test_fp8_matmul(M=4096, N=1024, K=4096, bench=True)
-    test_fp8_matmul(M=4, N=1024, K=4096, bench=True)
+    test_fp8_matmul(M=4096, N=1024, K=4096, transpose_scale=True, bench=False)
+    test_fp8_matmul(M=1, N=1024, K=4096, transpose_scale=True, bench=False)
+    test_fp8_matmul(M=1, N=1024, K=4096, transpose_scale=False, bench=False)
+    test_fp8_matmul(M=1, N=4096, K=256, transpose_scale=True, bench=False)
+    test_fp8_matmul(M=35, N=4096, K=256, transpose_scale=True, bench=False)
+    test_fp8_matmul(M=87, N=1024, K=4096, transpose_scale=True, bench=False)

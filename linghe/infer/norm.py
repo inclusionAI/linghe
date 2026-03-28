@@ -192,7 +192,7 @@ def triton_rms_norm_and_token_quant(
         out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
 
     if scale is None:
-        scale = torch.zeros((M, 1), device=device, dtype=torch.float32)
+        scale = torch.empty((M, 1), device=device, dtype=torch.float32)
 
     grid = (M, )
 
