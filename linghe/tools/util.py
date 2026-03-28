@@ -63,6 +63,11 @@ def torch_group_quant(x, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     xq = xq[:, :K].contiguous()
     return xq, scale
 
+def torch_group_dequant(x_q, x_s, B=128):
+    m, n = x_s.shape
+    x_dq = x_q.float() * x_s.repeat_interleave(128, 1)
+    return x_dq
+
 
 def torch_blockwise_quant(x, round_scale=True, padding=False):
     m, N = x.shape
@@ -78,6 +83,12 @@ def torch_blockwise_quant(x, round_scale=True, padding=False):
     yt_q, yt_scale = torch_group_quant(x.t(), round_scale=round_scale)
 
     return y_q, y_scale.t().contiguous(), yt_q, yt_scale.t().contiguous()
+
+def torch_blockwise_dequant(w_q, w_s, B=128):
+    w_s = w_s.repeat_interleave(B, 1)
+    w_s = w_s.repeat_interleave(B, 0)
+    x_dq = w_q.float() * w_s
+    return x_dq
 
 
 def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):

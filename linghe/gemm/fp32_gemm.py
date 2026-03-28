@@ -581,5 +581,5 @@ def triton_tma_persistent_matmul(a, b):
         BLOCK_K,
         BLOCK_N,
         GROUP_SIZE_M,
-        SM=SM, )
+        SM=SM)
     return c

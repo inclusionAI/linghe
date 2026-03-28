@@ -202,7 +202,7 @@ if __name__ == '__main__':
     test_topk(M=4096, B=2, N=256, k=8, equal=True, bench=False)
     test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
                           scaling_factor=1.0, equal=False, bias=True,
-                          bench=False)
+                          bench=True)
     test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
                           scaling_factor=1.0, equal=False, bias=False,
                           bench=False)
