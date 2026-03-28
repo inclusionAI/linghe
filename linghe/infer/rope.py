@@ -397,3 +397,106 @@ def triton_varlen_qk_norm_and_half_rope(qkv,
         num_stages=num_stages,
         num_warps=num_warps)
     return qo, ko, vo
+
+
+
+
+@triton.jit
+def mla_rope_kernel(q_ptr,
+                            k_ptr,
+                            freqs_ptr,
+                            position_ids_ptr,
+                            q_stride,
+                            k_stride,
+                            H: tl.constexpr,
+                            D: tl.constexpr,
+                            d: tl.constexpr,
+                            ):
+    pid = tl.program_id(0)
+
+    pos = tl.load(position_ids_ptr + pid)
+
+    cos = tl.load(freqs_ptr + pos * D + tl.arange(0, D) % d).to(tl.float32)
+
+    sin = tl.load(freqs_ptr + pos * D + d + tl.arange(0, D) % d).to(tl.float32)
+
+    signs = tl.arange(0, 2).to(tl.float32) * 2 - 1
+
+    q = tl.load(q_ptr
+                 + pid * H * q_stride
+                 + q_stride * tl.arange(0, H)[:, None]
+                 + tl.arange(0, D)[None, :]).to(tl.float32)
+
+    qr = tl.reshape(tl.permute(
+        tl.flip(tl.permute(tl.reshape(q,
+                                    (H, 2, d)),
+                        (0, 2, 1)),
+                dim=2) * signs,
+        (0, 2, 1)),
+        (H, D))
+    q0 = q * cos + qr * sin
+    tl.store(
+        q_ptr
+        + pid * H * q_stride
+        + q_stride * tl.arange(0, H)[:, None]
+        + tl.arange(0, D)[None, :],
+        q0)
+    
+    k = tl.load(k_ptr
+                 + pid * k_stride
+                 + tl.arange(0, D)).to(tl.float32)
+
+    kr = tl.reshape(tl.permute(
+        tl.flip(tl.permute(tl.reshape(k,
+                                    (2, d)),
+                        (1, 0)),
+                dim=1) * signs,
+        (1, 0)),
+        (D, ))
+    k = k * cos + kr * sin
+    tl.store(
+        k_ptr
+        + pid * k_stride
+        + tl.arange(0, D),
+        k)
+
+
+def triton_mla_rope(q,
+                            k,
+                            freqs,
+                            position_ids):
+    """
+    apply MLA-type rope
+    Args:
+        q: query tensor, [t, n_heads, 64]
+        k: key tensor, [t, 1, 64]
+        freqs: rope freqs, [len, 64]
+        position_ids: position_ids for rope
+
+    Returns:
+
+    """
+
+    assert freqs.is_contiguous()
+
+    N, H, D = q.shape
+    q_stride = q.stride(1)
+    k_stride = k.stride(0)
+
+    num_stages = 2
+    num_warps = 2
+
+    grid = (N,)
+    mla_rope_kernel[grid](
+        q,
+        k,
+        freqs,
+        position_ids,
+        q_stride,
+        k_stride,
+        H,
+        D,
+        D//2,
+        num_stages=num_stages,
+        num_warps=num_warps)
+    return q, k

@@ -7,7 +7,7 @@ import torch
 
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
-from linghe.infer.rope import triton_varlen_qk_norm_and_half_rope
+from linghe.infer.rope import triton_varlen_qk_norm_and_half_rope, triton_mla_rope
 
 
 def rotate_half(x):
@@ -38,6 +38,16 @@ def rope_freqs(length, dim, rope_theta=10000.0):
     freqs = torch.outer(t, inv_freq)
     return freqs
 
+
+
+def torch_rope(q, k, freqs, position_ids):
+    dtype = q.dtype
+    B, L, H, D = q.shape
+    cos = freqs.cos()
+    sin = freqs.sin()
+    qr, kr = apply_rotary_pos_emb(q, k, cos, sin,
+                                  position_ids)
+    return qr.to(dtype), kr.to(dtype)
 
 def torch_half_rope(q, k, freqs, position_ids):
     dtype = q.dtype
@@ -200,6 +210,42 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048, 2048], H=32, h=4, dim=128,
         
 
 
+def test_varlen_mla_rope(lengths=[2048, 2048], H=8, h=1, dim=64,
+                                      rope_theta=10000.0, eps=1e-6,
+                                      bench=False):
+    # weight grad of torch impl has great error with large seq nums
+    dtype = torch.bfloat16 if len(lengths) < 8 else torch.float32
+    device = 'cuda:0'
+    N = sum(lengths)
+    q = torch.ones(N, H, dim, dtype=dtype, device=device)
+    k = torch.ones(N, 1, dim, dtype=dtype, device=device)
+
+    position_ids = torch.cat([torch.arange(l, dtype=torch.int64, device=device) for l in lengths], 0)
+
+    freq = rope_freqs(max(lengths), dim, rope_theta=rope_theta)
+    cache = torch.cat([freq.cos(), freq.sin()], -1)
+
+    freqs = torch.cat([freq, freq], -1)
+
+    qo_ref, ko_ref = torch_rope(q[None], k[None],
+                                        freqs,
+                                        position_ids[None],
+                                        )
+
+    qo, ko = triton_mla_rope(q, k, cache, position_ids)
+    output_check(qo_ref[0], qo, name='q', atol=-1)
+    output_check(ko_ref[0], ko, name='k', atol=-1)
+
+    if bench:
+        lbh = sum(lengths) * H
+        ref_bytes = lbh * 8
+        benchmark_func(triton_mla_rope, q, k,
+                       cache, position_ids,
+                       ref_bytes=ref_bytes,
+                       n_profile=0)
+        
+
+
 if __name__ == '__main__':
     test_varlen_qk_norm_and_half_rope(lengths=[2048], H=32, h=8, dim=128,
                                       rope_theta=10000.0, silu=False,
@@ -235,3 +281,4 @@ if __name__ == '__main__':
                                       interleaved=True,
                                       bench=False,
                                       linear_scale=True, scaling=2.0)
+     test_varlen_mla_rope(lengths=[2048, 2048], H=8, h=1, dim=64, bench=False)
