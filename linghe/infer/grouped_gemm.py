@@ -98,12 +98,13 @@ def triton_fp8_grouped_gemm(xq: torch.Tensor,
     assert xq.is_contiguous()
     assert wq.is_contiguous() and ws.is_contiguous()
 
-    if c is None:
-        c = torch.empty(M, N, dtype=torch.bfloat16, device=device)
-
-    M = token_ids.size(0)
+    M = expert_ids.numel()
     N, K = wq.shape[1:]
     device = xq.device
+    if c is None:
+        c = torch.empty(M, N, dtype=torch.bfloat16, device=device)
+    else:
+        assert c.is_contiguous()
 
     TRANSPOSE_A_SCALE = not xs.is_contiguous()
     xs_stride = xs.stride(1)

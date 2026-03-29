@@ -50,6 +50,7 @@ def triton_group_rms_norm_gate(x: torch.Tensor,
         output tensor, [tokens, dim]
     """
     # row-wise read, row-wise write
+    assert x.is_contiguous() and gate.is_contiguous() and weight.is_contiguous()
     tokens, dim = gate.shape
     assert (dim <= 8192
             and triton.next_power_of_2(dim) == dim
@@ -134,7 +135,7 @@ def triton_block_group_rms_norm_gate(x: torch.Tensor,
     Returns:
         output tensor, [tokens, dim]
     """
-    # row-wise read, row-wise write
+    assert x.is_contiguous() and gate.is_contiguous() and weight.is_contiguous()
     M, D = gate.shape
     assert (D <= 8192
             and triton.next_power_of_2(D) == D

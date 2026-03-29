@@ -83,6 +83,8 @@ def triton_rms_norm_and_block_quant(
         - residual: residual tensor.
     """
     assert x.is_contiguous() and weight.is_contiguous()
+    if residual is not None:
+        assert residual.is_contiguous()
     M, N = x.shape
     assert N <= 8192 and 8192 % N == 0 and N >= 2048
     device = x.device
@@ -183,7 +185,9 @@ def triton_rms_norm_and_token_quant(
         - scale: quantization scale.
         - residual: residual tensor.
     """
-    assert x.is_contiguous() and weight.is_contiguous() and (residual is None or residual.is_contiguous())
+    assert x.is_contiguous() and weight.is_contiguous()
+    if residual is not None:
+        assert residual.is_contiguous()
     M, n = x.shape
     N = triton.next_power_of_2(n)
     device = x.device

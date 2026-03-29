@@ -52,7 +52,7 @@ def silu_and_block_quant_kernel(
         + cid * K * 128
         + tl.arange(0, K)[:, None] * 128
         + tl.arange(0, 128)[None, :],
-        xq,
+        xq
         )
 
 
@@ -70,12 +70,24 @@ def triton_silu_and_block_quant(
         - out: quantized tensor
         - scale: quantization scale
     """
+    assert x.is_contiguous()
+    if weight is not None:
+        # print(f'{x.shape=} {weight.shape=} {weight.stride()=}')
+        assert weight.is_contiguous()
+
     M, N = x.shape
     n = N // 2
     assert n % 128 == 0
+
+    if weight is not None:
+        M = weight.numel()
+
     device = x.device
     if out is None:
         out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
+    else:
+        assert out.is_contiguous()
+
     if scale is None:
         if transpose_scale:
             scale = torch.empty((n // 128, (M + 3) // 4 * 4),
@@ -84,7 +96,9 @@ def triton_silu_and_block_quant(
         else:
             scale = torch.empty((M, n // 128), device=device,
                                 dtype=torch.float32)
-    
+    else:
+        assert scale.is_contiguous()
+
     B = n // 128
     if M >= 256:
         if B % 4 == 0:
@@ -157,7 +171,7 @@ def silu_and_token_quant_kernel(
 
 
 def triton_silu_and_token_quant(
-    x, out=None, scale=None, round_scale=False
+    x, weight=None, out=None, scale=None, round_scale=False
 ):
     """
     fused silu and tokenwise quantization
@@ -168,15 +182,25 @@ def triton_silu_and_token_quant(
         - out: quantized tensor
         - scale: quantization scale
     """
+
+    assert x.is_contiguous()
+    if weight is not None:
+        assert weight.is_contiguous()
+
+
     M, N = x.shape
     n = N // 2
     pn = triton.next_power_of_2(n)
     device = x.device
     if out is None:
         out = torch.empty((M, n), device=device, dtype=torch.float8_e4m3fn)
+    else:
+        assert out.is_contiguous()
+
     if scale is None:
         scale = torch.empty((M, 1), device=device, dtype=torch.float32)
-    
+    else:
+        assert scale.is_contiguous()
 
     grid = (M, )
     silu_and_token_quant_kernel[grid](
