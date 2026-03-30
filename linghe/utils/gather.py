@@ -58,6 +58,14 @@ def _chunk_sort_map_kernel(
         tl.store(row_id_map_ptr + curr_dst, curr_src, mask=row_mask)
         tl.store(row_id_map_inv_ptr + curr_src, curr_dst, mask=row_mask)
 
+    if r_idx == num_ranks - 1:
+        e_total_for_expert = offset_within_expert + count
+        e_padded_for_expert = ((e_total_for_expert + 31) // 32) * 32
+        pad_offsets = tl.arange(0, BLOCK_SIZE_ROW)
+        pad_mask = pad_offsets < (e_padded_for_expert - e_total_for_expert)
+        pad_dst = expert_base_offset + e_total_for_expert + pad_offsets
+        tl.store(row_id_map_ptr + pad_dst, tl.full([BLOCK_SIZE_ROW], 0, dtype=tl.int32), mask=pad_mask)
+
 def triton_make_chunk_sort_map(
     num_global_tokens_per_local_expert: torch.Tensor,
     token_per_expert_cpu
@@ -69,7 +77,9 @@ def triton_make_chunk_sort_map(
     total_padded_size = sum([(x+31) // 32 * 32 for x in token_per_expert_cpu])
     total_tokens = sum(token_per_expert_cpu)
 
-    row_id_map = torch.zeros((total_padded_size,), dtype=torch.int32, device=device)
+    # row_id_map = torch.zeros((total_padded_size,), dtype=torch.int32, device=device)
+    # row_id_map = torch.ones((total_padded_size,), dtype=torch.int32, device=device) * -1
+    row_id_map = torch.empty((total_padded_size,), dtype=torch.int32, device=device)
     row_id_map_inverse = torch.empty((total_tokens,), dtype=torch.int32, device=device)
 
     grid = (num_splits,)
