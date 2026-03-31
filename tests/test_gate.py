@@ -9,11 +9,14 @@ import torch.nn.functional as F
 from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.gate import (triton_group_rms_norm_gate_forward,
-                               triton_group_rms_norm_gate_backward)
+                               triton_group_rms_norm_gate_backward,
+                               triton_group_rms_norm_gate_and_mxfp8_quant_forward,
+                               triton_group_rms_norm_gate_and_mxfp8_quant_backward)
+from linghe.tools.util import torch_mxfp8_quant
 
 
 # @torch.compile
-def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4, native=True):
+def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4, native=True, high_precison=False):
     dtype = x.dtype
     if not native:
         x = torch.permute(x, [1,0,2])
@@ -35,12 +38,39 @@ def torch_group_rms_norm_gate_forward(x, gate, weight, eps=1e-6, group_size=4, n
     outputs = torch.stack(outputs, 2).view(bs, length, dim)
     outputs = outputs.transpose(0, 1)
     gate = F.sigmoid(gate)
-    outputs = (outputs * gate).to(dtype)
+    if high_precison:
+        outputs = (outputs * gate)
+    else:
+        outputs = (outputs * gate).to(dtype)
     return outputs
+
+def torch_group_rms_norm_gate_mxfp8_quant_forward(x, gate, weight, eps=1e-6, group_size=4, native=True):
+    out = torch_group_rms_norm_gate_forward(x, gate, weight, eps, group_size, native, high_precison=True)
+    out = out.reshape(-1, x.size(-1))
+    x_q_ref, x_scale_ref, xt_q_ref, xt_scale_ref = torch_mxfp8_quant(out) 
+    return x_q_ref, x_scale_ref, xt_q_ref, xt_scale_ref
+
+def torch_group_rms_norm_gate_mxfp8_quant_backward(grad_output, x, gate, weight, eps=1e-6, group_size=4, native=True):
+    dtype = grad_output.dtype
+    grad_output = grad_output.float()
+    x = x.float().clone().detach().requires_grad_()
+    gate = gate.float().clone().detach().requires_grad_()
+    weight = weight.float().clone().detach().requires_grad_()
+    y = torch_group_rms_norm_gate_forward(x, gate, weight, eps=eps,
+                                          group_size=group_size, native=native, high_precison=True)
+    y.backward(gradient=grad_output)
+
+    dx = x.grad.to(dtype)
+    dg = gate.grad
+    dw = weight.grad.to(dtype)
+    dg = dg.reshape(-1, gate.size(-1))
+    g_q, g_scale, gt_q, gt_scale = torch_mxfp8_quant(dg)
+
+    return dx, g_q, g_scale, gt_q, gt_scale, dw 
 
 
 def torch_group_rms_norm_gate_backward(
-    grad_output, x, gate, weight, eps=1e-6, group_size=4
+    grad_output, x, gate, weight, eps=1e-6, group_size=4, native=True
 ):
     dtype = grad_output.dtype
     grad_output = grad_output.float()
@@ -109,15 +139,79 @@ def test_group_rms_norm_gate(bs=1, length=4096, dim=4096, group_size=4,
 
         benchmark_func(triton_group_rms_norm_gate_backward, grad_output, x,
                        gate,
-                       weight, group_size=group_size, transpose=transpose,
+                       weight, group_size=group_size,
                        ref_bytes=bs * length * dim * 10)
+
+def test_group_rms_norm_gate_quant(bs=1, length=4096, dim=4096, group_size=4,
+                             contiguous=True, share=False, coef=1.0,
+                             grad_coef=1.0, native=True,
+                             bench=False):
+
+    dtype = torch.bfloat16
+    device = 'cuda:0'
+    if native:
+        x = torch.randn(bs, length, dim, dtype=dtype, requires_grad=True,
+                        device=device)
+    else:
+        x = torch.randn(length, bs, dim, dtype=dtype, requires_grad=True,
+                        device=device)
+    weight = torch.randn(dim // group_size if share else dim, dtype=dtype,
+                         requires_grad=True, device=device)
+    if contiguous:
+        gate = (torch.randn(length, bs, dim, dtype=dtype,
+                            device=device) * coef).requires_grad_()
+    else:
+        tmp = (torch.randn(length, bs, 3*dim, dtype=dtype,
+                            device=device) * coef)
+        split_sizes = [dim, dim, dim]
+        _, _, gate = torch.split(tmp, split_sizes, dim=-1)
+        gate = gate.requires_grad_()
+
+    grad_output = torch.randn(length, bs, dim, dtype=dtype,
+                            device=device) * grad_coef
+
+    x_q_ref, x_scale_ref, xt_q_ref, xt_scale_ref = torch_group_rms_norm_gate_mxfp8_quant_forward(x, gate, weight, group_size=group_size, native=native)
+    x_q, x_scale, xt_q, xt_scale = triton_group_rms_norm_gate_and_mxfp8_quant_forward(x, gate, weight, group_size=group_size)
+
+    output_check(x_q_ref, x_q, 'x_q')
+    output_check(x_scale_ref, x_scale, 'x_scale')
+    output_check(xt_q_ref, xt_q, 'xt_q')
+    output_check(xt_scale_ref, xt_scale, 'xt_scale')
+
+    dx_ref, g_q_ref, g_scale_ref, gt_q_ref, gt_scale_ref, dw_ref = torch_group_rms_norm_gate_mxfp8_quant_backward(grad_output, x, gate, weight, group_size=group_size, native=native)
+
+    dx, g_q, g_scale, gt_q, gt_scale, dw = (
+        triton_group_rms_norm_gate_and_mxfp8_quant_backward(
+            grad_output, x, gate, weight, group_size=group_size
+        )
+    )
+
+    output_check(dx_ref, dx, 'dx')
+    output_check(dw_ref, dw, 'dw')
+    output_check(g_q_ref, g_q, 'gq')
+    output_check(g_scale_ref, g_scale, 'x_scale')
+    output_check(gt_q_ref, gt_q, 'xt_q')
+    output_check(gt_scale_ref, gt_scale, 'xt_scale')
+
+    if bench:
+        benchmark_func(
+            triton_group_rms_norm_gate_and_mxfp8_quant_forward,
+            x, gate, weight, 1e-6, group_size,
+            n_repeat=100,
+        )
+        
+        benchmark_func(
+            triton_group_rms_norm_gate_and_mxfp8_quant_backward,
+            grad_output, x, gate, weight, 1e-6, group_size,
+            n_repeat=100
+        )       
 
 
 if __name__ == '__main__':
     test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
                              bench=False)
     test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
-                             bench=False)
+                             bench=True)
     test_group_rms_norm_gate(bs=2, length=4096, dim=2048, group_size=4,
                              share=True,
                              bench=False)
@@ -142,3 +236,18 @@ if __name__ == '__main__':
     test_group_rms_norm_gate(bs=2, length=4096, dim=1536, group_size=4,
                              contiguous=False, native=False,
                              bench=False)
+    test_group_rms_norm_gate_quant(bs=2, length=4096, dim=2048, group_size=4,
+                             contiguous=False, native=False,
+                             bench=False)
+    test_group_rms_norm_gate_quant(bs=2, length=4096, dim=2048, group_size=4,
+                             contiguous=False, native=True,
+                             bench=False)
+    test_group_rms_norm_gate_quant(bs=2, length=4096, dim=2048, group_size=4,
+                               share=False, contiguous=True, native=False,
+                               bench=True)
+    test_group_rms_norm_gate_quant(bs=2, length=4096, dim=2048, group_size=4,
+                               share=False, contiguous=False, native=False,
+                               bench=False)
+    test_group_rms_norm_gate_quant(bs=2, length=4096, dim=2048, group_size=4,
+                               share=False, contiguous=True, native=True,
+                               bench=False)
