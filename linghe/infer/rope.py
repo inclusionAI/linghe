@@ -399,8 +399,6 @@ def triton_varlen_qk_norm_and_half_rope(qkv,
     return qo, ko, vo
 
 
-
-
 @triton.jit
 def mla_rope_kernel(q_ptr,
                             k_ptr,
@@ -411,62 +409,120 @@ def mla_rope_kernel(q_ptr,
                             k_stride_0,
                             k_stride_1,
                             H: tl.constexpr,
+                            h: tl.constexpr,
+                            SINGLE: tl.constexpr,
                             D: tl.constexpr,
                             d: tl.constexpr,
+                            INTERLEAVE: tl.constexpr,
                             ):
     pid = tl.program_id(0)
+    hid = tl.program_id(1)
 
     pos = tl.load(position_ids_ptr + pid)
 
     cos = tl.load(freqs_ptr + pos * D + tl.arange(0, D) % d).to(tl.float32)
-
     sin = tl.load(freqs_ptr + pos * D + d + tl.arange(0, D) % d).to(tl.float32)
+    if INTERLEAVE:
+        cos = tl.reshape(tl.trans(tl.reshape(cos,
+                                        (2, d))),
+            (D, ))
+        sin = tl.reshape(tl.trans(tl.reshape(sin,
+                                        (2, d))),
+            (D, ))
 
     signs = tl.arange(0, 2).to(tl.float32) * 2 - 1
 
     q = tl.load(q_ptr
                  + pid * q_stride_0
-                 + q_stride_1 * tl.arange(0, H)[:, None]
+                 + hid * h * q_stride_1 
+                 + tl.arange(0, h)[:, None] * q_stride_1
                  + tl.arange(0, D)[None, :]).to(tl.float32)
 
-    qr = tl.reshape(tl.permute(
-        tl.flip(tl.permute(tl.reshape(q,
-                                    (H, 2, d)),
-                        (0, 2, 1)),
-                dim=2) * signs,
-        (0, 2, 1)),
-        (H, D))
-    q0 = q * cos + qr * sin
+    if INTERLEAVE:
+        qr = tl.reshape(
+            tl.flip(tl.reshape(q,
+                                        (h, d, 2)),
+                    dim=2) * signs,
+            (h, D))
+    else:
+        qr = tl.reshape(tl.permute(
+            tl.flip(tl.permute(tl.reshape(q,
+                                        (h, 2, d)),
+                            (0, 2, 1)),
+                    dim=2) * signs,
+            (0, 2, 1)),
+            (h, D))
+    q = q * cos + qr * sin
     tl.store(
         q_ptr
         + pid * q_stride_0
-        + q_stride_1 * tl.arange(0, H)[:, None]
+        + hid * h * q_stride_1
+        + tl.arange(0, h)[:, None] * q_stride_1
         + tl.arange(0, D)[None, :],
-        q0)
+        q)
     
-    k = tl.load(k_ptr
-                 + pid * k_stride_0
-                 + tl.arange(0, D)).to(tl.float32)
+    if SINGLE:
+        if hid == 0:
+            k = tl.load(k_ptr
+                        + pid * k_stride_0
+                        + tl.arange(0, D)).to(tl.float32)
 
-    kr = tl.reshape(tl.permute(
-        tl.flip(tl.permute(tl.reshape(k,
-                                    (2, d)),
-                        (1, 0)),
-                dim=1) * signs,
-        (1, 0)),
-        (D, ))
-    k = k * cos + kr * sin
-    tl.store(
-        k_ptr
-        + pid * k_stride_0
-        + tl.arange(0, D),
-        k)
+            if INTERLEAVE:
+                kr = tl.reshape(tl.flip(tl.reshape(k,
+                                                (d, 2)),
+                            dim=1) * signs,
+                    (D, ))
+            else:
+                kr = tl.reshape(tl.permute(
+                    tl.flip(tl.permute(tl.reshape(k,
+                                                (2, d)),
+                                    (1, 0)),
+                            dim=1) * signs,
+                    (1, 0)),
+                    (D, ))
+            k = k * cos + kr * sin
+            tl.store(
+                k_ptr
+                + pid * k_stride_0
+                + tl.arange(0, D),
+                k)
+    else:
+
+        k = tl.load(k_ptr
+                    + pid * k_stride_0
+                    + hid * h * k_stride_1 
+                    + tl.arange(0, h)[:, None] * k_stride_1
+                    + tl.arange(0, D)[None, :]).to(tl.float32)
+
+        if INTERLEAVE:
+            kr = tl.reshape(
+                tl.flip(tl.reshape(k,
+                                            (h, d, 2)),
+                        dim=2) * signs,
+                (h, D))
+        else:
+            kr = tl.reshape(tl.permute(
+                tl.flip(tl.permute(tl.reshape(k,
+                                            (h, 2, d)),
+                                (0, 2, 1)),
+                        dim=2) * signs,
+                (0, 2, 1)),
+                (h, D))
+        k = k * cos + kr * sin
+        tl.store(
+            k_ptr
+            + pid * k_stride_0
+            + hid * h * k_stride_1
+            + tl.arange(0, h)[:, None] * k_stride_1
+            + tl.arange(0, D)[None, :],
+            k)
 
 
 def triton_mla_rope(q,
                             k,
                             freqs,
-                            position_ids):
+                            position_ids,
+                            interleave=True):
     """
     apply MLA-type rope
     Args:
@@ -474,7 +530,7 @@ def triton_mla_rope(q,
         k: key tensor, [t, 1, 64]
         freqs: rope freqs, [len, 64]
         position_ids: position_ids for rope
-
+        interleave: whether q/k is interleaved
     Returns:
 
     """
@@ -482,6 +538,9 @@ def triton_mla_rope(q,
     assert freqs.is_contiguous()
 
     N, H, D = q.shape
+    hk = k.shape[1]
+    assert hk == H or hk == 1
+    SINGLE = k.shape[1] == 1
     q_stride_0 = q.stride(0)
     q_stride_1 = q.stride(1)
     k_stride_0 = k.stride(0)
@@ -489,8 +548,14 @@ def triton_mla_rope(q,
 
     num_stages = 3
     num_warps = 4
+    if N <= 64 and H % 4 == 0:
+        B = 4
+        h = H // B
+    else:
+        B = 1
+        h = H
 
-    grid = (N,)
+    grid = (N, B)
     mla_rope_kernel[grid](
         q,
         k,
@@ -501,8 +566,11 @@ def triton_mla_rope(q,
         k_stride_0,
         k_stride_1,
         H,
+        h,
+        SINGLE,
         D,
         D//2,
+        interleave,
         num_stages=num_stages,
         num_warps=num_warps)
     return q, k

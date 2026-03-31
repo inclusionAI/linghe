@@ -70,6 +70,7 @@ def triton_split_fp32_gemm(x: torch.Tensor, w: torch.Tensor):
 
     MP = triton.next_power_of_2(M)
     BLOCK_SIZE_M = max(min(MP, 64), 16)
+    BLOCK_SIZE_K = 128
 
     if BLOCK_SIZE_M == 16:
         if N <= 32 * 128:
@@ -86,7 +87,7 @@ def triton_split_fp32_gemm(x: torch.Tensor, w: torch.Tensor):
         BLOCK_SIZE_N = 64
 
     assert N % BLOCK_SIZE_N == 0
-    BLOCK_SIZE_K = 128
+    assert K % (BLOCK_SIZE_K * SPLIT_COUNT) == 0
     
     if SPLIT_COUNT == 1:
         c = torch.empty(M, N, dtype=torch.float32, device=x.device)
@@ -163,6 +164,7 @@ def triton_tile_block_fp8_gemm(a: torch.Tensor,
                        b_s: torch.Tensor, 
                        out_dtype=torch.bfloat16):
     assert a.is_contiguous() and b.is_contiguous()
+    assert b_s.is_contiguous()
     
     K = a.size(-1)
     M = a.numel() // K
@@ -265,12 +267,14 @@ def triton_split_tile_block_fp8_gemm(a: torch.Tensor,
                        a_s: torch.Tensor,
                        b_s: torch.Tensor, 
                        out_dtype=torch.bfloat16):
-    assert a.is_contiguous() and b.is_contiguous() and b_s.is_contiguous()
+    assert a.is_contiguous() and b.is_contiguous()
+    assert b_s.is_contiguous()
     
     K = a.size(-1)
     M = a.numel() // K
     N = b.size(0)
     stride_a_scale = a_s.stride(1)
+    # print(f'{a.shape=} {a.stride()=} {b.shape=} {b.stride()=} {a_s.shape=} {a_s.stride()=} {b_s.shape=} {b_s.stride()=}')
     TRANSPOSE_A_SCALE = not a_s.is_contiguous()
 
     MP = triton.next_power_of_2(M)

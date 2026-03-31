@@ -17,7 +17,7 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids, interleave=False):
     if cos.ndim == 2:
         cos = cos[position_ids][:, :, None]
         sin = sin[position_ids][:, :, None]
@@ -26,8 +26,15 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
         sin = sin[:, 0, 0][position_ids][:, :, None]
     else:
         raise ValueError('unsupported ndim=3')
+    if interleave:
+        q = torch.cat([q[...,::2],q[...,1::2]], -1)
+        k = torch.cat([k[...,::2],k[...,1::2]], -1)
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
+    d = q.size(-1)//2
+    if interleave:
+        q_embed = torch.stack([q_embed[...,:d],q_embed[...,d:]],-1).flatten(-2)
+        k_embed = torch.stack([k_embed[...,:d],k_embed[...,d:]],-1).flatten(-2)
     return q_embed, k_embed
 
 
@@ -40,13 +47,14 @@ def rope_freqs(length, dim, rope_theta=10000.0):
 
 
 
-def torch_rope(q, k, freqs, position_ids):
+def torch_rope(q, k, freqs, position_ids, interleave=False):
     dtype = q.dtype
     B, L, H, D = q.shape
     cos = freqs.cos()
     sin = freqs.sin()
     qr, kr = apply_rotary_pos_emb(q, k, cos, sin,
-                                  position_ids)
+                                  position_ids,
+                                  interleave=interleave)
     return qr.to(dtype), kr.to(dtype)
 
 def torch_half_rope(q, k, freqs, position_ids):
@@ -211,18 +219,20 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048, 2048], H=32, h=4, dim=128,
 
 
 def test_varlen_mla_rope(lengths=[2048, 2048], H=8, h=1, dim=64,
-                                      rope_theta=10000.0, eps=1e-6,
-                                      bench=False):
+                         rope_theta=10000.0, eps=1e-6,
+                         interleave=False,
+                         bench=False):
     # weight grad of torch impl has great error with large seq nums
     dtype = torch.bfloat16 if len(lengths) < 8 else torch.float32
     device = 'cuda:0'
     N = sum(lengths)
-    q = torch.ones(N, H, dim, dtype=dtype, device=device)
-    k = torch.ones(N, 1, dim, dtype=dtype, device=device)
+    q = torch.randn(N, H+16, dim, dtype=dtype, device=device)[:,:H]
+    k = torch.randn(N, h+1, dim, dtype=dtype, device=device)[:, :h]
 
-    position_ids = torch.cat([torch.arange(l, dtype=torch.int64, device=device) for l in lengths], 0)
+    si = 8
+    position_ids = torch.cat([torch.arange(l, dtype=torch.int64, device=device) for l in lengths], 0) + si
 
-    freq = rope_freqs(max(lengths), dim, rope_theta=rope_theta)
+    freq = rope_freqs(max(lengths)+si, dim, rope_theta=rope_theta)
     cache = torch.cat([freq.cos(), freq.sin()], -1)
 
     freqs = torch.cat([freq, freq], -1)
@@ -230,20 +240,20 @@ def test_varlen_mla_rope(lengths=[2048, 2048], H=8, h=1, dim=64,
     qo_ref, ko_ref = torch_rope(q[None], k[None],
                                         freqs,
                                         position_ids[None],
+                                        interleave=interleave,
                                         )
 
-    qo, ko = triton_mla_rope(q, k, cache, position_ids)
-    output_check(qo_ref[0], qo, name='q', atol=-1)
-    output_check(ko_ref[0], ko, name='k', atol=-1)
+    qo, ko = triton_mla_rope(q, k, cache, position_ids,interleave=interleave)
+    output_check(qo_ref[0], qo, name='q')
+    output_check(ko_ref[0], ko, name='k')
 
     if bench:
-        lbh = sum(lengths) * H
-        ref_bytes = lbh * 8
+        ref_bytes = sum(lengths) * (H + 1 + 1) * dim * 4
         benchmark_func(triton_mla_rope, q, k,
-                       cache, position_ids,
+                       cache, position_ids, interleave=interleave,
                        ref_bytes=ref_bytes,
-                       n_profile=0)
-        
+                       n_profile=10)
+
 
 
 if __name__ == '__main__':
@@ -281,4 +291,6 @@ if __name__ == '__main__':
                                       interleaved=True,
                                       bench=False,
                                       linear_scale=True, scaling=2.0)
-     test_varlen_mla_rope(lengths=[2048, 2048], H=8, h=1, dim=64, bench=False)
+     test_varlen_mla_rope(lengths=[2048, 2048], H=8, h=1, dim=64, interleave=False, bench=True)
+     test_varlen_mla_rope(lengths=[1, 3], H=8, h=1, dim=64, interleave=True, bench=True)
+     test_varlen_mla_rope(lengths=[1, 3], H=8, h=8, dim=64, interleave=True, bench=True)

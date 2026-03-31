@@ -111,5 +111,5 @@ if __name__ == '__main__':
                              bench=True)
     test_block_group_rms_norm_gate(length=4096, dim=2048, group_size=4,
                              bench=False)
-    test_block_group_rms_norm_gate(length=3431, dim=2048, group_size=4,
+    test_block_group_rms_norm_gate(length=3431, dim=2048, group_size=1,
                              bench=False)
