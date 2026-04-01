@@ -41,40 +41,28 @@ def group_limited_topk(
     return probs, top_indices
 
 
-def torch_group_topk_score(logits, expert_bias=None, num_experts=256, topk=8,
+def torch_group_topk_score(logits, expert_bias, num_experts=256, topk=8,
                            num_groups=32, group_topk=4, num_shared_experts=1,
                            scaling_factor=1.0,
                            eps=1e-20):
     num_tokens, num_experts = logits.shape
     device = logits.device
-    scores = torch.sigmoid(logits).to(torch.float64)
-    if expert_bias is not None:
-        expert_bias = expert_bias.to(torch.float64)
-        scores_for_routing = scores + expert_bias - torch.arange(0, num_experts,
-                                                                 device=device).to(
-            torch.float64) * 1e-12
-        _, top_indices = group_limited_topk(scores_for_routing, topk,
-                                            num_tokens, num_experts, num_groups,
-                                            group_topk)
-        # should output the score before biased
-        top_scores = torch.gather(scores, dim=1, index=top_indices)
-    else:
-        scores = scores - torch.arange(0, num_experts, device=device).to(
-            torch.float64) * 1e-12
-        top_scores, top_indices = group_limited_topk(scores, topk, num_tokens,
-                                                 num_experts, num_groups,
-                                                 group_topk)
+    scores = torch.sigmoid(logits.to(torch.float64))
+    expert_bias = expert_bias.to(torch.float64)
+    scores_for_routing = scores + expert_bias - torch.arange(0, num_experts,
+                                                                device=device).to(
+        torch.float64) * 1e-12
+    _, top_indices = group_limited_topk(scores_for_routing, topk,
+                                        num_tokens, num_experts, num_groups,
+                                        group_topk)
+    # should output the score before biased
+    top_scores = torch.gather(scores, dim=1, index=top_indices)
 
     top_scores = top_scores / (
-                top_scores.sum(dim=-1, keepdim=True) + eps) if topk > 1 else top_scores
-
-
-    sort_index = torch.argsort(top_indices, -1)
-    top_indices = top_indices.gather(-1, sort_index)
-    top_scores = top_scores.gather(-1, sort_index)
+                top_scores.sum(dim=-1, keepdim=True) + eps) 
 
     if num_shared_experts == 1:
-        top_scores = torch.cat([top_scores, torch.ones((num_tokens, 1), device=device, dtype=torch.float32)/scaling_factor], 1)
+        top_scores = torch.cat([top_scores, torch.ones((num_tokens, 1), device=device, dtype=torch.float64)/scaling_factor], 1)
         top_indices = torch.cat([top_indices, num_experts*torch.ones((num_tokens, 1), device=device, dtype=top_indices.dtype)], 1)
 
     return top_scores.to(torch.float32), top_indices.to(torch.int32)
@@ -93,14 +81,16 @@ def test_group_topk_score(M=4096, N=256, k=8, num_groups=32, group_topk=4, num_s
         x[:] = 1.0
 
     score_ref, indices_ref = torch_group_topk_score(x,
-                                                    expert_bias=expert_bias,
-                                                    num_experts=N, topk=k,
+                                                    expert_bias,
+                                                    num_experts=N,
+                                                    topk=k,
                                                     num_groups=num_groups,
                                                     group_topk=group_topk,
                                                     scaling_factor=scaling_factor,
                                                     num_shared_experts=num_shared_experts)
 
-    score, indices = triton_group_topk_score(x, k,
+    score, indices = triton_group_topk_score(x, 
+                                             k,
                                              expert_bias,
                                              num_groups=num_groups,
                                              group_topk=group_topk,
@@ -110,33 +100,40 @@ def test_group_topk_score(M=4096, N=256, k=8, num_groups=32, group_topk=4, num_s
     indices_ref = indices_ref.gather(-1, ref_sort_indices)
     score_ref = score_ref.gather(-1, ref_sort_indices)
     sort_indices = torch.argsort(indices)
-    indices = indices_ref.gather(-1, sort_indices)
-    score = score_ref.gather(-1, sort_indices)
+    indices = indices.gather(-1, sort_indices)
+    score = score.gather(-1, sort_indices)
+    if (indices_ref-indices).abs().sum().item() > 0:
+        diff =  (indices_ref-indices).abs().sum(-1)
+        row = diff.argmax().item()
+        ref_idx = indices_ref[row,:k]
+        idx = indices[row,:k]
+        print(f'ref {x[row][ref_idx].sort(descending=True)}')
+        print(f'ours {x[row][idx].sort(descending=True)}')
     output_check(score_ref, score, 'score', atol=-1)  # may have mismatched results
     output_check(indices_ref, indices, 'indices', atol=-1)
+
 
     if bench:
         ref_time = benchmark_func(torch_group_topk_score, x,
                                   expert_bias, num_experts=N, topk=k,
                                   num_groups=num_groups, group_topk=group_topk,
-                                  scaling_factor=scaling_factor)
+                                  scaling_factor=scaling_factor,
+                                  num_shared_experts=num_shared_experts)
         benchmark_func(triton_group_topk_score, x, k,
                        expert_bias=expert_bias, num_groups=num_groups,
                        group_topk=group_topk, scaling_factor=scaling_factor,
+                       num_shared_experts=num_shared_experts,
                        ref_time=ref_time,
                        n_profile=10)
 
 
 if __name__ == '__main__':
-    test_group_topk_score(M=4, N=256, k=8, num_groups=32, group_topk=4,
-                          scaling_factor=2.5, equal=False, num_shared_experts=1,
-                          bench=True)
     test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
                           scaling_factor=2.5, equal=False, num_shared_experts=1,
-                          bench=True)
-    test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
-                          scaling_factor=2.5, equal=False, num_shared_experts=0,
-                          bench=True)
-    test_group_topk_score(M=4, N=256, k=8, num_groups=32, group_topk=4,
-                          scaling_factor=2.5, equal=True, 
                           bench=False)
+    # test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
+    #                       scaling_factor=2.5, equal=False, num_shared_experts=0,
+    #                       bench=False)
+    # test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
+    #                       scaling_factor=2.5, equal=True, 
+    #                       bench=False)

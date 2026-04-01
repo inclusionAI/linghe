@@ -1,6 +1,16 @@
 # Changelog
 
 
+## linghe 0.3.9(26.03.29)
+
+- optimize infer kernels
+
+
+## linghe 0.3.8(26.03.27)
+
+- optimize infer kernels
+
+
 ## linghe 0.3.7(26.03.25)
 
 - support native format for attention gate kernel

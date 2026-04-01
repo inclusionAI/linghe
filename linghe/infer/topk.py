@@ -53,7 +53,7 @@ def group_topk_score_kernel(input_ptr,
         tl.store(topk_ids_ptr + pid * (K + 1) + K, N)
 
     if tl.sum(binary_mask) > K:
-        fillings = filling.to(tl.float64) + tl.arange(0, N).to(tl.float64) * 1e-12
+        fillings = filling.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
         ts = tl.min(tl.topk(fillings, K, dim=0))
         filling = tl.where(fillings >= ts, filling, -1.0)
 
@@ -66,7 +66,7 @@ def group_topk_score_kernel(input_ptr,
         tl.store(topk_weight_ptr + pid * (K + 1) + acc, score, mask=mask)
         tl.store(topk_ids_ptr + pid * (K + 1) + acc, tl.arange(0, N), mask=mask)
     else:
-        tl.store(topk_weight_ptr + pid * K + acc, score * scale, mask=mask)
+        tl.store(topk_weight_ptr + pid * K + acc, score, mask=mask)
         tl.store(topk_ids_ptr + pid * K + acc, tl.arange(0, N), mask=mask)
 
 
@@ -94,8 +94,8 @@ def triton_group_topk_score(x: torch.Tensor,
     assert x.is_contiguous() and score_function == 'sigmoid'
     assert num_shared_experts in (0, 1)
 
-    topk_weights = torch.empty((M, k + num_shared_experts), device=device, dtype=torch.float32)
-    topk_ids = torch.empty((M, k + num_shared_experts), device=device, dtype=torch.int32)
+    topk_weights = torch.ones((M, k + num_shared_experts), device=device, dtype=torch.float32)
+    topk_ids = torch.ones((M, k + num_shared_experts), device=device, dtype=torch.int32)
     grid = (M, )
     group_topk_score_kernel[grid](
         x,
