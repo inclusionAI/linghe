@@ -1,6 +1,12 @@
 # Changelog
 
 
+
+## linghe 0.4.0(26.04.02)
+
+- optimize infer kernels
+
+
 ## linghe 0.3.9(26.03.29)
 
 - optimize infer kernels

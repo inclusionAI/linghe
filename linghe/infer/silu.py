@@ -30,9 +30,9 @@ def silu_and_block_quant_kernel(
 
     x1 = tl.load(x_ptr + offs).to(tl.float32)
     x2 = tl.load(x_ptr + n + offs).to(tl.float32)
-    x = x1 * tl.sigmoid(x1) * x2
+    x = x1 * tl.sigmoid(x1) * x2 * routing_scale
     if weight_ptr is not None: 
-        weight = tl.load(weight_ptr + rid).to(tl.float32) * routing_scale
+        weight = tl.load(weight_ptr + rid).to(tl.float32)
         x = x * weight
 
     scale = tl.maximum(tl.max(x.abs(), 1) / 448, 1e-30)
@@ -99,6 +99,7 @@ def triton_silu_and_block_quant(
     else:
         assert scale.is_contiguous()
 
+    num_warps = 4
     B = n // 128
     if M >= 256:
         if B % 4 == 0:
@@ -108,6 +109,8 @@ def triton_silu_and_block_quant(
     elif M >= 64:
         if B % 2 == 0:
             B = B // 2
+    else:
+        num_warps = 2
 
     K = n // B // 128
     grid = (M, B)
@@ -122,8 +125,8 @@ def triton_silu_and_block_quant(
             K,
             round_scale,
             transpose_scale,
-            num_stages=2,
-            num_warps=4)
+            num_stages=3,
+            num_warps=num_warps)
 
     if transpose_scale:
         scale = scale[:,:M].t()
