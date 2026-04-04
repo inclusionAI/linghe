@@ -131,9 +131,9 @@ if __name__ == '__main__':
     test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
                           scaling_factor=2.5, equal=False, num_shared_experts=1,
                           bench=False)
-    # test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
-    #                       scaling_factor=2.5, equal=False, num_shared_experts=0,
-    #                       bench=False)
-    # test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
-    #                       scaling_factor=2.5, equal=True, 
-    #                       bench=False)
+    test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
+                          scaling_factor=2.5, equal=False, num_shared_experts=0,
+                          bench=False)
+    test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
+                          scaling_factor=2.5, equal=True,
+                          bench=False)

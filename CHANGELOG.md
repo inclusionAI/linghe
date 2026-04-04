@@ -1,6 +1,10 @@
 # Changelog
 
 
+## linghe 0.4.1(26.04.4)
+
+- optimize topk kernel
+
 
 ## linghe 0.4.0(26.04.02)
 

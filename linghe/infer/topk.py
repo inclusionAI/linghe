@@ -30,7 +30,6 @@ def group_topk_score_kernel(input_ptr,
     x = tl.sigmoid(logit)
     b = tl.load(bias_ptr + tl.arange(0, N))
     m = tl.reshape(x + b, (G, GS))
-    o = tl.reshape(x, (G, GS))
 
     gt = tl.topk(m, k, dim=1)
 
@@ -38,10 +37,10 @@ def group_topk_score_kernel(input_ptr,
     gtst = tl.topk(gts, GK, dim=0)
     sum_min_value = tl.min(gtst)
 
-    filling = tl.where( (gts[:, None] >= sum_min_value), o, -1.0)
-    filling = tl.reshape(filling, [N])
-    t = tl.min(tl.topk(filling, K, dim=0))
-    filling = tl.where(filling >= t, filling, -1.0)
+    group_filling = tl.where( (gts[:, None] >= sum_min_value), m, -10000.0)
+    group_filling = tl.reshape(group_filling, [N])
+    t = tl.min(tl.topk(group_filling, K, dim=0))
+    filling = tl.where(group_filling >= t, x, -10000.0)
 
     score = filling / (tl.sum(tl.maximum(filling, 0.0)) + eps)
     mask = filling >= 0
@@ -53,9 +52,9 @@ def group_topk_score_kernel(input_ptr,
         tl.store(topk_ids_ptr + pid * (K + 1) + K, N)
 
     if tl.sum(binary_mask) > K:
-        fillings = filling.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
-        ts = tl.min(tl.topk(fillings, K, dim=0))
-        filling = tl.where(fillings >= ts, filling, -1.0)
+        group_fillings = group_filling.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
+        ts = tl.min(tl.topk(group_fillings, K, dim=0))
+        filling = tl.where(group_fillings >= ts, x, -10000.0)
 
         score = filling / (tl.sum(tl.maximum(filling, 0.0)) + eps)
         mask = filling >= 0

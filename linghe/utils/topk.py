@@ -134,50 +134,31 @@ def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
         b = tl.load(bias_ptr + tl.arange(0, N))
     else:
         b = 0.0
-    xb = tl.reshape(x + b, (G, GS))
-    xbsort = tl.sort(xb, dim=1, descending=True)
-    array = tl.arange(0, GS)
-    xbsum = tl.sum(tl.where(array < k, xbsort, 0.0), 1)
-    xbsumsort = tl.sort(xbsum, dim=0, descending=True)
+    m = tl.reshape(x + b, (G, GS))
 
-    arr = tl.arange(0, G)
-    group_min_value = tl.min(tl.where(arr < GK, xbsumsort, 2e38))
+    gt = tl.topk(m, k, dim=1)
 
-    xb_group_mask = tl.where(xbsum[:, None] >= group_min_value, xb, -1e38)
-    xb_group_mask = tl.reshape(xb_group_mask, (N,))
-    x_group_mask_sort = tl.sort(xb_group_mask, dim=0, descending=True)
-    expert_array = tl.arange(0, N)
-    min_value = tl.min(tl.where(expert_array < K, x_group_mask_sort, 1e38))
-    score = tl.where(xb_group_mask >= min_value, x, 0)
+    gts = tl.sum(gt, 1)
+    gtst = tl.topk(gts, GK, dim=0)
+    sum_min_value = tl.min(gtst)
 
-    score = score / (tl.sum(score) + eps) * scale
-    map_idx = tl.where(xb_group_mask >= min_value, 1, 0)
+    group_filling = tl.where( (gts[:, None] >= sum_min_value), m, -10000.0)
+    group_filling = tl.reshape(group_filling, [N])
+    t = tl.min(tl.topk(group_filling, K, dim=0))
+    mask = group_filling >= t
+    filling = tl.where(mask, x, 0.0)
 
-    if tl.sum(map_idx) > K:
-        y = x.to(tl.float64) + b.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
-        yb = tl.reshape(y, (G, GS))
-        ybsort = tl.sort(yb, dim=1, descending=True)
-        ysortmask = tl.where(array < k, ybsort, 0)
+    score = filling / (tl.sum(filling) + eps)
 
-        ybsum = tl.sum(ysortmask, 1)
-        ybsumsort = tl.sort(ybsum, dim=0, descending=True)
+    if tl.sum(mask) > K:
+        group_fillings = group_filling.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
+        ts = tl.min(tl.topk(group_fillings, K, dim=0))
+        mask = group_fillings >= ts
+        filling = tl.where(mask, x, 0.0)
+        score = filling / (tl.sum(filling) + eps)
 
-        yb_group_min_value = tl.min(tl.where(arr < GK, ybsumsort, 2e38))
-
-        y_group_mask = tl.where(ybsum[:, None] >= yb_group_min_value, yb, -1e38)
-        y_group_mask = tl.reshape(y_group_mask, (N,))
-        y_group_mask_sort = tl.sort(y_group_mask, dim=0, descending=True)
-        y_min_value = tl.min(tl.where(expert_array < K, y_group_mask_sort, 1e38))
-        double_score = tl.where(y_group_mask >= y_min_value, y, 0)
-
-        double_score = double_score / (tl.sum(double_score) + eps) * scale
-
-        tl.store(prob_ptr + pid * N + tl.arange(0, N), double_score)
-        tl.store(map_ptr + pid * N + tl.arange(0, N),
-                 tl.where(y_group_mask >= y_min_value, 1, 0))
-    else:
-        tl.store(prob_ptr + pid * N + tl.arange(0, N), score)
-        tl.store(map_ptr + pid * N + tl.arange(0, N), map_idx)
+    tl.store(prob_ptr + pid * N + tl.arange(0, N), score)
+    tl.store(map_ptr + pid * N + tl.arange(0, N), mask)
 
 
 def triton_group_topk_score_forward(x, k,
@@ -225,7 +206,7 @@ def triton_group_topk_score_forward(x, k,
         num_groups,
         group_topk,
         BIAS,
-        num_stages=1,
+        num_stages=2,
         num_warps=1)
     return probs, routing_map, routing_map.sum(0)
 

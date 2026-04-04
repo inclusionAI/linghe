@@ -149,7 +149,7 @@ def test_group_topk_score(M=4096, N=256, k=8, num_groups=32, group_topk=4,
         x[..., 0] = x[..., 1]
     x = x.requires_grad_()
 
-    prob_ref, map_ref, count_ref = torch_group_topk_score(x,
+    prob_ref, map_ref, count_ref = torch_group_topk_score(x.clone(),
                                                           expert_bias=expert_bias,
                                                           num_experts=N, topk=k,
                                                           num_groups=num_groups,
@@ -167,8 +167,8 @@ def test_group_topk_score(M=4096, N=256, k=8, num_groups=32, group_topk=4,
                                                         scaling_factor=scaling_factor)
     grad = triton_group_topk_score_backward(map_ref.float() * dy, x, maps,
                                             scaling_factor=scaling_factor)
-    output_check(prob_ref, prob, 'prob', atol=-1)  # may have mismatched results
-    err = output_check(map_ref, maps, 'maps')
+    output_check(prob_ref, prob, 'prob')  # may have mismatched results
+    output_check(map_ref, maps, 'maps')
     output_check(count_ref, count, 'count')
     output_check(grad_ref, grad, 'grad')
 

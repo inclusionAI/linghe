@@ -7,7 +7,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="linghe",
-    version="0.4.0",
+    version="0.4.1",
     license="MIT",
     license_files=("LICENSE",),
     description="LLM traning kernels",
