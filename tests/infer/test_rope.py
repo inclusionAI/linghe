@@ -199,9 +199,9 @@ def test_varlen_qk_norm_and_half_rope(lengths=[2048, 2048], H=32, h=4, dim=128,
                                                      silu=silu,
                                                      linear_scale=False,
                                                      scaling=1.0)
-    output_check(qo_ref, qo, name='q', atol=-1)
-    output_check(ko_ref, ko, name='k', atol=-1)
-    output_check(vo_ref, vo, name='v', atol=-1)
+    output_check(qo_ref, qo, name='q', atol=0.01)
+    output_check(ko_ref, ko, name='k', atol=0.01)
+    output_check(vo_ref, vo, name='v', atol=0.01)
 
     if bench:
         lbh = sum(lengths) * H
@@ -291,6 +291,6 @@ if __name__ == '__main__':
                                       interleaved=True,
                                       bench=False,
                                       linear_scale=True, scaling=2.0)
-     test_varlen_mla_rope(lengths=[2048, 2048], H=8, h=1, dim=64, interleave=False, bench=True)
-     test_varlen_mla_rope(lengths=[1, 3], H=8, h=1, dim=64, interleave=True, bench=True)
-     test_varlen_mla_rope(lengths=[1, 3], H=8, h=8, dim=64, interleave=True, bench=True)
+    test_varlen_mla_rope(lengths=[2048, 2048], H=8, h=1, dim=64, interleave=False, bench=True)
+    test_varlen_mla_rope(lengths=[1, 3], H=8, h=1, dim=64, interleave=True, bench=True)
+    test_varlen_mla_rope(lengths=[1, 3], H=8, h=8, dim=64, interleave=True, bench=True)

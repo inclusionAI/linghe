@@ -142,23 +142,22 @@ def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
     gtst = tl.topk(gts, GK, dim=0)
     sum_min_value = tl.min(gtst)
 
-    group_filling = tl.where( (gts[:, None] >= sum_min_value), m, -10000.0)
+    group_filling = tl.where((gts[:, None] >= sum_min_value), m, -1.0)
     group_filling = tl.reshape(group_filling, [N])
     t = tl.min(tl.topk(group_filling, K, dim=0))
     mask = group_filling >= t
-    filling = tl.where(mask, x, 0.0)
-
-    score = filling / (tl.sum(filling) + eps)
 
     if tl.sum(mask) > K:
         group_fillings = group_filling.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
         ts = tl.min(tl.topk(group_fillings, K, dim=0))
-        mask = group_fillings >= ts
-        filling = tl.where(mask, x, 0.0)
-        score = filling / (tl.sum(filling) + eps)
-
+        masks = group_fillings >= ts
+    else:
+        masks = mask
+    
+    filling = tl.where(mask, x, 0.0)
+    score = filling / (tl.sum(filling) + eps)
     tl.store(prob_ptr + pid * N + tl.arange(0, N), score)
-    tl.store(map_ptr + pid * N + tl.arange(0, N), mask)
+    tl.store(map_ptr + pid * N + tl.arange(0, N), masks)
 
 
 def triton_group_topk_score_forward(x, k,

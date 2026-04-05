@@ -69,16 +69,17 @@ def torch_group_topk_score(logits, expert_bias, num_experts=256, topk=8,
 
 
 def test_group_topk_score(M=4096, N=256, k=8, num_groups=32, group_topk=4, num_shared_experts=1,
-                          scaling_factor=1.0, equal=False, 
+                          scaling_factor=1.0, bias_coef=0.01, equal=False, 
                           bench=False):
     dtype = torch.float32
     device = 'cuda:0'
 
     x = torch.randn(M, N, dtype=dtype, device=device)
 
-    expert_bias = torch.randn(N, dtype=dtype, device=device) * 0.001
+    expert_bias = torch.randn(N, dtype=dtype, device=device) * bias_coef
     if equal:
         x[:] = 1.0
+        expert_bias[:] = 0.0
 
     score_ref, indices_ref = torch_group_topk_score(x,
                                                     expert_bias,
@@ -109,8 +110,8 @@ def test_group_topk_score(M=4096, N=256, k=8, num_groups=32, group_topk=4, num_s
         idx = indices[row,:k]
         print(f'ref {x[row][ref_idx].sort(descending=True)}')
         print(f'ours {x[row][idx].sort(descending=True)}')
-    output_check(score_ref, score, 'score', atol=-1)  # may have mismatched results
-    output_check(indices_ref, indices, 'indices', atol=-1)
+    output_check(score_ref, score, 'score')
+    output_check(indices_ref, indices, 'indices')
 
 
     if bench:
@@ -128,12 +129,19 @@ def test_group_topk_score(M=4096, N=256, k=8, num_groups=32, group_topk=4, num_s
 
 
 if __name__ == '__main__':
-    test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
+    test_group_topk_score(M=4, N=256, k=8, num_groups=8, group_topk=4,
+                          scaling_factor=2.5, equal=False, num_shared_experts=1,
+                          bench=True)
+    test_group_topk_score(M=8192, N=256, k=8, num_groups=8, group_topk=4,
                           scaling_factor=2.5, equal=False, num_shared_experts=1,
                           bench=False)
-    test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
+    test_group_topk_score(M=8192, N=256, k=8, num_groups=8, group_topk=4,
+                          scaling_factor=2.5, equal=False, num_shared_experts=1,
+                          bias_coef=1.0,
+                          bench=False)
+    test_group_topk_score(M=8192, N=256, k=8, num_groups=8, group_topk=4,
                           scaling_factor=2.5, equal=False, num_shared_experts=0,
                           bench=False)
-    test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
+    test_group_topk_score(M=8192, N=256, k=8, num_groups=8, group_topk=4,
                           scaling_factor=2.5, equal=True,
                           bench=False)

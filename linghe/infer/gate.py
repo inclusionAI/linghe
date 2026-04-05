@@ -18,8 +18,8 @@ def group_rms_norm_gate_kernel(x_ptr,
                                D: tl.constexpr,
                                GROUP_SIZE: tl.constexpr):
     pid = tl.program_id(axis=0)
-    weight = tl.load(weight_ptr + tl.arange(0, DIM))
-    weight = tl.reshape(weight, [GROUP_SIZE, D]).to(tl.float32)
+    weight = tl.load(weight_ptr + tl.arange(0, DIM)).to(tl.float32)
+    weight = tl.reshape(weight, [GROUP_SIZE, D])
     x_offs = pid * DIM + tl.arange(0, GROUP_SIZE)[:, None] * D + tl.arange(0,
                                                                            D)[
                                                                  None, :]
@@ -28,7 +28,7 @@ def group_rms_norm_gate_kernel(x_ptr,
                                                                None, :]
     g = tl.load(gate_ptr + offs).to(tl.float32)
     rms = tl.rsqrt(tl.sum(x * x, axis=1) / D + eps)
-    x = (x * rms[:, None]) * weight * tl.sigmoid(g)
+    x = x * rms[:, None] * weight * tl.sigmoid(g)
     tl.store(out_ptr + offs, x)
 
 
