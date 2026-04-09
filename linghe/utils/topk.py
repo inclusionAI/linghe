@@ -156,6 +156,7 @@ def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
     
     filling = tl.where(mask, x, 0.0)
     score = filling / (tl.sum(filling) + eps)
+    score = score * scale
     tl.store(prob_ptr + pid * N + tl.arange(0, N), score)
     tl.store(map_ptr + pid * N + tl.arange(0, N), masks)
 
