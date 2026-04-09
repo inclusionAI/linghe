@@ -45,7 +45,7 @@ def silu_and_block_quant_kernel(
     else:
         tl.store(scale_ptr + rid * n // 128 + cid * K + tl.arange(0, K), scale)
 
-    xq = (x / scale[:, None]).to(out_ptr.dtype.element_ty)
+    xq = x / scale[:, None]
     tl.store(
         out_ptr
         + rid * n
@@ -100,6 +100,7 @@ def triton_silu_and_block_quant(
         assert scale.is_contiguous()
 
     num_warps = 4
+    num_stages = 3
     B = n // 128
     if M >= 256:
         if B % 4 == 0:
@@ -125,14 +126,12 @@ def triton_silu_and_block_quant(
             K,
             round_scale,
             transpose_scale,
-            num_stages=3,
+            num_stages=num_stages,
             num_warps=num_warps)
 
     if transpose_scale:
         scale = scale[:,:M].t()
     return out, scale
-
-
 
 
 @triton.jit

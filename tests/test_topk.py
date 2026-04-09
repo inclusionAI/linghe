@@ -132,7 +132,7 @@ def test_topk(M=4096, B=1, N=256, k=8, equal=False, bench=False):
                        ref_bytes=M * N * 4)
 
 
-def test_group_topk_score(M=4096, N=256, k=8, num_groups=32, group_topk=4,
+def test_group_topk_score(M=4096, N=256, k=8, num_groups=8, group_topk=4,
                           scaling_factor=1.0, equal=False, bias=True, bias_coef=0.01,
                           bench=False):
     dtype = torch.float32
@@ -200,12 +200,12 @@ if __name__ == '__main__':
     test_topk(M=8192, B=0, N=256, k=8, equal=False, bench=False)
     test_topk(M=4096, B=2, N=256, k=8, equal=False, bench=False)
     test_topk(M=4096, B=2, N=256, k=8, equal=True, bench=False)
-    test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
-                          scaling_factor=1.0, equal=False, bias=True, bias_coef=0.0,
+    test_group_topk_score(M=8192, N=256, k=8, num_groups=8, group_topk=4,
+                          scaling_factor=2.5, equal=False, bias=True, bias_coef=0.0,
                           bench=True)
-    test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
-                          scaling_factor=1.0, equal=False, bias=False, bias_coef=1.0,
+    test_group_topk_score(M=8192, N=256, k=8, num_groups=8, group_topk=4,
+                          scaling_factor=2.5, equal=False, bias=False, bias_coef=1.0,
                           bench=False)
-    test_group_topk_score(M=8192, N=256, k=8, num_groups=32, group_topk=4,
-                          scaling_factor=1.0, equal=True, bias=True, bias_coef=0.01,
+    test_group_topk_score(M=8192, N=256, k=8, num_groups=8, group_topk=4,
+                          scaling_factor=2.5, equal=True, bias=True, bias_coef=0.01,
                           bench=False)

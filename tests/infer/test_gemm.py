@@ -42,7 +42,8 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
         ref_flops = 2 * M * N * K
         ref_time = benchmark_func(torch_fp16_matmul, x, w,
                                   ref_bytes=ref_bytes,
-                                  ref_flops=ref_flops)
+                                  ref_flops=ref_flops,
+                                  n_profile=10)
         benchmark_func(torch_fp32_matmul, x, w.float(),
                                   ref_bytes=ref_bytes,
                                   ref_flops=ref_flops,
@@ -94,6 +95,7 @@ def test_fp8_matmul(M=2048, N=1024, K=8192, transpose_scale=True, bench=False):
 
 if __name__ == '__main__':
     # router gemm
+    test_fp32_matmul(M=1, N=256, K=4096, bench=True)
     test_fp32_matmul(M=4, N=256, K=4096, bench=True)
     test_fp32_matmul(M=32, N=256, K=4096, bench=True)
     test_fp32_matmul(M=128, N=256, K=4096, bench=True)
@@ -101,7 +103,7 @@ if __name__ == '__main__':
     test_fp32_matmul(M=8192, N=256, K=8192, bench=False)
     test_fp32_matmul(M=8192, N=256, K=2048, bench=False)
 
-    # head gemm
+    head gemm
     test_fp32_matmul(M=4, N=157184, K=4096, bench=True)
     test_fp32_matmul(M=16, N=157184, K=4096, bench=True)
     test_fp32_matmul(M=32, N=157184, K=4096, bench=True)
