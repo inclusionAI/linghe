@@ -96,13 +96,11 @@ def test_topk(M=4096, B=1, N=256, k=8, equal=False, bench=False):
 
     x = x.requires_grad_()
 
-    if equal:
-        xd = x.to(torch.float64) * (1 - torch.arange(0, N, device=device).to(
-            torch.float64) * 1e-12)
-        value_ref, index_ref = torch.topk(xd, k)
-        value_ref = value_ref.float()
-    else:
-        value_ref, index_ref = torch.topk(x, k)
+    xd = x.to(torch.float64) * (1 - torch.arange(0, N, device=device).to(
+        torch.float64) * 1e-12)
+
+    value_ref, index_ref = torch.topk(xd, k)
+    value_ref = value_ref.float()
 
     loss_ref = (value_ref * index_ref.float()).sum()
     loss_ref.backward()

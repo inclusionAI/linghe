@@ -115,6 +115,73 @@ def triton_topk_backward(grad_output, indices, N, dim=-1):
     return dx
 
 
+
+
+@triton.jit
+def deprecated_group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
+                                    scale,
+                                    eps,
+                                    N: tl.constexpr,
+                                    K: tl.constexpr,
+                                    G: tl.constexpr,
+                                    GK: tl.constexpr,
+                                    BIAS: tl.constexpr):
+    pid = tl.program_id(axis=0)
+    GS: tl.constexpr = N // G
+    k: tl.constexpr = K // GK
+
+    logit = tl.load(input_ptr + pid * N + tl.arange(0, N))
+    x = tl.sigmoid(logit)
+    if BIAS:
+        b = tl.load(bias_ptr + tl.arange(0, N))
+    else:
+        b = 0.0
+    xb = tl.reshape(x + b, (G, GS))
+    xbsort = tl.sort(xb, dim=1, descending=True)
+    array = tl.arange(0, GS)
+    xbsum = tl.sum(tl.where(array < k, xbsort, 0.0), 1)
+    xbsumsort = tl.sort(xbsum, dim=0, descending=True)
+
+    arr = tl.arange(0, G)
+    group_min_value = tl.min(tl.where(arr < GK, xbsumsort, 2e38))
+
+    xb_group_mask = tl.where(xbsum[:, None] >= group_min_value, xb, -1e38)
+    xb_group_mask = tl.reshape(xb_group_mask, (N,))
+    x_group_mask_sort = tl.sort(xb_group_mask, dim=0, descending=True)
+    expert_array = tl.arange(0, N)
+    min_value = tl.min(tl.where(expert_array < K, x_group_mask_sort, 1e38))
+    score = tl.where(xb_group_mask >= min_value, x, 0)
+
+    score = score / (tl.sum(score) + eps) * scale
+    map_idx = tl.where(xb_group_mask >= min_value, 1, 0)
+
+    if tl.sum(map_idx) > K:
+        y = x.to(tl.float64) + b.to(tl.float64) - tl.arange(0, N).to(tl.float64) * 1e-12
+        yb = tl.reshape(y, (G, GS))
+        ybsort = tl.sort(yb, dim=1, descending=True)
+        ysortmask = tl.where(array < k, ybsort, 0)
+
+        ybsum = tl.sum(ysortmask, 1)
+        ybsumsort = tl.sort(ybsum, dim=0, descending=True)
+
+        yb_group_min_value = tl.min(tl.where(arr < GK, ybsumsort, 2e38))
+
+        y_group_mask = tl.where(ybsum[:, None] >= yb_group_min_value, yb, -1e38)
+        y_group_mask = tl.reshape(y_group_mask, (N,))
+        y_group_mask_sort = tl.sort(y_group_mask, dim=0, descending=True)
+        y_min_value = tl.min(tl.where(expert_array < K, y_group_mask_sort, 1e38))
+        double_score = tl.where(y_group_mask >= y_min_value, y, 0)
+
+        double_score = double_score / (tl.sum(double_score) + eps) * scale
+
+        tl.store(prob_ptr + pid * N + tl.arange(0, N), double_score)
+        tl.store(map_ptr + pid * N + tl.arange(0, N),
+                 tl.where(y_group_mask >= y_min_value, 1, 0))
+    else:
+        tl.store(prob_ptr + pid * N + tl.arange(0, N), score)
+        tl.store(map_ptr + pid * N + tl.arange(0, N), map_idx)
+
+
 @triton.jit
 def group_topk_score_forward_kernel(input_ptr, bias_ptr, prob_ptr, map_ptr,
                                     scale,
@@ -194,20 +261,36 @@ def triton_group_topk_score_forward(x, k,
         routing_map = torch.empty((M, N), device=device, dtype=torch.bool)
     BIAS = expert_bias is not None
     grid = (g,)
-    group_topk_score_forward_kernel[grid](
-        x,
-        expert_bias,
-        probs,
-        routing_map,
-        scaling_factor,
-        eps,
-        N,
-        k,
-        num_groups,
-        group_topk,
-        BIAS,
-        num_stages=2,
-        num_warps=1)
+    if hasattr(tl, 'topk'):
+        group_topk_score_forward_kernel[grid](
+            x,
+            expert_bias,
+            probs,
+            routing_map,
+            scaling_factor,
+            eps,
+            N,
+            k,
+            num_groups,
+            group_topk,
+            BIAS,
+            num_stages=2,
+            num_warps=1)
+    else:
+        deprecated_group_topk_score_forward_kernel[grid](
+            x,
+            expert_bias,
+            probs,
+            routing_map,
+            scaling_factor,
+            eps,
+            N,
+            k,
+            num_groups,
+            group_topk,
+            BIAS,
+            num_stages=2,
+            num_warps=1)
     return probs, routing_map, routing_map.sum(0)
 
 

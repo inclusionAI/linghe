@@ -5,6 +5,7 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import torch
 
+import triton
 from linghe.facade.fp32_gemm import fp32_gemm
 from linghe.gemm.fp32_gemm import (triton_fp32_gemm,
                                    triton_fp32_gemm_for_backward,
@@ -62,8 +63,10 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     output_check(dx_ref, dx, name='split.dx', atol=2e-2, rtol=2e-2)
     output_check(dw_ref, dw.to(dtype), name='split.dw', atol=2e-1, rtol=2e-1)
 
-    y = triton_tma_persistent_matmul(x ,w)
-    output_check(y_ref, y, name='persist.y', atol=5e-3, rtol=2e-3)
+    has_tma = hasattr(triton, 'tools') and hasattr(triton.tools, 'tensor_descriptor')
+    if has_tma:
+        y = triton_tma_persistent_matmul(x ,w)
+        output_check(y_ref, y, name='persist.y', atol=5e-3, rtol=2e-3)
 
 
     x.grad = None
@@ -76,9 +79,9 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     output_check(dx_ref, dx, name='dx', atol=2e-2, rtol=2e-2)
     output_check(dw_ref, dw.to(dtype), name='dw', atol=2e-1, rtol=2e-2)
 
-    y = fp32_gemm(x, w, impl='tma')
-    output_check(y_ref, y, name='tma.y', atol=5e-3, rtol=2e-3)
-
+    if has_tma:
+        y = fp32_gemm(x, w, impl='tma')
+        output_check(y_ref, y, name='tma.y', atol=5e-3, rtol=2e-3)
 
     if bench:
         ref_bytes = M * K * 6 + N * K * 6 + M * N * 4
@@ -92,9 +95,10 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
         benchmark_func(triton_split_fp32_gemm, x, w,
                        ref_bytes=ref_bytes,
                        ref_flops=ref_flops, ref_time=ref_time)
-        benchmark_func(triton_tma_persistent_matmul, x, w,
-                       ref_bytes=ref_bytes,
-                       ref_flops=ref_flops, ref_time=ref_time)
+        if has_tma:
+            benchmark_func(triton_tma_persistent_matmul, x, w,
+                        ref_bytes=ref_bytes,
+                        ref_flops=ref_flops, ref_time=ref_time)
 
 
         ref_bytes = M * K * 10 + N * K * 4 + M * N * 4

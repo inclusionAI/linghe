@@ -16,7 +16,7 @@ from linghe.utils.silu import (triton_silu_and_block_quant_forward,
 
 class BlockSiluFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, quantizer, grad_quantizer, cls):
+    def forward(ctx, input, quantizer, grad_quantizer, cls, limit):
         shape = input.shape
         assert len(shape) == 3
         input_view = input.view(shape[0] * shape[1], shape[2])
@@ -24,10 +24,13 @@ class BlockSiluFunction(torch.autograd.Function):
         ctx.input_requires_grad = input.requires_grad
         ctx.shape = shape
         ctx.cls = cls
+        ctx.limit = limit
         ctx.save_for_backward(input)
 
+        round_scale = quantizer.force_pow_2_scales
         x_q, x_scale, xt_q, xt_scale = triton_silu_and_block_quant_forward(input_view,
-                                                                           round_scale=quantizer.force_pow_2_scales)
+                                                                           round_scale=round_scale,
+                                                                           limit=limit)
         output_shape = (shape[0], shape[1], shape[2] // 2)
         transpose_shape = (shape[2] // 2, shape[0], shape[1])
         output = cls(shape=output_shape,
@@ -49,9 +52,11 @@ class BlockSiluFunction(torch.autograd.Function):
         input, = ctx.saved_tensors
         grad_quantizer = ctx.grad_quantizer
         input_view = input.view(shape[0] * shape[1], shape[2] * 2)
+        round_scale = grad_quantizer.force_pow_2_scales
         x_q, x_scale, xt_q, xt_scale = triton_silu_and_block_quant_backward(grad_output_view,
                                                                             input_view,
-                                                                            round_scale=grad_quantizer.force_pow_2_scales)
+                                                                            round_scale=round_scale,
+                                                                            limit=ctx.limit)
         output = ctx.cls(shape=ctx.shape,
                          dtype=grad_output.dtype,
                          fp8_dtype=grad_quantizer.dtype,
@@ -63,24 +68,33 @@ class BlockSiluFunction(torch.autograd.Function):
                          requires_grad=ctx.input_requires_grad,
                          is_2D_scaled=False)
 
-        return output, None, None, None
+        return output, None, None, None, None
 
 
-def block_silu_impl(input, quantizer, grad_quantizer, cls):
-    output = BlockSiluFunction.apply(input, quantizer, grad_quantizer, cls)
+def block_silu_impl(input, quantizer, grad_quantizer, cls, limit=None):
+    output = BlockSiluFunction.apply(input, quantizer, grad_quantizer, cls, limit)
     return output
 
 
 class BlockBatchWeightedSiluFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, weights, counts, splits, quantizers,
-                grad_quantizers, cls, is_recomputing):
+    def forward(ctx,
+                input,
+                weights,
+                counts,
+                splits,
+                quantizers,
+                grad_quantizers,
+                cls,
+                limit,
+                is_recomputing):
         shape = input.shape
         ctx.grad_quantizers = grad_quantizers
         ctx.input_requires_grad = input.requires_grad
         ctx.shape = shape
         ctx.splits = splits
         ctx.cls = cls
+        ctx.limit = limit
         ctx.save_for_backward(input, weights, counts)
 
         if is_recomputing is None:
@@ -90,6 +104,8 @@ class BlockBatchWeightedSiluFunction(torch.autograd.Function):
         else:
             output_mode = 0
 
+        round_scale = quantizers[0].force_pow_2_scales
+
         (x_q,
          x_scale,
          xt_q,
@@ -97,9 +113,8 @@ class BlockBatchWeightedSiluFunction(torch.autograd.Function):
                                                                         weights,
                                                                         counts,
                                                                         splits=splits,
-                                                                        round_scale=
-                                                                        quantizers[
-                                                                            0].force_pow_2_scales,
+                                                                        limit=limit,
+                                                                        round_scale=round_scale,
                                                                         output_mode=output_mode)
 
         output = cls(shape=x_q.shape,
@@ -118,6 +133,8 @@ class BlockBatchWeightedSiluFunction(torch.autograd.Function):
     def backward(ctx, grad_output):
         input, weights, counts = ctx.saved_tensors
         grad_quantizers = ctx.grad_quantizers
+        round_scale = grad_quantizers[0].force_pow_2_scales
+
         (x_q,
          x_scale,
          wgrad,
@@ -127,8 +144,8 @@ class BlockBatchWeightedSiluFunction(torch.autograd.Function):
                                                                          weights,
                                                                          counts,
                                                                          splits=ctx.splits,
-                                                                         round_scale=grad_quantizers[
-                                                                             0].force_pow_2_scales)
+                                                                         round_scale=round_scale,
+                                                                         limit=ctx.limit)
         output = ctx.cls(shape=ctx.shape,
                          dtype=grad_output.dtype,
                          fp8_dtype=grad_quantizers[0].dtype,
@@ -140,11 +157,13 @@ class BlockBatchWeightedSiluFunction(torch.autograd.Function):
                          requires_grad=ctx.input_requires_grad,
                          is_2D_scaled=False)
 
-        return output, wgrad, None, None, None, None, None, None
+        return output, wgrad, None, None, None, None, None, None, None
 
 
 def block_batch_weighted_silu_impl(input, weights, counts, splits, quantizers,
-                                   grad_quantizers, cls, is_recomputing=None):
+                                   grad_quantizers, cls,
+                                   limit=None,
+                                   is_recomputing=None):
     assert input.ndim == 2
     output = BlockBatchWeightedSiluFunction.apply(input,
                                                   weights,
@@ -153,6 +172,7 @@ def block_batch_weighted_silu_impl(input, weights, counts, splits, quantizers,
                                                   quantizers,
                                                   grad_quantizers,
                                                   cls,
+                                                  limit,
                                                   is_recomputing)
     return output
 
