@@ -8,7 +8,11 @@ import torch
 from linghe.gemm.fp32_gemm import (triton_fp32_gemm,
                                    triton_fp32_gemm_for_backward,
                                    triton_fp32_gemm_for_update,
-                                   triton_tma_persistent_matmul)
+                                   triton_split_fp32_gemm,
+                                   triton_split_fp32_gemm_for_backward,
+                                   triton_split_fp32_gemm_for_update
+                                   )
+from linghe.experimental.gemm import triton_tma_persistent_matmul
 from linghe.utils.add import triton_inplace_add
 from linghe.utils.transpose import triton_pad_transpose
 
@@ -152,12 +156,15 @@ class Fp32GEMM(torch.autograd.Function):
             input = input.view(shape[0] * shape[1], shape[2])
         if impl == 'native':
             logits = triton_fp32_gemm(input, weight)
-        else:
+        elif impl == 'tma':
             logits = triton_tma_persistent_matmul(input, weight)
+        elif impl == 'split':
+            logits = triton_split_fp32_gemm(input, weight)
 
         ctx.input_requires_grad = input.requires_grad
         ctx.weight_requires_grad = weight.requires_grad
         ctx.shape = shape
+        ctx.impl = impl
         ctx.save_for_backward(input, weight)
         if len(shape) == 3:
             logits = logits.view(shape[0], shape[1], weight.shape[0])
@@ -172,11 +179,17 @@ class Fp32GEMM(torch.autograd.Function):
 
         input, weight = ctx.saved_tensors
 
-        dx = triton_fp32_gemm_for_backward(grad_output, weight)
+        if ctx.impl == 'split':
+            dx = triton_split_fp32_gemm_for_backward(grad_output, weight)
+        else:
+            dx = triton_fp32_gemm_for_backward(grad_output, weight)
         if len(grad_shape) == 3:
             dx = dx.view(*ctx.shape)
 
-        dw = triton_fp32_gemm_for_update(grad_output, input)
+        if ctx.impl == 'split':
+            dw = triton_split_fp32_gemm_for_update(grad_output, input)
+        else:
+            dw = triton_fp32_gemm_for_update(grad_output, input)
 
         return dx, dw, None
 
@@ -191,6 +204,6 @@ def fp32_gemm(input: torch.Tensor, weight: torch.Tensor, impl='native'):
     Returns:
         output of gemm
     """
-    assert impl in ('native', 'tma')
+    assert impl in ('native', 'split', 'tma')
     assert input.dtype == weight.dtype, f'{input.dtype=} {weight.dtype=}'
     return Fp32GEMM.apply(input, weight, impl)
