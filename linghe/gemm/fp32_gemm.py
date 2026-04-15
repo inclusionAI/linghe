@@ -484,12 +484,12 @@ def triton_split_fp32_gemm_for_update(y: torch.Tensor, x: torch.Tensor):
     else:
         c = torch.zeros((M, N), dtype=torch.float32, device=x.device)
 
-    BLOCK_SIZE_K = 128
-    BLOCK_SIZE_M = 64
-    BLOCK_SIZE_N = 32
+    # BLOCK_SIZE_K = 128
+    # BLOCK_SIZE_M = 64
+    # BLOCK_SIZE_N = 32
     # assert M % BLOCK_SIZE_M == 0 and N % BLOCK_SIZE_N == 0 and K % (BLOCK_SIZE_K * SPLIT_COUNT) == 0
-    num_warps = 2
-    num_stages = 3
+    # num_warps = 2
+    # num_stages = 3
 
     grid = lambda META: (SPLIT_COUNT,
                         triton.cdiv(M, META["BLOCK_SIZE_M"]),
