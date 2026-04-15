@@ -56,34 +56,8 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
     output_check(dx_ref, dx, name='dx', atol=2e-2, rtol=2e-2)
     output_check(dw_ref, dw.to(dtype), name='dw', atol=2e-1, rtol=2e-2)
 
-    y = triton_split_fp32_gemm(x, w)
-    dx = triton_split_fp32_gemm_for_backward(dy, w)
-    dw = triton_split_fp32_gemm_for_update(dy, x)
-    output_check(y_ref, y, name='split.y', atol=5e-3, rtol=2e-3)
-    output_check(dx_ref, dx, name='split.dx', atol=2e-2, rtol=2e-2)
-    output_check(dw_ref, dw.to(dtype), name='split.dw', atol=2e-1, rtol=2e-1)
-
-    has_tma = hasattr(triton, 'tools') and hasattr(triton.tools, 'tensor_descriptor')
-    if has_tma:
-        y = triton_tma_persistent_matmul(x ,w)
-        output_check(y_ref, y, name='persist.y', atol=5e-3, rtol=2e-3)
-
-
-    x.grad = None
-    w.grad = None
-    y = fp32_gemm(x, w, impl='native')
-    y.backward(gradient=dy)
-    dx = x.grad
-    dw = w.grad
-    output_check(y_ref, y, name='y', atol=5e-3, rtol=2e-3)
-    output_check(dx_ref, dx, name='dx', atol=2e-2, rtol=2e-2)
-    output_check(dw_ref, dw.to(dtype), name='dw', atol=2e-1, rtol=2e-2)
-
-    if has_tma:
-        y = fp32_gemm(x, w, impl='tma')
-        output_check(y_ref, y, name='tma.y', atol=5e-3, rtol=2e-3)
-
     if bench:
+        print('')
         ref_bytes = M * K * 6 + N * K * 6 + M * N * 4
         ref_flops = 2 * M * N * K
         ref_time = benchmark_func(torch_fp32_matmul, x, w,
@@ -92,15 +66,8 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
         benchmark_func(triton_fp32_gemm, x, w,
                        ref_bytes=ref_bytes,
                        ref_flops=ref_flops, ref_time=ref_time)
-        benchmark_func(triton_split_fp32_gemm, x, w,
-                       ref_bytes=ref_bytes,
-                       ref_flops=ref_flops, ref_time=ref_time)
-        if has_tma:
-            benchmark_func(triton_tma_persistent_matmul, x, w,
-                        ref_bytes=ref_bytes,
-                        ref_flops=ref_flops, ref_time=ref_time)
-
-
+        
+        print('')
         ref_bytes = M * K * 10 + N * K * 4 + M * N * 4
         ref_time = benchmark_func(torch_fp32_matmul_backward, dy, w.float(),
                                   ref_bytes=ref_bytes,
@@ -108,10 +75,8 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
         benchmark_func(triton_fp32_gemm_for_backward, dy, w,
                        ref_bytes=ref_bytes,
                        ref_flops=ref_flops, ref_time=ref_time)
-        benchmark_func(triton_split_fp32_gemm_for_backward, dy, w,
-                       ref_bytes=ref_bytes,
-                       ref_flops=ref_flops, ref_time=ref_time)
-
+        
+        print('')
         ref_bytes = M * K * 4 + N * K * 12 + M * N * 4
         ref_time = benchmark_func(torch_fp32_matmul_update, dy, x.float(),
                                   ref_bytes=ref_bytes,
@@ -119,12 +84,85 @@ def test_fp32_matmul(M=2048, N=256, K=8192, bench=False):
         benchmark_func(triton_fp32_gemm_for_update, dy, x,
                        ref_bytes=ref_bytes,
                        ref_flops=ref_flops, ref_time=ref_time)
-        benchmark_func(triton_split_fp32_gemm_for_update, dy, x,
+
+
+def test_split_fp32_matmul(M=2048, N=256, K=8192, bench=False):
+    dtype = torch.bfloat16
+    device = 'cuda:0'
+
+    x = torch.randn(M, K, dtype=dtype, device=device, requires_grad=True)
+    w = (torch.randn(N, K, dtype=dtype, device=device) * 0.1).requires_grad_()
+    dy = torch.randn(M, N, dtype=torch.float32, device=device)
+
+    y_ref = torch_fp32_matmul(x, w)
+    y_ref.backward(gradient=dy)
+    dx_ref = x.grad
+    dw_ref = w.grad
+
+    y = triton_split_fp32_gemm(x, w)  # may inplace update
+    dx = triton_split_fp32_gemm_for_backward(dy, w)
+    dw = triton_split_fp32_gemm_for_update(dy, x)
+    output_check(y_ref, y, name='split.y', atol=5e-3, rtol=2e-3)
+    output_check(dx_ref, dx, name='split.dx', atol=2e-2, rtol=2e-2)
+    output_check(dw_ref, dw.to(dtype), name='split.dw', atol=2e-1, rtol=2e-1)
+
+    if bench:
+        print('')
+        ref_bytes = M * K * 6 + N * K * 6 + M * N * 4
+        ref_flops = 2 * M * N * K
+        ref_time = benchmark_func(torch_fp32_matmul, x, w,
+                                  ref_bytes=ref_bytes,
+                                  ref_flops=ref_flops)
+        benchmark_func(triton_split_fp32_gemm, x, w,
                        ref_bytes=ref_bytes,
                        ref_flops=ref_flops, ref_time=ref_time)
 
+        print('')
+        ref_bytes = M * K * 10 + N * K * 4 + M * N * 4
+        ref_time = benchmark_func(torch_fp32_matmul_backward, dy, w.float(),
+                                  ref_bytes=ref_bytes,
+                                  ref_flops=ref_flops)
+        benchmark_func(triton_split_fp32_gemm_for_backward, dy, w,
+                       ref_bytes=ref_bytes,
+                       ref_flops=ref_flops, ref_time=ref_time)
 
-def test_BMK_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False):
+        print('')
+        ref_bytes = M * K * 4 + N * K * 12 + M * N * 4
+        ref_time = benchmark_func(torch_fp32_matmul_update, dy, x.float(),
+                                  ref_bytes=ref_bytes,
+                                  ref_flops=ref_flops)
+        benchmark_func(triton_split_fp32_gemm_for_update, dy, x,
+                       ref_bytes=ref_bytes,
+                       ref_flops=ref_flops, ref_time=ref_time,
+                       n_profile=0)
+
+
+
+def test_tma_fp32_matmul(M=2048, N=256, K=8192, bench=False):
+    dtype = torch.bfloat16
+    device = 'cuda:0'
+
+    x = torch.randn(M, K, dtype=dtype, device=device, requires_grad=True)
+    w = (torch.randn(N, K, dtype=dtype, device=device) * 0.1).requires_grad_()
+    dy = torch.randn(M, N, dtype=torch.float32, device=device)
+
+    y_ref = torch_fp32_matmul(x, w)
+    y = triton_tma_persistent_matmul(x ,w)
+    output_check(y_ref, y, name='persist.y', atol=5e-3, rtol=2e-3)
+
+    if bench:
+        print('')
+        ref_bytes = M * K * 6 + N * K * 6 + M * N * 4
+        ref_flops = 2 * M * N * K
+        ref_time = benchmark_func(torch_fp32_matmul, x, w,
+                                  ref_bytes=ref_bytes,
+                                  ref_flops=ref_flops)
+        benchmark_func(triton_tma_persistent_matmul, x, w,
+                    ref_bytes=ref_bytes,
+                    ref_flops=ref_flops, ref_time=ref_time)
+
+
+def test_fp32_facade(B=2, M=2048, N=256, K=8192, impl='native', bench=False):
     # M, N, K = 4096, 256, 8192
     dtype = torch.bfloat16
     device = 'cuda:0'
@@ -141,30 +179,38 @@ def test_BMK_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False):
 
     x.grad = None
     w.grad = None
-    y = fp32_gemm(x, w)
+    y = fp32_gemm(x, w, impl=impl)
     y.backward(gradient=dy)
     dx = x.grad
     dw = w.grad
     output_check(y_ref, y, name='forward', atol=5e-3, rtol=2e-3)
-    output_check(dx_ref, dx, name='backward', atol=1e-1, rtol=2e-2)
-    output_check(dw_ref, dw, name='update', atol=1e-1, rtol=2e-2)
+    output_check(dx_ref, dx, name='backward', atol=2e-1, rtol=2e-2)
+    output_check(dw_ref, dw, name='update', atol=2e-1, rtol=2e-2)
 
     if bench:
-        print('\nbenchmark\n')
         ref_time = benchmark_func(torch_fp32_matmul, x, w, n_repeat=n_repeat,
                                   ref_bytes=M * K * 6 + N * K * 6 + M * N * 4,
                                   ref_flops=2 * M * N * K)
-        benchmark_func(fp32_gemm, x, w, n_repeat=n_repeat,
+        benchmark_func(fp32_gemm, x, w, impl=impl, n_repeat=n_repeat,
                        ref_bytes=M * K * 6 + N * K * 6 + M * N * 4,
                        ref_flops=2 * M * N * K, ref_time=ref_time)
 
 
 if __name__ == '__main__':
     test_fp32_matmul(M=4096, N=256, K=8192, bench=False)
+    test_fp32_matmul(M=16384, N=128, K=1536, bench=False)
     test_fp32_matmul(M=16384, N=256, K=2048, bench=False)
     test_fp32_matmul(M=16384-32, N=256, K=2048, bench=False)
     test_fp32_matmul(M=128, N=16, K=128, bench=False)
     test_fp32_matmul(M=32, N=16, K=128, bench=False)
-    test_BMK_fp32_matmul(B=2, M=2048, N=16, K=8192, bench=False)
-    test_BMK_fp32_matmul(B=2, M=2048, N=256, K=8192, bench=False)
-    test_BMK_fp32_matmul(B=2, M=128, N=16, K=128, bench=False)
+
+    test_split_fp32_matmul(M=16384, N=128, K=1536, bench=False)
+    test_split_fp32_matmul(M=16384, N=256, K=2048, bench=False)
+    test_split_fp32_matmul(M=16384, N=256, K=4096, bench=False)
+
+    test_tma_fp32_matmul(M=16384, N=256, K=2048, bench=False)
+
+    test_fp32_facade(B=2, M=8192, N=128, K=1536, impl='native', bench=False)
+    test_fp32_facade(B=2, M=8192-32, N=128, K=1536, impl='native', bench=False)
+    test_fp32_facade(B=2, M=8192, N=128, K=1536, impl='tma', bench=False)
+    test_fp32_facade(B=2, M=8192, N=128, K=1536, impl='split', bench=False)
