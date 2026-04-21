@@ -1403,10 +1403,12 @@ def silu_and_mxfp8_quant_forward_kernel(x_ptr,
                                         out_ptr, scale_ptr,
                                         transpose_output_ptr,
                                         transpose_scale_ptr,
+                                        limit,
                                         M,
                                         m,
                                         n: tl.constexpr,
                                         B: tl.constexpr,
+                                        CUTOFF: tl.constexpr,
                                         OUTPUT_MODE: tl.constexpr):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
@@ -1422,7 +1424,10 @@ def silu_and_mxfp8_quant_forward_kernel(x_ptr,
 
     x1 = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
     x2 = tl.load(x_ptr + n + offs, mask=mask).to(tl.float32)
-    x = x1 * tl.sigmoid(x1) * x2
+    if CUTOFF:
+        x = tl.minimum(x1 * tl.sigmoid(x1), limit) * tl.clamp(x2, -limit, limit)
+    else:
+        x = x1 * tl.sigmoid(x1) * x2
 
     if OUTPUT_MODE % 2 == 0:
         xr = tl.reshape(x, [32, sb, 32])
@@ -1464,6 +1469,7 @@ def silu_and_mxfp8_quant_forward_kernel(x_ptr,
 def triton_silu_and_mxfp8_quant_forward(x,
                                         out=None,
                                         scale=None,
+                                        limit=None,
                                         output_mode=2):
     """
     fused silu and mxfp8 quantization, used in shared expert
@@ -1493,6 +1499,12 @@ def triton_silu_and_mxfp8_quant_forward(x,
         scale = torch.empty((M, n // 32), device=device,
                             dtype=torch.uint8)
 
+    if limit is None:
+        CUTOFF = False
+        limit = 0.0
+    else:
+        CUTOFF = True
+
     transpose_output = torch.empty((m, n), device=device,
                                    dtype=torch.float8_e4m3fn)
     transpose_scale = torch.empty((M // 32, n), device=device,
@@ -1505,10 +1517,12 @@ def triton_silu_and_mxfp8_quant_forward(x,
         scale,
         transpose_output,
         transpose_scale,
+        limit,
         M,
         m,
         n,
         B,
+        CUTOFF,
         output_mode,
         num_stages=2,
         num_warps=1)
@@ -1523,9 +1537,12 @@ def silu_and_mxfp8_quant_backward_kernel(g_ptr,
                                          dx_scale_ptr,
                                          transpose_dx_ptr,
                                          transpose_dx_scale_ptr,
+                                         limit,
                                          M,
                                          m,
-                                         n: tl.constexpr):
+                                         n: tl.constexpr,
+                                         CUTOFF: tl.constexpr
+                                         ):
     rid = tl.program_id(axis=0)
     cid = tl.program_id(axis=1)
     nb = n // 32
@@ -1535,13 +1552,19 @@ def silu_and_mxfp8_quant_backward_kernel(g_ptr,
             + tl.arange(0, 32)[None, :])
     idx = rid * 32 + tl.arange(0, 32)
     mask = idx[:, None] < m
-    x1 = tl.load(x_ptr + offs, mask=mask)  # .to(tl.float32)
-    x2 = tl.load(x_ptr + n + offs, mask=mask)  # .to(tl.float32)
+    x1 = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
+    x2 = tl.load(x_ptr + n + offs, mask=mask).to(tl.float32)
+    if CUTOFF:
+        dx2_mask = (x2 <= limit) & (x2 >= -limit)
+        x2 = tl.clamp(x2, -limit, limit)
     g = tl.load(g_ptr + rid * 32 * n + cid * 32 +
                 tl.arange(0, 32)[:, None] * n +
                 tl.arange(0, 32)[None, :], mask=mask)  # .to(tl.float32)
     sigmoid = tl.sigmoid(x1.to(tl.float32))
     dx1 = sigmoid * g * x2 * (1 + x1 * (1 - sigmoid))  # change order to trigger autocast
+    if CUTOFF:
+        dx1_mask = (sigmoid * x1 <= limit).to(tl.float32)
+        dx1 *= dx1_mask
     scale1 = tl.maximum(
         tl.max(dx1.abs(), 1) / 448, 1e-30)
 
@@ -1569,7 +1592,11 @@ def silu_and_mxfp8_quant_backward_kernel(g_ptr,
     qdx1 = (dx1 / scale1[None, :]).to(transpose_dx_ptr.dtype.element_ty)
     tl.store(transpose_dx_ptr + offs, qdx1, mask=mask)
 
-    dx2 = sigmoid * g * x1
+    # dx2 = sigmoid * g * x1
+    if CUTOFF:
+        dx2 = g * tl.minimum(sigmoid * x1, limit) * dx2_mask.to(tl.float32)
+    else:
+        dx2 = g * sigmoid * x1
     scale2 = tl.maximum(
         tl.max(dx2.abs(), 1) / 448, 1e-30)
     log_scale2 = tl.ceil(tl.log2(scale2))
@@ -1598,7 +1625,7 @@ def silu_and_mxfp8_quant_backward_kernel(g_ptr,
 
 
 # used in shared expert
-def triton_silu_and_mxfp8_quant_backward(g, x):
+def triton_silu_and_mxfp8_quant_backward(g, x, limit=None):
     """
     backward of triton_silu_and_mxfp8_quant_forward
     Args:
@@ -1623,6 +1650,12 @@ def triton_silu_and_mxfp8_quant_backward(g, x):
     transpose_dx_scale = torch.empty((M // 32, N), device=device,
                                      dtype=torch.uint8)
 
+    if limit is None:
+        CUTOFF = False
+        limit = 0.0
+    else:
+        CUTOFF = True
+
     grid = (M // 32, n // 32)
     silu_and_mxfp8_quant_backward_kernel[grid](
         g,
@@ -1631,9 +1664,11 @@ def triton_silu_and_mxfp8_quant_backward(g, x):
         dx_scale,
         transpose_dx,
         transpose_dx_scale,
+        limit,
         M,
         m,
         n,
+        CUTOFF,
         num_stages=3,
         num_warps=4)
     return dx, dx_scale, transpose_dx, transpose_dx_scale
@@ -1647,8 +1682,10 @@ def batch_weighted_silu_and_mxfp8_quant_forward_kernel(x_ptr, weight_ptr,
                                                        transpose_scale_ptr,
                                                        count_ptr,
                                                        accum_ptr,
+                                                       limit,
                                                        n,
                                                        E: tl.constexpr,
+                                                       CUTOFF: tl.constexpr,
                                                        OUTPUT_MODE: tl.constexpr):
     eid = tl.program_id(axis=0)
     rid = tl.program_id(axis=1)
@@ -1687,7 +1724,10 @@ def batch_weighted_silu_and_mxfp8_quant_forward_kernel(x_ptr, weight_ptr,
     x2 = tl.load(x_ptr + n + offs, mask=mask).to(
         tl.float32)
 
-    x = x1 * tl.sigmoid(x1) * x2 * w[:, None]
+    if CUTOFF:
+        x = tl.minimum(x1 * tl.sigmoid(x1), limit) * tl.clamp(x2, -limit, limit) * w[:, None]
+    else:
+        x = x1 * tl.sigmoid(x1) * x2 * w[:, None]
 
     if OUTPUT_MODE % 2 == 0:
         scale = tl.maximum(tl.max(tl.abs(x), 1) / 448, 1e-30)
@@ -1726,6 +1766,7 @@ def triton_batch_weighted_silu_and_mxfp8_quant_forward(x,
                                                        splits=None,
                                                        out=None,
                                                        scale=None,
+                                                       limit=None,
                                                        output_mode=2):
     """
     silu and blockwise quantize activation in routed experts
@@ -1768,6 +1809,12 @@ def triton_batch_weighted_silu_and_mxfp8_quant_forward(x,
     if M == 0:
         return out, scale, transpose_output, transpose_scale
 
+    if limit is None:
+        CUTOFF = False
+        limit = 0.0
+    else:
+        CUTOFF = True
+
     accums = torch.cumsum(counts, 0)
 
     grid = (n_experts, triton.cdiv(max(splits), 128) * 4, n // 32)
@@ -1780,8 +1827,10 @@ def triton_batch_weighted_silu_and_mxfp8_quant_forward(x,
         transpose_scale,
         counts,
         accums,
+        limit,
         n,
         len(splits),
+        CUTOFF,
         output_mode,
         num_stages=3,
         num_warps=1)
@@ -1799,8 +1848,11 @@ def batch_weighted_silu_and_mxfp8_quant_backward_kernel(g_ptr, x_ptr,
                                                         transpose_dx_ptr,
                                                         transpose_dx_scale_ptr,
                                                         dw_ptr,
+                                                        limit,
                                                         n,
-                                                        E: tl.constexpr):
+                                                        E: tl.constexpr,
+                                                        CUTOFF: tl.constexpr
+                                                        ):
     eid = tl.program_id(axis=0)
     rid = tl.program_id(axis=1)
     cid = tl.program_id(axis=2)
@@ -1825,18 +1877,31 @@ def batch_weighted_silu_and_mxfp8_quant_backward_kernel(g_ptr, x_ptr,
     idx = rid * 32 + tl.arange(0, 32)
     w = tl.load(weight_ptr + si + idx, mask=idx < count).to(tl.float32)[:, None]
 
-    x1 = tl.load(x_ptr + offs, mask=idx[:, None] < count)  # .to(tl.float32)
-    x2 = tl.load(x_ptr + n + offs, mask=idx[:, None] < count)  # .to(tl.float32)
+    x1 = tl.load(x_ptr + offs, mask=idx[:, None] < count).to(tl.float32)
+    x2 = tl.load(x_ptr + n + offs, mask=idx[:, None] < count).to(tl.float32)
+    sigmoid = tl.sigmoid(x1)
+    gate = sigmoid * x1
+
+    if CUTOFF:
+        dx2_mask = (x2 <= limit) & (x2 >= -limit)
+        x2 = tl.clamp(x2, -limit, limit)
+        dx1_mask = gate <= limit
+        gate = tl.minimum(gate, limit)
+    
     g = tl.load(g_ptr + si * n + rid * 32 * n + 32 * cid +
                 tl.arange(0, 32)[:, None] * n +
                 tl.arange(0, 32)[None, :],
-                mask=idx[:, None] < count)  # .to(tl.float32)
-    sigmoid = tl.sigmoid(x1.to(tl.float32))
+                mask=idx[:, None] < count).to(tl.float32)
+    # sigmoid = tl.sigmoid(x1.to(tl.float32))
 
-    dw = tl.sum(sigmoid * x1 * x2 * g, 1)
+    dw = tl.sum(gate * x2 * g, 1)
     tl.store(dw_ptr + si * nb + cid + idx * nb, dw, mask=idx < count)
 
     dx = sigmoid * g * x2 * w * (1 + x1 * (1 - sigmoid))
+
+    if CUTOFF:
+        dx *= dx1_mask
+    
     scale = tl.maximum(
         tl.max(dx.abs(), 1) / 448, 1e-30)
 
@@ -1872,6 +1937,10 @@ def batch_weighted_silu_and_mxfp8_quant_backward_kernel(g_ptr, x_ptr,
              mask=idx[:, None] < count)
 
     dx = sigmoid * g * x1 * w
+
+    if CUTOFF:
+        dx *= dx2_mask
+    
     scale = tl.maximum(
         tl.max(dx.abs(), 1) / 448, 1e-30)
     log_scale = tl.ceil(tl.log2(scale))
@@ -1911,7 +1980,9 @@ def batch_weighted_silu_and_mxfp8_quant_backward_kernel(g_ptr, x_ptr,
 # used in routed experts
 def triton_batch_weighted_silu_and_mxfp8_quant_backward(g, x, weight,
                                                         counts,
-                                                        splits=None):
+                                                        splits=None,
+                                                        limit=None
+                                                        ):
     """
     backward of triton_batch_weighted_silu_and_mxfp8_quant_forward
     Args:
@@ -1950,6 +2021,12 @@ def triton_batch_weighted_silu_and_mxfp8_quant_backward(g, x, weight,
         dw = torch.empty_like(weight)
         return dx, dx_scale, dw, transpose_dx, transpose_dx_scale
 
+    if limit is None:
+        CUTOFF = False
+        limit = 0.0
+    else:
+        CUTOFF = True
+
     grid = (n_experts, triton.cdiv(max(splits), 128) * 4, N // 64)
     dws = torch.empty((m, N // 64), device=device, dtype=torch.float32)
     batch_weighted_silu_and_mxfp8_quant_backward_kernel[grid](
@@ -1963,8 +2040,10 @@ def triton_batch_weighted_silu_and_mxfp8_quant_backward(g, x, weight,
         transpose_dx,
         transpose_dx_scale,
         dws,
+        limit,
         n,
         n_experts,
+        CUTOFF,
         num_stages=3,
         num_warps=4)
     dw = dws.sum(1, keepdim=True).to(weight.dtype)
