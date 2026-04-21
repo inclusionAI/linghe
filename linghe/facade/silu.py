@@ -180,7 +180,7 @@ def block_batch_weighted_silu_impl(input, weights, counts, splits, quantizers,
 class MXFP8SiluFunction(torch.autograd.Function):
     @staticmethod
     # bias is an optional argument
-    def forward(ctx, input, quantizer, grad_quantizer, cls):
+    def forward(ctx, input, quantizer, grad_quantizer, cls, limit):
         shape = input.shape
         assert len(shape) == 3
         input = input.view(shape[0] * shape[1], shape[2])
@@ -188,8 +188,9 @@ class MXFP8SiluFunction(torch.autograd.Function):
         ctx.input_requires_grad = input.requires_grad
         ctx.shape = shape
         ctx.cls = cls
+        ctx.limit = limit
         ctx.save_for_backward(input)
-        x_q, x_scale, xt_q, xt_scale = triton_silu_and_mxfp8_quant_forward(input)
+        x_q, x_scale, xt_q, xt_scale = triton_silu_and_mxfp8_quant_forward(input, limit=limit)
 
         output_shape = (shape[0], shape[1], shape[2] // 2)
         # transpose_shape = (shape[2]//2, shape[0], shape[1])
@@ -211,7 +212,8 @@ class MXFP8SiluFunction(torch.autograd.Function):
         input, = ctx.saved_tensors
         grad_quantizer = ctx.grad_quantizer
         x_q, x_scale, xt_q, xt_scale = triton_silu_and_mxfp8_quant_backward(grad_output,
-                                                                            input)
+                                                                            input,
+                                                                            limit=ctx.limit)
         output = ctx.cls(shape=ctx.shape,
                          dtype=grad_output.dtype,
                          fp8_dtype=grad_quantizer.dtype,
@@ -222,25 +224,26 @@ class MXFP8SiluFunction(torch.autograd.Function):
                          quantizer=grad_quantizer,
                          requires_grad=ctx.input_requires_grad, )
 
-        return output, None, None, None
+        return output, None, None, None, None
 
 
-def mxfp8_silu_impl(input, quantizer, grad_quantizer, cls):
+def mxfp8_silu_impl(input, quantizer, grad_quantizer, cls, limit=None):
     # input: [length,bs,dim]
-    output = MXFP8SiluFunction.apply(input, quantizer, grad_quantizer, cls)
+    output = MXFP8SiluFunction.apply(input, quantizer, grad_quantizer, cls, limit)
     return output
 
 
 class MXFP8BatchWeightedSiluFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, weights, counts, splits, quantizers,
-                grad_quantizers, cls, is_recomputing):
+                grad_quantizers, cls, limit, is_recomputing):
         shape = input.shape
         ctx.grad_quantizers = grad_quantizers
         ctx.input_requires_grad = input.requires_grad
         ctx.shape = shape
         ctx.splits = splits
         ctx.cls = cls
+        ctx.limit = limit
         ctx.save_for_backward(input, weights, counts)
 
         if is_recomputing is None:
@@ -257,6 +260,7 @@ class MXFP8BatchWeightedSiluFunction(torch.autograd.Function):
                                                                         weights,
                                                                         counts,
                                                                         splits=splits,
+                                                                        limit=limit,
                                                                         output_mode=output_mode)
 
         output = cls(shape=x_q.shape,
@@ -282,7 +286,8 @@ class MXFP8BatchWeightedSiluFunction(torch.autograd.Function):
                                                                          input,
                                                                          weights,
                                                                          counts,
-                                                                         splits=ctx.splits)
+                                                                         splits=ctx.splits,
+                                                                         limit=ctx.limit)
         output = ctx.cls(shape=ctx.shape,
                          dtype=grad_output.dtype,
                          fp8_dtype=quantizers[0].dtype,
@@ -293,11 +298,11 @@ class MXFP8BatchWeightedSiluFunction(torch.autograd.Function):
                          quantizer=quantizers,
                          requires_grad=ctx.input_requires_grad, )
 
-        return output, wgrad, None, None, None, None, None, None
+        return output, wgrad, None, None, None, None, None, None, None
 
 
 def mxfp8_batch_weighted_silu_impl(input, weights, counts, splits, quantizers,
-                                   grad_quantizers, cls, is_recomputing=None):
+                                   grad_quantizers, cls, limit=None, is_recomputing=None):
     assert input.ndim == 2
     output = MXFP8BatchWeightedSiluFunction.apply(input,
                                                   weights,
@@ -306,6 +311,7 @@ def mxfp8_batch_weighted_silu_impl(input, weights, counts, splits, quantizers,
                                                   quantizers,
                                                   grad_quantizers,
                                                   cls,
+                                                  limit,
                                                   is_recomputing)
     return output
 
