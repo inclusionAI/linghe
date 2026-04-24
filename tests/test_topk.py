@@ -83,16 +83,19 @@ def torch_group_topk_score(logits, expert_bias=None, num_experts=256, topk=8,
     return topk_masked_gates.float(), topk_map, tokens_per_expert
 
 
-def test_topk(M=4096, B=1, N=256, k=8, equal=False, bench=False):
+def test_topk(M=4096, B=1, N=256, k=8, equal=False, sorted=True, bench=False):
     dtype = torch.float32
     device = 'cuda:0'
 
     if B == 0:
         x = torch.randn(M, N, dtype=dtype, device=device)
+        g = torch.randn(M, k, dtype=dtype, device=device)
     else:
         x = torch.randn(M, B, N, dtype=dtype, device=device)
+        g = torch.randn(M, B, k, dtype=dtype, device=device)
     if equal:
         x[..., 0] = x[..., -1]
+
 
     x = x.requires_grad_()
 
@@ -102,32 +105,52 @@ def test_topk(M=4096, B=1, N=256, k=8, equal=False, bench=False):
     value_ref, index_ref = torch.topk(xd, k)
     value_ref = value_ref.float()
 
-    loss_ref = (value_ref * index_ref.float()).sum()
-    loss_ref.backward()
+    value_ref.backward(g)
     grad_ref = x.grad
     x.grad = None
 
-    value, index = triton_topk_forward(x, k)
-    grad = triton_topk_backward(index_ref.float(), index, N)
+    value, index = triton_topk_forward(x, k, sorted=sorted)
+        
+    rate = (1 - torch.arange(0, k, device=device).to(
+        torch.float64) * 1e-12)
+    if not sorted:
+        permute = torch.argsort(value.double() * rate, dim=-1, descending=True)
+        value = value.gather(-1, permute)
+        index = index.gather(-1, permute)
+    grad = triton_topk_backward(g, index, N)
     output_check(value_ref, value, 'value')
     output_check(index_ref, index.to(torch.int64), 'index')
     output_check(grad_ref, grad, 'grad')
 
-    value, index = fused_topk(x, k)
-    value.backward(index_ref.float())
+    value, index = fused_topk(x, k, sorted=sorted)
+
+    if not sorted:
+        permute = torch.argsort(value.double() * rate, dim=-1, descending=True)
+        gs = torch.zeros_like(g)
+        gs.scatter_(-1, permute, g)
+        value.backward(gs)
+        value = value.gather(-1, permute)
+        index = index.gather(-1, permute)
+    else:
+        value.backward(g)
+
     grad = x.grad
+
     output_check(value_ref, value, 'value')
     output_check(index_ref, index.to(torch.int64), 'index')
     output_check(grad_ref, grad, 'grad')
 
     if bench:
         ref_time = benchmark_func(torch.topk, x, k,
-                                  ref_bytes=M * N * 4)
-        benchmark_func(triton_topk_forward, x, k,
+                                  ref_bytes=M * N * 4,
+                                  n_profile=0)
+        benchmark_func(triton_topk_forward, x, k, sorted=sorted,
                        ref_bytes=M * N * 4,
-                       ref_time=ref_time)
+                       ref_time=ref_time,
+                       n_profile=0)
         benchmark_func(triton_topk_backward, index_ref.float(), index, N,
-                       ref_bytes=M * N * 4)
+                       ref_bytes=M * N * 4,
+                       n_profile=0)
 
 
 def test_group_topk_score(M=4096, N=256, k=8, num_groups=8, group_topk=4,
@@ -195,12 +218,13 @@ def test_group_topk_score(M=4096, N=256, k=8, num_groups=8, group_topk=4,
 
 
 if __name__ == '__main__':
-    test_topk(M=8192, B=0, N=256, k=8, equal=False, bench=False)
-    test_topk(M=4096, B=2, N=256, k=8, equal=False, bench=False)
-    test_topk(M=4096, B=2, N=256, k=8, equal=True, bench=False)
+    test_topk(M=8192, B=0, N=256, k=8, equal=False, sorted=True, bench=False)
+    test_topk(M=8192, B=0, N=256, k=8, equal=False, sorted=False, bench=False)
+    test_topk(M=4096, B=2, N=256, k=8, equal=False, sorted=False, bench=False)
+    test_topk(M=4096, B=2, N=256, k=8, equal=True, sorted=False, bench=False)
     test_group_topk_score(M=8192, N=256, k=8, num_groups=8, group_topk=4,
                           scaling_factor=2.5, equal=False, bias=True, bias_coef=0.0,
-                          bench=True)
+                          bench=False)
     test_group_topk_score(M=8192, N=256, k=8, num_groups=8, group_topk=4,
                           scaling_factor=2.5, equal=False, bias=False, bias_coef=1.0,
                           bench=False)

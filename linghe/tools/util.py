@@ -6,6 +6,8 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import math
 
 import torch
+import triton
+import triton.language as tl
 
 
 def round_up(x, b=16):
@@ -571,3 +573,23 @@ def torch_make_chunk_sort_map(num_global_tokens_per_local_expert: torch.Tensor):
             current_dst_offset += count
 
     return row_id_map, row_id_map_inverse
+
+
+
+
+@triton.jit
+def print_kernel(x_ptr):
+    pid = tl.program_id(axis=0)
+    x = tl.load(x_ptr+tl.arange(0,16)).to(tl.float32)
+    if pid == 0:
+        tl.device_print("x", x)
+
+# the kernel is used to debug cuda graph tensor
+def triton_print(x):
+    grid = lambda META: (1, )
+    print_kernel[grid](
+        x,
+        num_stages=1,
+        num_warps=1
+    )
+    return x

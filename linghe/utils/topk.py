@@ -14,7 +14,7 @@ def topk_forward_kernel(input_ptr, value_ptr, index_ptr,
                         K: tl.constexpr):
     pid = tl.program_id(axis=0)
 
-    xo = tl.load(input_ptr + pid * N + tl.arange(0, N))
+    xo = tl.load(input_ptr + pid * N + tl.arange(0, N)).to(tl.float32)
 
     x = xo
     for i in range(K):
@@ -34,7 +34,59 @@ def topk_forward_kernel(input_ptr, value_ptr, index_ptr,
             y = tl.where(y == val, -2e38, y)
 
 
-def triton_topk_forward(x, k, dim=-1):
+
+@triton.jit
+def unsorted_topk_forward_kernel(input_ptr, value_ptr, index_ptr,
+                        N: tl.constexpr,
+                        K: tl.constexpr):
+    pid = tl.program_id(axis=0)
+
+    x = tl.load(input_ptr + pid * N + tl.arange(0, N)).to(tl.float32)
+
+    xt = tl.topk(x, K, dim=0)
+    min_xt = tl.min(xt)
+    mask = x >= min_xt
+
+    if tl.sum(mask) > K:
+        y = x.to(tl.float64) * (1 - tl.arange(0, N).to(tl.float64) * 1e-12)
+        yt = tl.topk(y, K, dim=0)
+        min_yt = tl.min(yt)
+        masks = y >= min_yt
+    else:
+        masks = mask
+
+    acc = tl.cumsum(masks, 0) - 1
+
+    tl.store(value_ptr + pid * K + acc, x, mask=masks)
+    tl.store(index_ptr + pid * K + acc, tl.arange(0, N), mask=masks)
+
+
+
+@triton.jit
+def sorted_topk_forward_kernel(input_ptr, value_ptr, index_ptr,
+                        N: tl.constexpr,
+                        K: tl.constexpr):
+    pid = tl.program_id(axis=0)
+
+    x = tl.load(input_ptr + pid * N + tl.arange(0, N)).to(tl.float32).to(tl.uint32, bitcast=True)
+    x = tl.where(x >= 2 ** 31, x - 2 ** 31, x + 2 ** 31)
+    
+    x = x.to(tl.uint64)
+
+    x = (x << 32) + tl.arange(0, N).to(tl.uint64)
+
+    xt = tl.topk(x, K, dim=0)
+    
+    value = (xt >> 32).to(tl.uint32)
+    value = tl.where(value >= 2 ** 31, value - 2 ** 31, value + 2 ** 31)
+    value = value.to(tl.float32, bitcast=True)
+    index = (xt % (2 ** 32)).to(tl.int32)
+
+    tl.store(value_ptr + pid * K + tl.arange(0, K), value)
+    tl.store(index_ptr + pid * K + tl.arange(0, K), index)
+
+
+def triton_topk_forward(x, k, dim=-1, sorted=True, impl='iter'):
     """
     calculate topk.
     Args:
@@ -46,27 +98,43 @@ def triton_topk_forward(x, k, dim=-1):
     """
     device = x.device
     shape = x.shape
-    assert dim == -1 and len(shape) <= 3
-    assert x.is_contiguous()
-    if len(shape) == 3:
-        M, B, N = shape
-        g = M * B
-        values = torch.empty((M, B, k), device=device, dtype=x.dtype)
-        indices = torch.empty((M, B, k), device=device, dtype=torch.int64)
-    else:
-        M, N = shape
-        g = M
-        values = torch.empty((M, k), device=device, dtype=x.dtype)
-        indices = torch.empty((M, k), device=device, dtype=torch.int64)
+    assert dim == -1
+    assert x.is_contiguous() and x.dtype in (torch.float32, torch.bfloat16, torch.float16)
+    N = shape[-1]
+    g = x.numel() // N
+    values = torch.empty(shape[:-1] + (k, ), device=device, dtype=x.dtype)
+    indices = torch.empty(shape[:-1] + (k, ), device=device, dtype=torch.int64)
     grid = (g,)
-    topk_forward_kernel[grid](
-        x,
-        values,
-        indices,
-        N,
-        k,
-        num_stages=2,
-        num_warps=2)
+
+    if impl == 'iter':
+        topk_forward_kernel[grid](
+            x,
+            values,
+            indices,
+            N,
+            k,
+            num_stages=2,
+            num_warps=1)
+    else:
+        if sorted:
+            sorted_topk_forward_kernel[grid](
+                x,
+                values,
+                indices,
+                N,
+                k,
+                num_stages=2,
+                num_warps=1)
+        else:
+            unsorted_topk_forward_kernel[grid](
+                x,
+                values,
+                indices,
+                N,
+                k,
+                num_stages=2,
+                num_warps=1)
+
     return values, indices
 
 
@@ -93,16 +161,11 @@ def triton_topk_backward(grad_output, indices, N, dim=-1):
     """
     device = grad_output.device
     shape = grad_output.shape
-    assert dim == -1 and len(shape) <= 3
+    assert dim == -1
     assert grad_output.is_contiguous()
-    if len(shape) == 3:
-        M, B, k = shape
-        g = M * B
-        dx = torch.zeros((M, B, N), device=device, dtype=grad_output.dtype)
-    else:
-        M, k = shape
-        g = M
-        dx = torch.zeros((M, N), device=device, dtype=grad_output.dtype)
+    k = shape[-1]
+    g = grad_output.numel() // k
+    dx = torch.zeros(shape[:-1] + (N,), device=device, dtype=grad_output.dtype)
     grid = (g,)
     topk_backward_kernel[grid](
         grad_output,
