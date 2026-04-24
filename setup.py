@@ -11,7 +11,7 @@ setup(
     license="MIT",
     license_files=("LICENSE",),
     description="LLM traning kernels",
-    URL="https://code.alipay.com/pia/linghe",
+    URL="https://github.com/inclusionAI/linghe",
     packages=find_packages(),
     install_requires=[],
     python_requires=">=3.8",
