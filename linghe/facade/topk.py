@@ -17,8 +17,8 @@ class TopkFunction(torch.autograd.Function):
     """"""
 
     @staticmethod
-    def forward(ctx, x, k, dim):
-        values, indices = triton_topk_forward(x, k, dim=dim)
+    def forward(ctx, x, k, dim, sorted, impl):
+        values, indices = triton_topk_forward(x, k, dim=dim, sorted=sorted, impl=impl)
         ctx.dim = dim
         ctx.shape = x.shape
         ctx.save_for_backward(indices)
@@ -30,10 +30,10 @@ class TopkFunction(torch.autograd.Function):
         grad_input = triton_topk_backward(
             grad_output, indices, ctx.shape[-1], dim=ctx.dim
         )
-        return grad_input, None, None
+        return grad_input, None, None, None, None
 
 
-def fused_topk(x, k, dim=-1):
+def fused_topk(x, k, dim=-1, sorted=True, impl="iter"):
     """
     topk
     Args:
@@ -44,7 +44,7 @@ def fused_topk(x, k, dim=-1):
         values: topk values
         indices: topk indices
     """
-    return TopkFunction.apply(x, k, dim)
+    return TopkFunction.apply(x, k, dim, sorted, impl)
 
 
 class GroupTopkScoreFunction(torch.autograd.Function):

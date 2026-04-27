@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from linghe.quant.block import (
@@ -5,7 +6,6 @@ from linghe.quant.block import (
     triton_blockwise_quant,
     triton_batch_blockwise_quant,
 )
-from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.tools.util import (
     torch_block_quant,
@@ -43,7 +43,13 @@ def torch_batch_blockwise_quant(x, token_count_per_expert_list, round_scale=True
     return q_ref, s_ref, qt_ref, st_ref
 
 
-def test_block_quant(M=8192, N=4096, bench=False):
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (8192, 4096),
+    ],
+)
+def test_block_quant(M, N, benchmark):
     device = "cuda:0"
     x = torch.randn((M, N), dtype=torch.bfloat16, device=device) ** 3
 
@@ -52,11 +58,16 @@ def test_block_quant(M=8192, N=4096, bench=False):
     output_check(x_q_ref.float(), x_q.float(), "data")
     output_check(x_s_ref.float(), x_s.float(), "scale")
 
-    if bench:
-        benchmark_func(triton_block_quant, x, round_scale=True, ref_bytes=M * N * 4)
+    benchmark(triton_block_quant, x, round_scale=True, ref_bytes=M * N * 4)
 
 
-def test_blockwise_quant(M=8192, N=4096, bench=False):
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (8192, 4096),
+    ],
+)
+def test_blockwise_quant(M, N, benchmark):
     device = "cuda:0"
     x = torch.randn((M, N), dtype=torch.bfloat16, device=device) ** 3
 
@@ -69,11 +80,16 @@ def test_blockwise_quant(M=8192, N=4096, bench=False):
     output_check(xt_q_ref.float(), xt_q.float(), "t.data")
     output_check(xt_s_ref.float(), xt_s.float(), "t.scale")
 
-    if bench:
-        benchmark_func(triton_blockwise_quant, x, round_scale=True, ref_bytes=M * N * 4)
+    benchmark(triton_blockwise_quant, x, round_scale=True, ref_bytes=M * N * 4)
 
 
-def test_batch_block_quant(M=16384, N=2048, n_experts=32, topk=2, bench=False):
+@pytest.mark.parametrize(
+    "M,N,n_experts,topk",
+    [
+        (16384, 2048, 32, 2),
+    ],
+)
+def test_batch_block_quant(M, N, n_experts, topk, benchmark):
     device = "cuda:0"
     logits = torch.randn((M, n_experts), dtype=torch.float32, device=device) ** 3
     logits[:, 0] -= 1000
@@ -98,18 +114,11 @@ def test_batch_block_quant(M=16384, N=2048, n_experts=32, topk=2, bench=False):
     output_check(xt_q_ref.float(), xt_q.view(-1).float(), "t.data")
     output_check(xt_s_ref.float(), xt_s.view(-1).float(), "t.scale")
 
-    if bench:
-        benchmark_func(
-            triton_batch_blockwise_quant,
-            x,
-            token_count_per_expert,
-            token_count_per_expert_list,
-            round_scale=True,
-            ref_bytes=M * N * 4,
-        )
-
-
-if __name__ == "__main__":
-    test_block_quant(M=8192, N=4096, bench=False)
-    test_blockwise_quant(M=8192, N=4096, bench=False)
-    test_batch_block_quant(M=16384, N=2048, n_experts=32, topk=2, bench=False)
+    benchmark(
+        triton_batch_blockwise_quant,
+        x,
+        token_count_per_expert,
+        token_count_per_expert_list,
+        round_scale=True,
+        ref_bytes=M * N * 4,
+    )

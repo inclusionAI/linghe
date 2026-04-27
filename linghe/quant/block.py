@@ -24,12 +24,11 @@ def block_quant_kernel(
     if ROUND:
         s = tl.exp2(tl.ceil(tl.log2(s)))
     y = x / s
-    y = y.to(y_ptr.dtype.element_ty)
     tl.store(y_ptr + offs, y, mask=mask)
     tl.store(s_ptr + pid_m * n + pid_n, s)
 
 
-def triton_block_quant(x, block_size=128, round_scale=False):
+def triton_block_quant(x, out=None, scale=None, block_size=128, round_scale=False):
     """
     blockwise quantize x, used for blockwise recipe for weight in megatron
     Args:
@@ -43,23 +42,28 @@ def triton_block_quant(x, block_size=128, round_scale=False):
     """
     assert x.is_contiguous()
     M, N = x.size()
-    y = torch.empty((M, N), dtype=torch.float8_e4m3fn, device=x.device)
-    s = torch.empty(
-        M // block_size, N // block_size, dtype=torch.float32, device=x.device
-    )
+    if out is None:
+        out = torch.empty((M, N), dtype=torch.float8_e4m3fn, device=x.device)
+    if scale is None:
+        scale = torch.empty(
+            triton.cdiv(M, block_size),
+            triton.cdiv(N, block_size),
+            dtype=torch.float32,
+            device=x.device,
+        )
     grid = (triton.cdiv(M, block_size), triton.cdiv(N, block_size))
     block_quant_kernel[grid](
         x,
-        y,
-        s,
+        out,
+        scale,
         M,
         N,
         BLOCK_SIZE=block_size,
         ROUND=round_scale,
-        num_stages=6,
-        num_warps=8,
+        num_stages=3,
+        num_warps=4,
     )
-    return y, s
+    return out, scale
 
 
 @triton.jit

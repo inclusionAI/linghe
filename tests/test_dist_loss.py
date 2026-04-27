@@ -17,9 +17,7 @@ from linghe.utils.loss import (
     triton_parallel_softmax_cross_entropy_backward,
     triton_softmax_cross_entropy_forward,
 )
-
 # from megatron.core.fusions.fused_cross_entropy import fused_vocab_parallel_cross_entropy
-
 
 def torch_cross_entropy(logits, targets, ignore_index=-100, reduction="none"):
     float_logits = logits.to(torch.float32)
@@ -186,7 +184,7 @@ if __name__ == "__main__":
     )
     pg = dist.distributed_c10d._get_default_group()
     test_triton_softmax_cross_entropy(
-        M=8192, N=157184, coef=1.0, grad_coef=1.0, inplace=False, group=pg, bench=False
+        M=8192, N=157184, coef=1.0, grad_coef=1.0, inplace=False, group=pg, bench=True
     )
     test_triton_softmax_cross_entropy(
         M=8192,

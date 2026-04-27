@@ -3,9 +3,9 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import pytest
 import torch
 
-from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.rearange import triton_sort_chunks_by_index
 
@@ -22,7 +22,13 @@ def torch_sort_chunks_by_index(x, scales, counts, indices):
     return output_data, output_scale
 
 
-def test_sort_chunks_by_index(M=4096, N=4096, bench=False):
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (4096, 4096),
+    ],
+)
+def test_sort_chunks_by_index(M, N, benchmark):
     dtype = torch.bfloat16
     device = "cuda:0"
     n_repeat = 100
@@ -49,30 +55,23 @@ def test_sort_chunks_by_index(M=4096, N=4096, bench=False):
     output_check(data_ref.view(torch.float8_e4m3fn), data, name="data")
     output_check(scale_ref, scale, name="scale")
 
-    if bench:
-        benchmark_func(
-            torch.split, x_q.view(torch.uint8), split_size_list, n_repeat=n_repeat
-        )
-        benchmark_func(torch.cat, chunks, dim=0, n_repeat=n_repeat)
-        benchmark_func(torch.split, x_scales, split_size_list, n_repeat=n_repeat)
-        benchmark_func(torch.cat, scale_chunks, dim=0, n_repeat=n_repeat)
-        benchmark_func(
-            torch_sort_chunks_by_index,
-            x_q.view(torch.float8_e4m3fn),
-            x_scales,
-            split_size_list,
-            sorted_indices_list,
-            n_repeat=n_repeat,
-        )
-        benchmark_func(
-            triton_sort_chunks_by_index,
-            x_q,
-            counts,
-            indices,
-            scales=x_scales,
-            n_repeat=n_repeat,
-        )
-
-
-if __name__ == "__main__":
-    test_sort_chunks_by_index(M=4096, N=4096)
+    benchmark(torch.split, x_q.view(torch.uint8), split_size_list, n_repeat=n_repeat)
+    benchmark(torch.cat, chunks, dim=0, n_repeat=n_repeat)
+    benchmark(torch.split, x_scales, split_size_list, n_repeat=n_repeat)
+    benchmark(torch.cat, scale_chunks, dim=0, n_repeat=n_repeat)
+    benchmark(
+        torch_sort_chunks_by_index,
+        x_q.view(torch.float8_e4m3fn),
+        x_scales,
+        split_size_list,
+        sorted_indices_list,
+        n_repeat=n_repeat,
+    )
+    benchmark(
+        triton_sort_chunks_by_index,
+        x_q,
+        counts,
+        indices,
+        scales=x_scales,
+        n_repeat=n_repeat,
+    )

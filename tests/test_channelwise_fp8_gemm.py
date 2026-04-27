@@ -3,10 +3,10 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import pytest
 import torch
 
 from linghe.gemm.channelwise_fp8_gemm import triton_scaled_mm
-from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.add import triton_inplace_add
 
@@ -28,7 +28,13 @@ def scaled_gemm_and_update(x_q, w_q, x_scales, w_scales, c=None, accum=False):
     return c
 
 
-def test_triton_channelwise_gemm(M=4096, N=4096, K=4096, bench=False):
+@pytest.mark.parametrize(
+    "M,N,K",
+    [
+        (4096, 4096, 4096),
+    ],
+)
+def test_triton_channelwise_gemm(M, N, K, benchmark):
     dtype = torch.bfloat16
     device = "cuda:0"
 
@@ -45,94 +51,89 @@ def test_triton_channelwise_gemm(M=4096, N=4096, K=4096, bench=False):
 
     output_check(y_ref, y, name="y", atol=-1)
 
-    if bench:
-        y_bf16 = torch.randn(M, N, dtype=dtype, device=device)
-        y_fp16 = y.to(torch.float16)
-        y_fp32 = y.to(torch.float32)
+    y_bf16 = torch.randn(M, N, dtype=dtype, device=device)
+    y_fp16 = y.to(torch.float16)
+    y_fp32 = y.to(torch.float32)
 
-        n_repeat = 100
-        ref_flops = M * N * K * 2
+    n_repeat = 100
+    ref_flops = M * N * K * 2
 
-        benchmark_func(
-            scaled_gemm_and_update,
-            x_q,
-            w_q,
-            x_scales,
-            w_scales,
-            c=y_bf16,
-            accum=False,
-            n_repeat=n_repeat,
-            ref_flops=ref_flops,
-        )
+    benchmark(
+        scaled_gemm_and_update,
+        x_q,
+        w_q,
+        x_scales,
+        w_scales,
+        c=y_bf16,
+        accum=False,
+        n_repeat=n_repeat,
+        ref_flops=ref_flops,
+    )
 
-        benchmark_func(
-            scaled_gemm_and_update,
-            x_q,
-            w_q,
-            x_scales,
-            w_scales,
-            c=y_bf16,
-            accum=True,
-            n_repeat=n_repeat,
-            ref_flops=ref_flops,
-        )
-        benchmark_func(
-            scaled_gemm_and_update,
-            x_q,
-            w_q,
-            x_scales,
-            w_scales,
-            c=y_fp16,
-            accum=True,
-            n_repeat=n_repeat,
-            ref_flops=ref_flops,
-        )
-        benchmark_func(
-            scaled_gemm_and_update,
-            x_q,
-            w_q,
-            x_scales,
-            w_scales,
-            c=y_fp32,
-            accum=True,
-            n_repeat=n_repeat,
-            ref_flops=ref_flops,
-        )
+    benchmark(
+        scaled_gemm_and_update,
+        x_q,
+        w_q,
+        x_scales,
+        w_scales,
+        c=y_bf16,
+        accum=True,
+        n_repeat=n_repeat,
+        ref_flops=ref_flops,
+    )
+    benchmark(
+        scaled_gemm_and_update,
+        x_q,
+        w_q,
+        x_scales,
+        w_scales,
+        c=y_fp16,
+        accum=True,
+        n_repeat=n_repeat,
+        ref_flops=ref_flops,
+    )
+    benchmark(
+        scaled_gemm_and_update,
+        x_q,
+        w_q,
+        x_scales,
+        w_scales,
+        c=y_fp32,
+        accum=True,
+        n_repeat=n_repeat,
+        ref_flops=ref_flops,
+    )
 
-        benchmark_func(
-            triton_scaled_mm,
-            x_q,
-            w_q,
-            x_scales,
-            w_scales,
-            c=y_bf16,
-            accum=True,
-            n_repeat=n_repeat,
-            ref_flops=ref_flops,
-        )
-        benchmark_func(
-            triton_scaled_mm,
-            x_q,
-            w_q,
-            x_scales,
-            w_scales,
-            c=y_fp16,
-            accum=True,
-            n_repeat=n_repeat,
-            ref_flops=ref_flops,
-        )
-        benchmark_func(
-            triton_scaled_mm,
-            x_q,
-            w_q,
-            x_scales,
-            w_scales,
-            c=y_fp32,
-            accum=True,
-            n_repeat=n_repeat,
-            ref_flops=ref_flops,
-        )
-
-
-if __name__ == "__main__":
-    test_triton_channelwise_gemm(M=4096, N=4096, K=4096, bench=False)
+    benchmark(
+        triton_scaled_mm,
+        x_q,
+        w_q,
+        x_scales,
+        w_scales,
+        c=y_bf16,
+        accum=True,
+        n_repeat=n_repeat,
+        ref_flops=ref_flops,
+    )
+    benchmark(
+        triton_scaled_mm,
+        x_q,
+        w_q,
+        x_scales,
+        w_scales,
+        c=y_fp16,
+        accum=True,
+        n_repeat=n_repeat,
+        ref_flops=ref_flops,
+    )
+    benchmark(
+        triton_scaled_mm,
+        x_q,
+        w_q,
+        x_scales,
+        w_scales,
+        c=y_fp32,
+        accum=True,
+        n_repeat=n_repeat,
+        ref_flops=ref_flops,
+    )
