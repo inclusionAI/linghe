@@ -103,7 +103,7 @@ def batch_count_zero_kernel(input_ptrs, size_ptr, count_ptr, B: tl.constexpr):
     input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
     t = tl.cdiv(size, B * sm)
     offs = bid * t * B + tl.arange(0, B)
-    for i in tl.range(t, flatten=True):
+    for i in tl.range(t):
         x = tl.load(input_ptr + offs, mask=offs < size, other=1).to(tl.float32)
         count += tl.sum(tl.where(x == 0, 1, 0))
         offs += B
@@ -155,7 +155,7 @@ def norm_kernel(input_ptr, tmp_ptr, m, B: tl.constexpr, ORD: tl.constexpr):
     tl.store(tmp_ptr + pid, sums)
 
 
-def triton_norm(x, ord=2, norm=True, scalar=True):
+def triton_norm(x, ord=2, norm=True, scalar=True, dtype=torch.float32):
     """
     calculate norm.
     Args:
@@ -176,7 +176,7 @@ def triton_norm(x, ord=2, norm=True, scalar=True):
     m = x.numel()
     B = 512
     T = triton.cdiv(m, B)
-    tmp = torch.empty((T,), device=device, dtype=torch.float32)
+    tmp = torch.empty((T,), device=device, dtype=dtype)
     grid = (T,)
     norm_kernel[grid](x, tmp, m, B, ord, num_stages=2, num_warps=2)
     if ord == -1:
@@ -202,7 +202,7 @@ def batch_norm_kernel(
 ):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1).to(tl.int64)
-    sm = tl.num_programs(axis=1)
+    T = tl.num_programs(axis=1)
     if HP:
         sums = tl.zeros((B,), dtype=tl.float64)
     else:
@@ -213,7 +213,7 @@ def batch_norm_kernel(
         input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.float32))
     else:
         input_ptr = tl.load(input_ptrs + tid).to(tl.pointer_type(tl.bfloat16))
-    t = tl.cdiv(size, B * sm)
+    t = tl.cdiv(size, B * T)
     offs = bid * t * B + tl.arange(0, B)
     for i in range(t):
         x = tl.load(input_ptr + offs, mask=offs < size, other=0)
@@ -233,7 +233,7 @@ def batch_norm_kernel(
         sums = tl.max(sums)
     else:
         sums = tl.sum(sums)
-    tl.store(tmp_ptr + tid * sm + bid, sums)
+    tl.store(tmp_ptr + tid * T + bid, sums)
 
 
 def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
@@ -266,15 +266,15 @@ def triton_batch_norm(xs, ord=2, norm=True, scalar=True, high_precision=True):
     )
 
     DT = 0 if dtype == torch.float32 else 1
-    sm = 256
+    T = 256
     tensor_count = len(xs)
     tmp = torch.empty(
-        (tensor_count, sm),
+        (tensor_count, T),
         device=device,
         dtype=torch.float64 if high_precision else torch.float32,
     )
     B = 128
-    grid = (tensor_count, sm)
+    grid = (tensor_count, T)
     batch_norm_kernel[grid](
         ptrs, sizes, tmp, DT, B, ord, high_precision, num_stages=2, num_warps=2
     )
