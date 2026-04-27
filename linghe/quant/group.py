@@ -22,7 +22,7 @@ def group_quant_kernel(
     offs = pid * N + tl.arange(0, K * BLOCK_SIZE)
     n = tl.cdiv(N, K * BLOCK_SIZE)
     soffs = pid * (N // BLOCK_SIZE) + tl.arange(0, K)
-    for i in tl.range(n, flatten=True):
+    for i in tl.range(n):
         x = tl.load(x_ptr + offs).to(tl.float32)
         x = tl.reshape(x, (K, BLOCK_SIZE), can_reorder=False)
         s = tl.maximum(tl.max(tl.abs(x), 1) / 448.0, 1e-30)
@@ -56,7 +56,7 @@ def triton_group_quant(x, dtype=torch.float8_e4m3fn, group_size=128, round_scale
 
     y = torch.empty((M, N), device=x.device, dtype=dtype)
     s = torch.empty(M, N // group_size, device=x.device, dtype=torch.float32)
-    grid = (M,)  # noqa
+    grid = (M,)
     group_quant_kernel[grid](
         x, y, s, N, group_size, K, round_scale, num_stages=5, num_warps=4
     )
