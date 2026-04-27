@@ -6,6 +6,8 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import math
 
 import torch
+import triton
+import triton.language as tl
 
 
 def round_up(x, b=16):
@@ -25,8 +27,9 @@ def torch_row_quant(x, dtype=torch.float8_e4m3fn, round_scale=False):
     x = x.float()
     fmax = torch.finfo(dtype).max
     scale = torch.abs(x).amax(1) / fmax
-    scale = torch.maximum(scale, 1e-30 * torch.ones((1,), dtype=torch.float32,
-                                                    device=x.device))
+    scale = torch.maximum(
+        scale, 1e-30 * torch.ones((1,), dtype=torch.float32, device=x.device)
+    )
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
     x_q = (x / scale[:, None]).to(dtype)
@@ -54,14 +57,21 @@ def torch_group_quant(x, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
 
     xp = torch.reshape(x.contiguous(), (M, P // B, B))
     scale = torch.amax(torch.abs(xp).float(), dim=2) / fmax
-    scale = torch.maximum(scale, 1e-30 * torch.ones((1,), dtype=torch.float32,
-                                                    device=x.device))
+    scale = torch.maximum(
+        scale, 1e-30 * torch.ones((1,), dtype=torch.float32, device=x.device)
+    )
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
     xq = (xp / scale[:, :, None]).to(dtype)
     xq = torch.reshape(xq, (M, P)).contiguous()
     xq = xq[:, :K].contiguous()
     return xq, scale
+
+
+def torch_group_dequant(x_q, x_s, B=128):
+    m, n = x_s.shape
+    x_dq = x_q.float() * x_s.repeat_interleave(128, 1)
+    return x_dq
 
 
 def torch_blockwise_quant(x, round_scale=True, padding=False):
@@ -80,13 +90,19 @@ def torch_blockwise_quant(x, round_scale=True, padding=False):
     return y_q, y_scale.t().contiguous(), yt_q, yt_scale.t().contiguous()
 
 
+def torch_blockwise_dequant(w_q, w_s, B=128):
+    w_s = w_s.repeat_interleave(B, 1)
+    w_s = w_s.repeat_interleave(B, 0)
+    x_dq = w_q.float() * w_s
+    return x_dq
+
+
 def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     fmax = torch.finfo(dtype).max
     w = w.clone()
     N, K = w.shape
 
-    wp = torch.reshape(w, (N // B, B, K // B, B)).permute(0, 2,
-                                                          1, 3)
+    wp = torch.reshape(w, (N // B, B, K // B, B)).permute(0, 2, 1, 3)
     scale = torch.amax(torch.amax(torch.abs(wp).float(), dim=2), dim=2) / fmax
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
@@ -97,21 +113,28 @@ def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     return wq, scale
 
 
-def torch_mxfp8_quant(x):
+def torch_mxfp8_quant(x, padding=False, zero=False):
+    m_ori, N = x.shape
+    if padding:
+        padding_size = (m_ori + 31) // 32 * 32 - m_ori
+        if padding_size > 0:
+            x = torch.nn.functional.pad(x, (0, 0, 0, padding_size))
+
     x = x.float()
-    m, N = x.shape
+    m, N = x.shape  # current m is multiple of 32
     assert N % 128 == 0
     if m % 128 != 0:
         M = (m + 127) // 128 * 128
-        x = torch.cat(
-            [x, torch.zeros((M - m, N), dtype=x.dtype, device=x.device)], 0)
+        x = torch.cat([x, torch.zeros((M - m, N), dtype=x.dtype, device=x.device)], 0)
     else:
         M = m
     xs = x.view(M, N // 32, 32)
     xm = xs.abs().amax(2)
     scale = torch.maximum(xm / 448, 1e-30 * torch.ones_like(xm))
     scale = torch.exp2(torch.ceil(torch.log2(scale)))
-    x_q = (xs / scale[:, :, None]).to(torch.float8_e4m3fn).view(M, N)[:m]
+    x_q = (xs / scale[:, :, None]).to(torch.float8_e4m3fn).view(M, N)[:m]  # 取得前m行
+    if zero:
+        scale[m_ori:, :] = 0
     x_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
 
     xs = x.view(M // 32, 32, N)
@@ -119,34 +142,65 @@ def torch_mxfp8_quant(x):
     scale = torch.maximum(xm / 448, 1e-30 * torch.ones_like(xm))
     scale = torch.exp2(torch.ceil(torch.log2(scale)))
     xt_q = (xs / scale[:, None, :]).to(torch.float8_e4m3fn).view(M, N)[:m]
+    if zero:
+        scale[(m_ori + 31) // 32 :, :] = 0
     xt_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
 
     return x_q, x_scale, xt_q, xt_scale
 
 
+def torch_batch_mxfp8_quant(x, token_count_per_expert_list):
+    M, DIM = x.shape
+    q_refs = []
+    s_refs = []
+    qt_refs = []
+    st_refs = []
+    s = 0
+    for i, c in enumerate(token_count_per_expert_list):
+        c = token_count_per_expert_list[i]
+        if c == 0:
+            continue
+        y = x[s : s + c]
+        y = y.float()
+
+        y_q, y_scale, yt_q, yt_scale = torch_mxfp8_quant(y)
+        q_refs.append(y_q)
+        s_refs.append(y_scale)
+        qt_refs.append(yt_q)
+        st_refs.append(yt_scale)
+        s += c
+    q_ref = torch.cat(q_refs, 0)
+    s_ref = torch.cat(s_refs, 0)
+    qt_ref = torch.cat(qt_refs, 0)
+    st_ref = torch.cat(st_refs, 0)
+    return q_ref, s_ref, qt_ref, st_ref
+
+
 def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
     x = x.float()
-    x_maxs = x.abs().amax(0)
+    # x_maxs = x.abs().amax(0)
     if reverse:
         x_smooth = x * smooth_scale
     else:
-        x_smooth = x / torch.maximum(smooth_scale,
-                                     1e-30 * torch.ones_like(smooth_scale))
+        x_smooth = x / torch.maximum(
+            smooth_scale, 1e-30 * torch.ones_like(smooth_scale)
+        )
     scale = x_smooth.abs().amax(1) / 448
     scale = torch.maximum(scale, 1e-30 * torch.ones_like(scale))
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
     x_q = (x_smooth / scale[:, None]).to(torch.float8_e4m3fn)
-    return x_q, scale, x_maxs
+    return x_q, scale
 
 
-def torch_batch_smooth_quant(xs, smooth_scales, indices, token_count_per_expert,
-                             reverse=False, round_scale=False):
+def torch_batch_smooth_quant(
+    xs, smooth_scales, indices, token_count_per_expert, reverse=False, round_scale=False
+):
     q_refs = []
     scale_refs = []
     s = 0
     for i, c in enumerate(token_count_per_expert):
-        idx = indices[s:s + c]
+        idx = indices[s : s + c]
         y_slice = xs[idx]
         if reverse:
             y_smooth = y_slice * smooth_scales[i]
@@ -166,9 +220,9 @@ def torch_batch_smooth_quant(xs, smooth_scales, indices, token_count_per_expert,
 def torch_make_indices(logits, topk=8, bias=-0.01):
     M, n_experts = logits.shape
     device = logits.device
-    logits = logits.to(torch.float64) + 1e-10 * torch.arange(n_experts,
-                                                             device=device).to(
-        torch.float32)
+    logits = logits.to(torch.float64) + 1e-10 * torch.arange(
+        n_experts, device=device
+    ).to(torch.float32)
     topk_values, topk_indices = torch.topk(logits, topk, dim=-1, sorted=True)
     logits[logits < topk_values[:, -1:] + bias] = -1000000
     probs = torch.nn.Softmax(dim=1)(logits)
@@ -181,8 +235,12 @@ def torch_make_indices(logits, topk=8, bias=-0.01):
         torch.arange(M, device=logits.device).unsqueeze(0).expand(n_experts, -1)
     )
     indices = token_indices.masked_select(route_map.T.contiguous())
-    row_id_map = torch.reshape(
-        torch.cumsum(route_map.T.contiguous().view(-1), 0), (n_experts, M)) - 1
+    row_id_map = (
+        torch.reshape(
+            torch.cumsum(route_map.T.contiguous().view(-1), 0), (n_experts, M)
+        )
+        - 1
+    )
     row_id_map[torch.logical_not(route_map.T)] = -1
     row_id_map = row_id_map.T.contiguous()
     return probs.float(), route_map, token_count_per_expert, indices, row_id_map
@@ -246,26 +304,25 @@ def torch_outlier_quant(x, w, dtype):
     return xq, wq, x_scale, w_scale, max_idx[:4], x_outlier
 
 
-def make_hadamard_matrix(n, device='cuda:0', dtype=torch.bfloat16, norm=False):
+def make_hadamard_matrix(n, device="cuda:0", dtype=torch.bfloat16, norm=False):
     assert 2 ** int(math.log2(n)) == n
-    m2 = torch.tensor([[1, 1], [1, -1]], device='cpu', dtype=torch.float32)
+    m2 = torch.tensor([[1, 1], [1, -1]], device="cpu", dtype=torch.float32)
     m = m2
     for i in range(int(math.log2(n)) - 1):
         m = torch.kron(m, m2)
     if norm:
-        m = m / n ** 0.5
+        m = m / n**0.5
     return m.to(dtype=dtype, device=device)
 
 
-def torch_hadamard_transform(x, hm, side='right'):
-    assert side in ('right', 'left')
+def torch_hadamard_transform(x, hm, side="right"):
+    assert side in ("right", "left")
     x = x.clone()
     hm = hm.clone()
     M, K = x.shape
     B = hm.size(0)
-    xp = torch.reshape(x, (M // B, B, K // B, B)).permute(0, 2, 1,
-                                                          3).contiguous()
-    if side == 'right':
+    xp = torch.reshape(x, (M // B, B, K // B, B)).permute(0, 2, 1, 3).contiguous()
+    if side == "right":
         xp = xp @ hm
     else:
         xp = hm @ xp
@@ -283,12 +340,14 @@ def torch_channel_quant_f_and_b(x, w, y):
     w_scale = w.abs().float().amax(dim=1, keepdim=True) / 448.0  # [N,1]
     xq = (x / x_scale).to(torch.float8_e4m3fn)
     wq = (w / w_scale).to(torch.float8_e4m3fn)
-    o = torch._scaled_mm(xq,
-                         wq.t(),
-                         scale_a=x_scale.view(-1, 1),
-                         scale_b=w_scale.view(1, -1),
-                         out_dtype=torch.bfloat16,
-                         use_fast_accum=True)
+    o = torch._scaled_mm(
+        xq,
+        wq.t(),
+        scale_a=x_scale.view(-1, 1),
+        scale_b=w_scale.view(1, -1),
+        out_dtype=torch.bfloat16,
+        use_fast_accum=True,
+    )
 
     # dx = y @ wT
     # absort w quant scale to y
@@ -296,24 +355,28 @@ def torch_channel_quant_f_and_b(x, w, y):
     y_scale = ys.abs().float().amax(dim=1, keepdim=True) / 448.0 + 1e-9
     yq = (ys / y_scale).to(torch.float8_e4m3fn)
     w_dummy_scale = torch.ones((1, K), dtype=torch.float32, device=x.device)
-    dx = torch._scaled_mm(yq,
-                          wq.t().contiguous().t(),
-                          scale_a=y_scale,
-                          scale_b=w_dummy_scale,
-                          out_dtype=torch.bfloat16,
-                          use_fast_accum=True)
+    dx = torch._scaled_mm(
+        yq,
+        wq.t().contiguous().t(),
+        scale_a=y_scale,
+        scale_b=w_dummy_scale,
+        out_dtype=torch.bfloat16,
+        use_fast_accum=True,
+    )
 
     # dw = yT@x
     yt = y.t().contiguous()
     yts = yt * x_scale.view(1, M)
     yt_scale = yts.abs().float().amax(dim=1, keepdim=True) / 448.0 + 1e-9
     ytq = (yts / yt_scale).to(torch.float8_e4m3fn)
-    dw = torch._scaled_mm(ytq,
-                          xq.t().contiguous().t(),
-                          scale_a=yt_scale.view(-1, 1),
-                          scale_b=w_dummy_scale,
-                          out_dtype=torch.bfloat16,
-                          use_fast_accum=True)
+    dw = torch._scaled_mm(
+        ytq,
+        xq.t().contiguous().t(),
+        scale_a=yt_scale.view(-1, 1),
+        scale_b=w_dummy_scale,
+        out_dtype=torch.bfloat16,
+        use_fast_accum=True,
+    )
     return xq, wq, yq, ytq, o, dx, dw
 
 
@@ -341,12 +404,14 @@ def torch_smooth_quant_f_and_b(x, w, y):
     xq = (x_smooth / x_quant_scale).to(torch.float8_e4m3fn)
     wq = (w_smooth / w_quant_scale).to(torch.float8_e4m3fn)
 
-    o = torch._scaled_mm(xq,
-                         wq.t(),
-                         scale_a=x_quant_scale.view(-1, 1),
-                         scale_b=w_quant_scale.view(1, -1),
-                         out_dtype=torch.bfloat16,
-                         use_fast_accum=True)
+    o = torch._scaled_mm(
+        xq,
+        wq.t(),
+        scale_a=x_quant_scale.view(-1, 1),
+        scale_b=w_quant_scale.view(1, -1),
+        out_dtype=torch.bfloat16,
+        use_fast_accum=True,
+    )
 
     # print(f'{x_smooth_scale=} {x_quant_scale[:,0]=} {w_quant_scale=}')
 
@@ -355,24 +420,28 @@ def torch_smooth_quant_f_and_b(x, w, y):
     ys = y * w_quant_scale.view(1, N)
     y_scale = ys.abs().float().amax(dim=1, keepdim=True) / 448.0 + 1e-9
     yq = (ys / y_scale).to(torch.float8_e4m3fn)
-    dx = torch._scaled_mm(yq,
-                          wq.t().contiguous().t(),
-                          scale_a=y_scale,
-                          scale_b=w_smooth_scale.view(1, -1),
-                          out_dtype=torch.bfloat16,
-                          use_fast_accum=True)
+    dx = torch._scaled_mm(
+        yq,
+        wq.t().contiguous().t(),
+        scale_a=y_scale,
+        scale_b=w_smooth_scale.view(1, -1),
+        out_dtype=torch.bfloat16,
+        use_fast_accum=True,
+    )
 
     # dw = yT@x
     yt = y.t().contiguous()  # [N, M]
     yts = yt * x_quant_scale.view(1, M)
     yt_scale = yts.abs().amax(dim=1, keepdim=True) / 448.0 + 1e-9
     ytq = (yts / yt_scale).to(torch.float8_e4m3fn)
-    dw = torch._scaled_mm(ytq,
-                          xq.t().contiguous().t(),
-                          scale_a=yt_scale.view(-1, 1),
-                          scale_b=x_smooth_scale.view(1, -1),
-                          out_dtype=torch.bfloat16,
-                          use_fast_accum=True)
+    dw = torch._scaled_mm(
+        ytq,
+        xq.t().contiguous().t(),
+        scale_a=yt_scale.view(-1, 1),
+        scale_b=x_smooth_scale.view(1, -1),
+        out_dtype=torch.bfloat16,
+        use_fast_accum=True,
+    )
 
     return xq, wq, yq, ytq, o, dx, dw
 
@@ -405,16 +474,16 @@ def fp16_f_and_b(x, w, y):
 
 
 def read_and_tile(filename, tile=True):
-    device = 'cuda:0'
+    device = "cuda:0"
     dtype = torch.bfloat16
     d = torch.load(filename, weights_only=True)
     # x = d['x'][0].to(dtype).to(device)
     # w = d['w'].to(dtype).to(device)
     # y = d['y'][0].to(dtype).to(device)
-    x = d['x']
-    y = d['y']
+    x = d["x"]
+    y = d["y"]
     x = x.view(-1, x.size(2)).to(dtype).to(device)
-    w = d['w'].to(dtype).to(device)
+    w = d["w"].to(dtype).to(device)
     y = y.view(-1, y.size(2)).to(dtype).to(device)
 
     if tile:
@@ -440,51 +509,122 @@ def read_and_tile(filename, tile=True):
 
     batch_size, in_dim = x.shape
     out_dim, in_dim = w.shape
-    print(f'\ndataset: {batch_size=} {in_dim=} {out_dim=} ' \
-          f'x.max={x.abs().max().item():.3f} x.mean={x.abs().mean().item():.3f} ' \
-          f'w.max={w.abs().max().item():.3f} w.mean={w.abs().mean().item():.3f} ' \
-          f'y.max={y.abs().max().item():.3f} y.mean={y.abs().mean().item():.3f}')
+    print(
+        f"\ndataset: {batch_size=} {in_dim=} {out_dim=} "
+        f"x.max={x.abs().max().item():.3f} x.mean={x.abs().mean().item():.3f} "
+        f"w.max={w.abs().max().item():.3f} w.mean={w.abs().mean().item():.3f} "
+        f"y.max={y.abs().max().item():.3f} y.mean={y.abs().mean().item():.3f}"
+    )
 
     return x, w, y
 
 
 def torch_fp16_vector_scaled_mm(x, weight, x_scale, weight_scale):
-    output = torch._scaled_mm(x,
-                              weight,
-                              scale_a=x_scale,
-                              scale_b=weight_scale,
-                              out_dtype=torch.bfloat16,
-                              use_fast_accum=True)
+    output = torch._scaled_mm(
+        x,
+        weight,
+        scale_a=x_scale,
+        scale_b=weight_scale,
+        out_dtype=torch.bfloat16,
+        use_fast_accum=True,
+    )
     return output
 
 
-def torch_fp32_vector_scaled_mm(x, weight, x_scale, weight_scale, ones,
-                                out=None):
-    output = torch._scaled_mm(x,
-                              weight,
-                              scale_a=ones,
-                              scale_b=ones,
-                              out_dtype=torch.float32,
-                              use_fast_accum=True,
-                              out=out)
+def torch_fp32_vector_scaled_mm(x, weight, x_scale, weight_scale, ones, out=None):
+    output = torch._scaled_mm(
+        x,
+        weight,
+        scale_a=ones,
+        scale_b=ones,
+        out_dtype=torch.float32,
+        use_fast_accum=True,
+        out=out,
+    )
     return output * x_scale * weight_scale
 
 
 def torch_fp16_scaler_scaled_mm(x, weight, x_scale, weight_scale):
-    output = torch._scaled_mm(x,
-                              weight,
-                              scale_a=x_scale,
-                              scale_b=weight_scale,
-                              out_dtype=torch.bfloat16,
-                              use_fast_accum=True)
+    output = torch._scaled_mm(
+        x,
+        weight,
+        scale_a=x_scale,
+        scale_b=weight_scale,
+        out_dtype=torch.bfloat16,
+        use_fast_accum=True,
+    )
     return output
 
 
 def torch_fp32_scaler_scaled_mm(x, weight, x_scale, weight_scale):
-    output = torch._scaled_mm(x,
-                              weight,
-                              scale_a=x_scale,
-                              scale_b=weight_scale,
-                              out_dtype=torch.float32,
-                              use_fast_accum=True)
+    output = torch._scaled_mm(
+        x,
+        weight,
+        scale_a=x_scale,
+        scale_b=weight_scale,
+        out_dtype=torch.float32,
+        use_fast_accum=True,
+    )
     return output
+
+
+def torch_make_chunk_sort_map(num_global_tokens_per_local_expert: torch.Tensor):
+    device = num_global_tokens_per_local_expert.device
+    num_ranks, num_local_experts = num_global_tokens_per_local_expert.shape
+
+    flat_sizes = num_global_tokens_per_local_expert.flatten()
+    src_chunk_starts = torch.cumsum(flat_sizes, dim=0) - flat_sizes
+    total_tokens = flat_sizes.sum().item()
+
+    tokens_per_expert = num_global_tokens_per_local_expert.sum(dim=0)
+    padded_tokens_per_expert = (tokens_per_expert + 31) // 32 * 32
+    expert_dst_starts = (
+        torch.cumsum(padded_tokens_per_expert, dim=0) - padded_tokens_per_expert
+    )
+    total_padded_size = padded_tokens_per_expert.sum().item()
+
+    row_id_map = torch.zeros((total_padded_size,), dtype=torch.int32, device=device)
+    row_id_map_inverse = torch.empty((total_tokens,), dtype=torch.int32, device=device)
+
+    for e_idx in range(num_local_experts):
+        current_dst_offset = expert_dst_starts[e_idx].item()
+
+        for r_idx in range(num_ranks):
+            count = num_global_tokens_per_local_expert[r_idx, e_idx].item()
+            if count == 0:
+                continue
+
+            src_idx_in_flat = r_idx * num_local_experts + e_idx
+            src_start = src_chunk_starts[src_idx_in_flat].item()
+
+            src_range = torch.arange(
+                src_start, src_start + count, device=device, dtype=torch.int32
+            )
+            dst_range = torch.arange(
+                current_dst_offset,
+                current_dst_offset + count,
+                device=device,
+                dtype=torch.int32,
+            )
+
+            row_id_map[dst_range] = src_range
+            row_id_map_inverse[src_range] = dst_range
+
+            current_dst_offset += count
+
+    return row_id_map, row_id_map_inverse
+
+
+@triton.jit
+def print_kernel(x_ptr):
+    pid = tl.program_id(axis=0)
+    x = tl.load(x_ptr + tl.arange(0, 16)).to(tl.float32)
+    if pid == 0:
+        tl.device_print("x", x)
+
+
+# the kernel is used to debug cuda graph tensor
+def triton_print(x):
+    grid = lambda META: (1,)
+    print_kernel[grid](x, num_stages=1, num_warps=1)
+    return x

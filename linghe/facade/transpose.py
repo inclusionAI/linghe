@@ -26,7 +26,7 @@ def transpose(x, inner=True):
     transpose a tensor, x.ndims should not greater than 4
     Args:
         x: input tensor
-        inner: 
+        inner:
             if True, transpose the first two dimensions
             if False, transpose the last two dimensions
     Returns:

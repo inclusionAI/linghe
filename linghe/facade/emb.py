@@ -21,19 +21,19 @@ class DeprecatedFusedAccumulationEmbeddingLookup(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        x, = ctx.saved_tensors
+        (x,) = ctx.saved_tensors
         triton_embedding_backward(grad_output, x, ctx.g_ptr, ctx.grad_dtype)
         return None, None, None, None, None, None
 
 
-def deprecated_fused_accumulation_embedding_lookup(x: torch.Tensor, w_ptr,
-                                                   g_ptr, dim, dtype,
-                                                   grad_dtype):
+def deprecated_fused_accumulation_embedding_lookup(
+    x: torch.Tensor, w_ptr, g_ptr, dim, dtype, grad_dtype
+):
     """
     embedding lookup
     Args:
         x: input ids
-        w_ptr: 
+        w_ptr:
         g_ptr:
         dim:
         dtype:
@@ -42,9 +42,9 @@ def deprecated_fused_accumulation_embedding_lookup(x: torch.Tensor, w_ptr,
         lookup output
     """
     x = x.double().requires_grad_()
-    return DeprecatedFusedAccumulationEmbeddingLookup.apply(x, w_ptr, g_ptr,
-                                                            dim, dtype,
-                                                            grad_dtype)
+    return DeprecatedFusedAccumulationEmbeddingLookup.apply(
+        x, w_ptr, g_ptr, dim, dtype, grad_dtype
+    )
 
 
 class FusedAccumulationEmbeddingLookup(torch.autograd.Function):
@@ -66,8 +66,9 @@ class FusedAccumulationEmbeddingLookup(torch.autograd.Function):
         return None, None, None
 
 
-def fused_accumulation_embedding_lookup(x: torch.Tensor, w: torch.nn.Parameter,
-                                        grad_name: str = 'grad'):
+def fused_accumulation_embedding_lookup(
+    x: torch.Tensor, w: torch.nn.Parameter, grad_name: str = "grad"
+):
     """
     embedding lookup
     Args:

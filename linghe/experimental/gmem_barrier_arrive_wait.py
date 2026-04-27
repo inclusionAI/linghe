@@ -8,12 +8,12 @@ import triton.language as tl
 
 @triton.jit
 def arrive_gmem_barrier(
-        addr,
-        update: tl.constexpr = 1,  # set the lock value to
-        sem: tl.constexpr = "release",
-        scope: tl.constexpr = "gpu",
-        op: tl.constexpr = "atomic_xchg",
-        skip_sync: tl.constexpr = False,
+    addr,
+    update: tl.constexpr = 1,  # set the lock value to
+    sem: tl.constexpr = "release",
+    scope: tl.constexpr = "gpu",
+    op: tl.constexpr = "atomic_xchg",
+    skip_sync: tl.constexpr = False,
 ):
     tl.static_assert(
         op == "atomic_xchg",
@@ -29,13 +29,13 @@ def arrive_gmem_barrier(
 
 @triton.jit
 def wait_gmem_barrier(
-        addr,
-        expect: tl.constexpr = 1,  # wait until lock is set to expect
-        update: tl.constexpr = 0,  # update the lock once it is aquired.
-        sem: tl.constexpr = "acquire",
-        scope: tl.constexpr = "gpu",
-        op: tl.constexpr = "ld",
-        skip_sync: tl.constexpr = False,
+    addr,
+    expect: tl.constexpr = 1,  # wait until lock is set to expect
+    update: tl.constexpr = 0,  # update the lock once it is aquired.
+    sem: tl.constexpr = "acquire",
+    scope: tl.constexpr = "gpu",
+    op: tl.constexpr = "ld",
+    skip_sync: tl.constexpr = False,
 ):
     """
     Wait for a global memory barrier to reach the expected state.
@@ -52,8 +52,7 @@ def wait_gmem_barrier(
         op: Atomic operation type (default: "ld", currently only supported option)
     """
     tl.static_assert(
-        op == "ld" and update == 0,
-        "Currently only support ld wait on gmem_barriers. "
+        op == "ld" and update == 0, "Currently only support ld wait on gmem_barriers. "
     )
     # TODO(joydddd): add support for cas barriers.
 
