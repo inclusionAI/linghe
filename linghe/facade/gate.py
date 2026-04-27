@@ -89,14 +89,14 @@ class Mxfp8GroupRMSNormGateFunction(torch.autograd.Function):
 
         output = cls(
             shape=x_q.shape,
-            dtype=input.dtype,
+            dtype=attn_output.dtype,
             fp8_dtype=quantizer.dtype,
             rowwise_data=x_q.view(shape),
             rowwise_scale_inv=x_s,
             columnwise_data=xt_q.view(shape),
             columnwise_scale_inv=xt_s,
             quantizer=quantizer,
-            requires_grad=input.requires_grad,
+            requires_grad=attn_output.requires_grad,
         )
 
         ctx.save_for_backward(attn_output, gate, weight)
@@ -131,4 +131,4 @@ class Mxfp8GroupRMSNormGateFunction(torch.autograd.Function):
             requires_grad=ctx.input_requires_grad,
         )
 
-        return dx, dg_out, dw, None, None
+        return dx, dg_out, dw, None, None, None, None, None
