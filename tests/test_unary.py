@@ -5,11 +5,11 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import random
 
+import pytest
 import torch
 
-from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
-from linghe.utils.unary import triton_calculate_smooth_scale, triton_batch_clip
+from linghe.utils.unary import triton_calculate_smooth_scale, triton_clip, triton_batch_clip
 
 
 def torch_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5,
@@ -24,13 +24,21 @@ def torch_calculate_smooth_scale(x, min_value=1.0, smooth_coef=0.5,
     return weight_smooth_scales
 
 
+def torch_clip(x, clip_value):
+    x = torch.clamp(x, -clip_value, clip_value)
+    return x
+
 def torch_batch_clip(xs, clip_value):
     torch._foreach_clamp_min_(xs, -clip_value)
     torch._foreach_clamp_max_(xs, clip_value)
     return xs
 
 
-def test_calculate_smooth_scale(N=4096, bench=False):
+@pytest.mark.parametrize("N", [
+    4096 * 32,
+    4096 * 32 - 1897,
+])
+def test_calculate_smooth_scale(N, benchmark):
     x = torch.randn(N, dtype=torch.float32, device='cuda:0').abs() ** 3 + 0.1
 
     min_value = 0.0
@@ -45,15 +53,40 @@ def test_calculate_smooth_scale(N=4096, bench=False):
 
     n_repeat = 100
 
-    if bench:
-        ref_time = benchmark_func(torch_calculate_smooth_scale, x,
-                                  n_repeat=n_repeat)
-        benchmark_func(torch_calculate_smooth_scale, x, n_repeat=n_repeat,
-                       ref_time=ref_time, ref_bytes=N * 8)
+    ref_time = benchmark(torch_calculate_smooth_scale, x, n_repeat=n_repeat)
+    benchmark(torch_calculate_smooth_scale, x, n_repeat=n_repeat, ref_time=ref_time, ref_bytes=N * 8)
 
 
-def test_batch_clip(M=2048, N=1024, k=1024, clip_value=1.0, inf=False,
-                    bench=False):
+@pytest.mark.parametrize("M,N,clip_value,inf", [
+    (2048, 8192, 0.1, False),
+    (10000, 8192, 100.0, True),
+])
+def test_clip(M, N, clip_value, inf, benchmark):
+    x = torch.randn(M, N, dtype=torch.float32, device='cuda:0')
+    x1 = x.clone().detach()
+    x2 = x.clone().detach()
+
+    if inf:
+        x1[0][:100] = float('inf')
+        x2[0][:100] = float('inf')
+
+    out_ref = torch_clip(x1, clip_value)
+    out = triton_clip(x2, clip_value)
+    output_check(out_ref, out, 'clip')
+
+    ref_bytes = M * N * 8
+    x3 = x.clone().detach()
+    n_repeat = 1  # inplace update will speedup our triton op
+    ref_time = benchmark(torch_clip, x3, clip_value, ref_bytes=ref_bytes, n_repeat=n_repeat, n_warmup=0)
+    benchmark(triton_clip, x3, clip_value, ref_bytes=ref_bytes, ref_time=ref_time, n_repeat=n_repeat, n_warmup=0)
+
+
+@pytest.mark.parametrize("M,N,k,clip_value,inf", [
+    (2048, 8192, 128, 0.1, False),
+    (2048, 1024, 128, 1.0, False),
+    (2048, 1024, 128, 100.0, True),
+])
+def test_batch_clip(M, N, k, clip_value, inf, benchmark):
     shapes1 = [random.randint(1, int(M ** 0.5)) ** 2 for i in range(k)]
     shapes2 = [random.randint(1, int(N ** 0.5)) ** 2 for i in range(k)]
     xs = [torch.randn(shapes1[i], shapes2[i], dtype=torch.float32,
@@ -70,25 +103,9 @@ def test_batch_clip(M=2048, N=1024, k=1024, clip_value=1.0, inf=False,
     output_check(torch.cat([x.view(-1) for x in sum_ref], 0),
                  torch.cat([x.view(-1) for x in sums], 0), 'batch_clip')
 
-    if bench:
-        ref_bytes = sum([x.numel() for x in xs]) * 8
-        xs3 = [x.clone().detach() for x in xs]
-        n_repeat = 1  # inplace update will speedup our triton op 
-        ref_time = benchmark_func(torch_batch_clip, xs3, clip_value,
-                                  ref_bytes=ref_bytes,
-                                  n_repeat=n_repeat,
-                                  n_warmup=0)
-        xs4 = [x.clone().detach() for x in xs]
-        benchmark_func(triton_batch_clip, xs4, clip_value,
-                       ref_bytes=ref_bytes, ref_time=ref_time,
-                       n_repeat=n_repeat,
-                       n_warmup=0)
-
-
-if __name__ == '__main__':
-    # test_calculate_smooth_scale(N=4096*32)
-    # test_calculate_smooth_scale(N=4096*32-1897)
-    # test_batch_clip(M=2048, N=8192, k=128, clip_value=0.1, bench=False)
-    # test_batch_clip(M=2048, N=1024, k=128, clip_value=1.0, bench=False)
-    test_batch_clip(M=2048, N=1024, k=128, clip_value=100.0, inf=True,
-                    bench=False)
+    ref_bytes = sum([x.numel() for x in xs]) * 8
+    xs3 = [x.clone().detach() for x in xs]
+    n_repeat = 1  # inplace update will speedup our triton op
+    ref_time = benchmark(torch_batch_clip, xs3, clip_value, ref_bytes=ref_bytes, n_repeat=n_repeat, n_warmup=0)
+    xs4 = [x.clone().detach() for x in xs]
+    benchmark(triton_batch_clip, xs4, clip_value, ref_bytes=ref_bytes, ref_time=ref_time, n_repeat=n_repeat, n_warmup=0)
