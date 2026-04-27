@@ -47,13 +47,7 @@ def triton_dot(x, y):
     device = x.device
     s = torch.empty((M,), device=device, dtype=x.dtype)
     grid = (triton.cdiv(M, W),)
-    dot_kernel[grid](
-        x, y, s,
-        M, N,
-        H, W,
-        num_stages=num_stages,
-        num_warps=num_warps
-    )
+    dot_kernel[grid](x, y, s, M, N, H, W, num_stages=num_stages, num_warps=num_warps)
     return s
 
 
@@ -80,22 +74,19 @@ def triton_inplace_scale(x, scale):
     B = 512
     m = x.numel()
     grid = (triton.cdiv(m, B),)
-    inplace_scale_kernel[grid](
-        x,
-        scale,
-        m,
-        B,
-        num_stages=2,
-        num_warps=2
-    )
+    inplace_scale_kernel[grid](x, scale, m, B, num_stages=2, num_warps=2)
     return x
 
 
 @triton.jit
-def batch_scale_kernel(input_ptrs, size_ptr, scale,
-                       DT: tl.constexpr,
-                       B: tl.constexpr,
-                       ZERO: tl.constexpr, ):
+def batch_scale_kernel(
+    input_ptrs,
+    size_ptr,
+    scale,
+    DT: tl.constexpr,
+    B: tl.constexpr,
+    ZERO: tl.constexpr,
+):
     tid = tl.program_id(axis=0)
     bid = tl.program_id(axis=1)
     T = tl.num_programs(axis=1)
@@ -110,7 +101,7 @@ def batch_scale_kernel(input_ptrs, size_ptr, scale,
     for i in range(t):
         x = tl.load(input_ptr + offs, mask=offs < size, other=0).to(tl.float32)
         if ZERO:
-            x = tl.where(tl.abs(x) == float('inf'), 1.0, 0.0)
+            x = tl.where(tl.abs(x) == float("inf"), 1.0, 0.0)
         else:
             x = x * scale
         tl.store(input_ptr + offs, x, mask=offs < size)
@@ -134,10 +125,12 @@ def triton_batch_scale(xs, scale):
     assert all([x.is_contiguous() and x.dtype == dtype for x in xs])
 
     device = xs[0].device
-    sizes = torch.tensor([x.numel() for x in xs],
-                         dtype=torch.int64).cuda(device, non_blocking=True)
-    ptrs = torch.tensor([x.data_ptr() for x in xs],
-                        dtype=torch.int64).cuda(device, non_blocking=True)
+    sizes = torch.tensor([x.numel() for x in xs], dtype=torch.int64).cuda(
+        device, non_blocking=True
+    )
+    ptrs = torch.tensor([x.data_ptr() for x in xs], dtype=torch.int64).cuda(
+        device, non_blocking=True
+    )
 
     DT = 0 if dtype == torch.float32 else 1
     T = 256
@@ -145,14 +138,5 @@ def triton_batch_scale(xs, scale):
     B = 512
     ZERO = scale == 0.0
     grid = (tensor_count, T)
-    batch_scale_kernel[grid](
-        ptrs,
-        sizes,
-        scale,
-        DT,
-        B,
-        ZERO,
-        num_stages=2,
-        num_warps=2
-    )
+    batch_scale_kernel[grid](ptrs, sizes, scale, DT, B, ZERO, num_stages=2, num_warps=2)
     return xs
