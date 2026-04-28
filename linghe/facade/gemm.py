@@ -88,8 +88,6 @@ def smooth_groued_gemm(
 
             x_q = B[i]._rowwise_data
             x_scale = B[i]._rowwise_scale_inv
-            x_q = B[i]._rowwise_data
-            x_scale = B[i]._rowwise_scale_inv
             w_q = A[i]._rowwise_data
             w_scale = A[i]._rowwise_scale_inv
             torch._scaled_mm(

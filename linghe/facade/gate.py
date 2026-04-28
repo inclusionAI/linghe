@@ -128,7 +128,7 @@ class Mxfp8GroupRMSNormGateFunction(torch.autograd.Function):
             columnwise_data=dgt_q.view(ctx.shape) if dgt_q is not None else None,
             columnwise_scale_inv=dgt_s,
             quantizer=grad_quantizer,
-            requires_grad=ctx.input_requires_grad,
+            requires_grad=attn_output.requires_grad,
         )
 
         return dx, dg_out, dw, None, None, None, None, None
