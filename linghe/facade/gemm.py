@@ -78,9 +78,7 @@ def smooth_groued_gemm(A, B, out, m_splits, layout='TN', accumulate=True,
         for i, m in enumerate(m_splits):
             if m == 0:
                 continue
-
-            x_q = B[i]._rowwise_data
-            x_scale = B[i]._rowwise_scale_inv
+                
             x_q = B[i]._rowwise_data
             x_scale = B[i]._rowwise_scale_inv
             w_q = A[i]._rowwise_data

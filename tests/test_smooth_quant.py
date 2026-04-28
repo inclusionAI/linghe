@@ -3,20 +3,20 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import pytest
 import torch
 
 from linghe.facade.linear import SmoothQuantLinear
-from linghe.quant.smooth import (triton_smooth_quant,
-                                 triton_transpose_smooth_quant,
-                                 triton_batch_smooth_quant,
-                                 triton_batch_transpose_smooth_quant,
-                                 triton_transpose_rescale_smooth_quant,
-                                 triton_subrow_smooth_quant)
-from linghe.tools.benchmark import benchmark_func
+from linghe.quant.smooth import (
+    triton_smooth_quant,
+    triton_transpose_smooth_quant,
+    triton_batch_smooth_quant,
+    triton_batch_transpose_smooth_quant,
+    triton_transpose_rescale_smooth_quant,
+    triton_subrow_smooth_quant,
+)
 from linghe.tools.check import output_check
-from linghe.tools.util import (torch_make_indices,
-                               torch_smooth_quant,
-                               round_up)
+from linghe.tools.util import torch_make_indices, torch_smooth_quant, round_up
 
 
 def torch_split_smooth_quant(x_split, smooth_scales, round_scale=False):
@@ -36,7 +36,9 @@ def torch_split_smooth_quant(x_split, smooth_scales, round_scale=False):
     return x_qs, x_scales
 
 
-def torch_split_transpose_smooth_quant(x_split, smooth_scale_split, round_scale=False, reverse=True):
+def torch_split_transpose_smooth_quant(
+    x_split, smooth_scale_split, round_scale=False, reverse=True
+):
     assert reverse
     x_qs = []
     x_scales = []
@@ -44,16 +46,20 @@ def torch_split_transpose_smooth_quant(x_split, smooth_scale_split, round_scale=
         smooth_scale = smooth_scale_split[i]
         M, N = x_.shape
         if M % 32 != 0:
-            x_ = torch.cat([x_, torch.zeros((32 - M % 32, N),
-                                            dtype=x_.dtype,
-                                            device=x_.device)], 0)
-            smooth_scale = torch.cat([smooth_scale, torch.zeros((32 - M % 32, ),
-                                            dtype=torch.float32,
-                                            device=x_.device)], 0)
-            M = (M + 31)//32*32
+            x_ = torch.cat(
+                [x_, torch.zeros((32 - M % 32, N), dtype=x_.dtype, device=x_.device)], 0
+            )
+            smooth_scale = torch.cat(
+                [
+                    smooth_scale,
+                    torch.zeros((32 - M % 32,), dtype=torch.float32, device=x_.device),
+                ],
+                0,
+            )
+            M = (M + 31) // 32 * 32
         x_smooth = x_ * smooth_scale[:, None]
         x_scale_ = x_smooth.float().abs().amax(0) / 448
-        x_scale_ = torch.maximum(x_scale_, 1e-30+x_scale_*0.0)
+        x_scale_ = torch.maximum(x_scale_, 1e-30 + x_scale_ * 0.0)
         if round_scale:
             x_scale_ = torch.exp2(torch.ceil(torch.log2(x_scale_)))
         x_q_ = (x_smooth / x_scale_).t().contiguous().to(torch.float8_e4m3fn)
@@ -64,11 +70,18 @@ def torch_split_transpose_smooth_quant(x_split, smooth_scale_split, round_scale=
     return x_qs, x_scales
 
 
-def torch_subrow_smooth_quant(x, smooth_scale, x_q, x_scale, subrow_scales,
-                              offset, size,
-                              reverse=False, round_scale=False):
-    limit = 448 * torch.ones((1,), dtype=smooth_scale.dtype,
-                             device=smooth_scale.device)
+def torch_subrow_smooth_quant(
+    x,
+    smooth_scale,
+    x_q,
+    x_scale,
+    subrow_scales,
+    offset,
+    size,
+    reverse=False,
+    round_scale=False,
+):
+    limit = 448 * torch.ones((1,), dtype=smooth_scale.dtype, device=smooth_scale.device)
     # subrow_scales is saved as 448/max
 
     M, N = x_q.shape
@@ -76,7 +89,7 @@ def torch_subrow_smooth_quant(x, smooth_scale, x_q, x_scale, subrow_scales,
         si = offset % N
         k = N - si
         x_slice = x.view(-1)[0:k]
-        smooth_scale_slice = smooth_scale[si: N]
+        smooth_scale_slice = smooth_scale[si:N]
         if not reverse:
             smooth_scale_slice = 1 / smooth_scale_slice
         x_smooth = x_slice * smooth_scale_slice
@@ -85,32 +98,41 @@ def torch_subrow_smooth_quant(x, smooth_scale, x_q, x_scale, subrow_scales,
         if round_scale:
             scale = torch.exp2(torch.floor(torch.log2(scale)))
 
-        x_q_slice = torch.minimum(torch.maximum(x_smooth / scale, -limit),
-                                  limit).to(torch.float8_e4m3fn)
-        x_q.view(-1)[offset:offset + k] = x_q_slice
+        x_q_slice = torch.minimum(torch.maximum(x_smooth / scale, -limit), limit).to(
+            torch.float8_e4m3fn
+        )
+        x_q.view(-1)[offset : offset + k] = x_q_slice
 
     if (offset + size) % N > 0:
         k = (offset + size) % N
         x_slice = x.view(-1)[-k:]
-        smooth_scale_slice = smooth_scale[0: k]
+        smooth_scale_slice = smooth_scale[0:k]
         if not reverse:
             smooth_scale_slice = 1 / smooth_scale_slice
         x_smooth = x_slice * smooth_scale_slice
         scale = subrow_scales[1:2]
         if round_scale:
             scale = torch.exp2(torch.floor(torch.log2(scale)))
-        x_q_slice = torch.minimum(torch.maximum(x_smooth / scale, -limit),
-                                  limit).to(torch.float8_e4m3fn)
-        x_q.view(-1)[(offset + size - k):(offset + size)] = x_q_slice
+        x_q_slice = torch.minimum(torch.maximum(x_smooth / scale, -limit), limit).to(
+            torch.float8_e4m3fn
+        )
+        x_q.view(-1)[(offset + size - k) : (offset + size)] = x_q_slice
         x_scale[(offset + size) // N] = scale
 
 
-def torch_rescale_quant(y_q, org_smooth_scale, y_scale, transpose_smooth_scale,
-                        reverse=True, round_scale=True):
+def torch_rescale_quant(
+    y_q,
+    org_smooth_scale,
+    y_scale,
+    transpose_smooth_scale,
+    reverse=True,
+    round_scale=True,
+):
     assert reverse
     y = y_q.float() / org_smooth_scale * y_scale[:, None]
-    y_q, y_scale = torch_smooth_quant(y.t(), transpose_smooth_scale,
-                                         reverse=True, round_scale=round_scale)
+    y_q, y_scale = torch_smooth_quant(
+        y.t(), transpose_smooth_scale, reverse=True, round_scale=round_scale
+    )
     return y_q, y_scale
 
 
@@ -124,259 +146,358 @@ def triton_split_smooth_quant(x_split, smooth_scales):
     return x_qs, x_scales
 
 
-def test_triton_smooth_quant(M=4096, N=4096, bench=False):
-    device = 'cuda:0'
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (16384, 2048),
+        (8192, 4096),
+        (4096, 8192),
+        (8192, 3072),
+        (8192, 6144),
+        (16384, 512),
+        (3457, 512),
+    ],
+)
+def test_triton_smooth_quant(M, N, benchmark):
+    device = "cuda:0"
     x = torch.randn((M, N), dtype=torch.bfloat16, device=device)
-    smooth_scale = torch.randn((N,), device=device,
-                               dtype=torch.float32).abs() + 1.0
+    smooth_scale = torch.randn((N,), device=device, dtype=torch.float32).abs() + 1.0
     round_scale = False
     rtol = 2 if round_scale else 0.125
-    x_q_ref, scales_ref = torch_smooth_quant(x, smooth_scale,
-                                                         reverse=False,
-                                                         round_scale=round_scale)
+    x_q_ref, scales_ref = torch_smooth_quant(
+        x, smooth_scale, reverse=False, round_scale=round_scale
+    )
 
-    x_q, x_scale = triton_smooth_quant(x, smooth_scale,
-                                               reverse=False,
-                                               round_scale=round_scale)
-    output_check(x_q_ref, x_q,
-                 'triton_smooth_quant.data', rtol=rtol)
-    output_check(scales_ref, x_scale, 'triton_smooth_quant.scale')
+    x_q, x_scale = triton_smooth_quant(
+        x, smooth_scale, reverse=False, round_scale=round_scale
+    )
+    output_check(x_q_ref, x_q, "triton_smooth_quant.data", rtol=rtol)
+    output_check(scales_ref, x_scale, "triton_smooth_quant.scale")
 
-    if bench:
-        benchmark_func(triton_smooth_quant, x,
-                       smooth_scale,
-                       reverse=False,
-                       round_scale=True,
-                       ref_bytes=M * N * 3)
+    benchmark(
+        triton_smooth_quant,
+        x,
+        smooth_scale,
+        reverse=False,
+        round_scale=True,
+        ref_bytes=M * N * 3,
+    )
 
 
-def test_triton_subrow_smooth_quant(M=4096, N=5120, offset=4096,
-                                    size=16384):
-    device = 'cuda:0'
+@pytest.mark.parametrize(
+    "M,N,offset,size",
+    [
+        (4096, 5120, 5120, 2048),
+        (4096, 5120, 4096, 5120),
+        (4096, 5120, 5120, 5120 * 10 - 1024),
+    ],
+)
+def test_triton_subrow_smooth_quant(M, N, offset, size, benchmark):
+    device = "cuda:0"
     x = torch.randn((size,), dtype=torch.float32, device=device)
     x_q = torch.zeros((M, N), dtype=torch.bfloat16, device=device).to(
-        torch.float8_e4m3fn)
+        torch.float8_e4m3fn
+    )
     x_scale = torch.zeros((M,), dtype=torch.float32, device=device).abs()
-    smooth_scale = torch.randn((N,), device=device,
-                               dtype=torch.float32).abs() + 1
-    subrow_scales = torch.randn((2,), device=device,
-                                dtype=torch.float32).abs() + 1
+    smooth_scale = torch.randn((N,), device=device, dtype=torch.float32).abs() + 1
+    subrow_scales = torch.randn((2,), device=device, dtype=torch.float32).abs() + 1
 
     x_ref = x.clone()
     x_q_ref = x_q.clone()
     x_scale_ref = x_scale.clone()
     subrow_scales_ref = subrow_scales.clone()
-    torch_subrow_smooth_quant(x_ref, smooth_scale, x_q_ref, x_scale_ref,
-                              subrow_scales_ref, offset, size,
-                              reverse=False, round_scale=False)
+    torch_subrow_smooth_quant(
+        x_ref,
+        smooth_scale,
+        x_q_ref,
+        x_scale_ref,
+        subrow_scales_ref,
+        offset,
+        size,
+        reverse=False,
+        round_scale=False,
+    )
 
-    triton_subrow_smooth_quant(x, smooth_scale, x_q, x_scale,
-                               subrow_scales, offset, size,
-                               reverse=False, round_scale=False)
+    triton_subrow_smooth_quant(
+        x,
+        smooth_scale,
+        x_q,
+        x_scale,
+        subrow_scales,
+        offset,
+        size,
+        reverse=False,
+        round_scale=False,
+    )
 
-    output_check(x_q_ref.float(), x_q.float(), 'subrow.data')
-    output_check(x_scale_ref, x_scale, 'subrow.scale')
+    output_check(x_q_ref.float(), x_q.float(), "subrow.data")
+    output_check(x_scale_ref, x_scale, "subrow.scale")
 
     if offset % N > 0:
         k = N - offset % N
-        output_check(x_q_ref.float().view(-1)[offset:offset + k],
-                     x_q.float().view(-1)[offset:offset + k],
-                     'subrow.data.tail')
+        output_check(
+            x_q_ref.float().view(-1)[offset : offset + k],
+            x_q.float().view(-1)[offset : offset + k],
+            "subrow.data.tail",
+        )
 
     if (offset + size) % N > 0:
         k = (offset + size) % N
-        output_check(x_q_ref.float().view(-1)[offset + size - k:offset + size],
-                     x_q.float().view(-1)[offset + size - k:offset + size],
-                     'subrow.data.head')
+        output_check(
+            x_q_ref.float().view(-1)[offset + size - k : offset + size],
+            x_q.float().view(-1)[offset + size - k : offset + size],
+            "subrow.data.head",
+        )
         row_id = (offset + size) // N
-        output_check(x_scale_ref[row_id], x_scale[row_id], 'subrow.scale.slice')
+        output_check(x_scale_ref[row_id], x_scale[row_id], "subrow.scale.slice")
 
 
-def test_triton_transpose_smooth_quant(M=4096, N=4096, bench=False):
-    device = 'cuda:0'
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (16384, 2048),
+        (8192, 4096),
+        (4096, 8192),
+        (4096, 3072),
+    ],
+)
+def test_triton_transpose_smooth_quant(M, N, benchmark):
+    device = "cuda:0"
     P = round_up(M, b=32)
     y = torch.randn((M, N), dtype=torch.bfloat16, device=device) ** 3 * 1e-10
-    transpose_smooth_scale = torch.randn((M,), device=device,
-                                         dtype=torch.float32).abs() * 10 + 1
-    yt_q, yt_scale = triton_transpose_smooth_quant(y,
-                                                   transpose_smooth_scale,
-                                                   reverse=True,
-                                                   pad=True,
-                                                   round_scale=True)
-    q_ref, scale_ref = torch_smooth_quant(y.T.contiguous(),
-                                                    transpose_smooth_scale,
-                                                    reverse=True,
-                                                    round_scale=True)
+    transpose_smooth_scale = (
+        torch.randn((M,), device=device, dtype=torch.float32).abs() * 10 + 1
+    )
+    yt_q, yt_scale = triton_transpose_smooth_quant(
+        y, transpose_smooth_scale, reverse=True, pad=True, round_scale=True
+    )
+    q_ref, scale_ref = torch_smooth_quant(
+        y.T.contiguous(), transpose_smooth_scale, reverse=True, round_scale=True
+    )
 
     assert yt_q.shape[1] == P
     if P > M:
         assert yt_q.float()[:, M:].abs().sum().item() == 0
-    output_check(q_ref, yt_q[:, :M],
-                 'triton_transpose_smooth_quant.data')
-    output_check(scale_ref, yt_scale,
-                 'triton_transpose_smooth_quant.scale')
+    output_check(q_ref, yt_q[:, :M], "triton_transpose_smooth_quant.data")
+    output_check(scale_ref, yt_scale, "triton_transpose_smooth_quant.scale")
 
-    if bench:
-        benchmark_func(triton_transpose_smooth_quant, y,
-                       transpose_smooth_scale,
-                       reverse=True,
-                       pad=True,
-                       round_scale=True,
-                       ref_bytes=M * N * 3)
+    benchmark(
+        triton_transpose_smooth_quant,
+        y,
+        transpose_smooth_scale,
+        reverse=True,
+        pad=True,
+        round_scale=True,
+        ref_bytes=M * N * 3,
+    )
 
 
-def test_triton_transpose_rescale_smooth_quant(M=4096, N=4096,
-                                               round_scale=False,
-                                               bench=False):
-    device = 'cuda:0'
+@pytest.mark.parametrize(
+    "M,N,round_scale",
+    [
+        (4096, 4096, True),
+        (3895, 4096, True),
+        (4096, 3072, True),
+        (395, 2048, True),
+    ],
+)
+def test_triton_transpose_rescale_smooth_quant(M, N, round_scale, benchmark):
+    device = "cuda:0"
     P = round_up(M, b=32)
     y = torch.randn((M, N), dtype=torch.bfloat16, device=device) ** 3
-    org_smooth_scale = torch.randn((N,), device=device,
-                                   dtype=torch.float32).abs() * 10 + 1
+    org_smooth_scale = (
+        torch.randn((N,), device=device, dtype=torch.float32).abs() * 10 + 1
+    )
     if round_scale:
         org_smooth_scale = torch.exp2(torch.ceil(torch.log2(org_smooth_scale)))
-    transpose_smooth_scale = torch.randn((M,), device=device,
-                                         dtype=torch.float32).abs() + 0.1
+    transpose_smooth_scale = (
+        torch.randn((M,), device=device, dtype=torch.float32).abs() + 0.1
+    )
     if round_scale:
         transpose_smooth_scale = torch.exp2(
-            torch.ceil(torch.log2(transpose_smooth_scale)))
+            torch.ceil(torch.log2(transpose_smooth_scale))
+        )
 
-    y_q, y_scale = triton_smooth_quant(y, org_smooth_scale,
-                                               reverse=True,
-                                               round_scale=round_scale)
+    y_q, y_scale = triton_smooth_quant(
+        y, org_smooth_scale, reverse=True, round_scale=round_scale
+    )
 
-    yt_gt, yt_scale_gt = torch_smooth_quant(y.t(),
-                                                        transpose_smooth_scale,
-                                                        reverse=True,
-                                                        round_scale=round_scale)
+    yt_gt, yt_scale_gt = torch_smooth_quant(
+        y.t(), transpose_smooth_scale, reverse=True, round_scale=round_scale
+    )
 
-    yt_q_ref, yt_scale_ref = torch_rescale_quant(y_q, org_smooth_scale, y_scale,
-                                                 transpose_smooth_scale,
-                                                 reverse=True,
-                                                 round_scale=round_scale)
+    yt_q_ref, yt_scale_ref = torch_rescale_quant(
+        y_q,
+        org_smooth_scale,
+        y_scale,
+        transpose_smooth_scale,
+        reverse=True,
+        round_scale=round_scale,
+    )
 
-    yt_q, yt_scale = triton_transpose_rescale_smooth_quant(y_q,
-                                                           org_smooth_scale,
-                                                           y_scale,
-                                                           transpose_smooth_scale,
-                                                           reverse=True,
-                                                           pad=True,
-                                                           round_scale=round_scale)
+    yt_q, yt_scale = triton_transpose_rescale_smooth_quant(
+        y_q,
+        org_smooth_scale,
+        y_scale,
+        transpose_smooth_scale,
+        reverse=True,
+        pad=True,
+        round_scale=round_scale,
+    )
 
     if P > M:
         assert yt_q.shape[1] == P
         yt_q.float()[:, M:].abs().sum().item() == 0
 
-    output_check(yt_q_ref, yt_q[:, :M],
-                 'triton_transpose_rescale_smooth_quant.data')
-    output_check(yt_scale_ref, yt_scale,
-                 'triton_transpose_rescale_smooth_quant.scale')
+    output_check(yt_q_ref, yt_q[:, :M], "triton_transpose_rescale_smooth_quant.data")
+    output_check(yt_scale_ref, yt_scale, "triton_transpose_rescale_smooth_quant.scale")
 
     # should dequant and compare with gt
     # output_check(yt_gt, yt_q[:, :M],
     #              'triton_transpose_rescale_smooth_quant.data.gt')
     # output_check(yt_scale_gt, yt_scale,
     #              'triton_transpose_rescale_smooth_quant.scale.gt')
-    if bench:
-        ref_bytes = M * N * 3
-        benchmark_func(triton_transpose_rescale_smooth_quant, y_q,
-                                                           org_smooth_scale,
-                                                           y_scale,
-                                                           transpose_smooth_scale,
-                                                           reverse=True,
-                                                           pad=True,
-                                                           round_scale=round_scale,
-                                                           ref_bytes=ref_bytes)
+    ref_bytes = M * N * 3
+    benchmark(
+        triton_transpose_rescale_smooth_quant,
+        y_q,
+        org_smooth_scale,
+        y_scale,
+        transpose_smooth_scale,
+        reverse=True,
+        pad=True,
+        round_scale=round_scale,
+        ref_bytes=ref_bytes,
+    )
 
-def test_batch_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
-                                   round_scale=False, bench=False):
-    device = 'cuda:0'
 
-    smooth_scales = 1 + 10 * torch.rand((n_experts, N), device=device,
-                                        dtype=torch.float32)
+@pytest.mark.parametrize(
+    "M,N,n_experts,topk,round_scale",
+    [
+        (4096, 4096, 32, 8, False),
+    ],
+)
+def test_batch_smooth_quant(M, N, n_experts, topk, round_scale, benchmark):
+    device = "cuda:0"
+
+    smooth_scales = 1 + 10 * torch.rand(
+        (n_experts, N), device=device, dtype=torch.float32
+    )
 
     logits = torch.randn((M, n_experts), dtype=torch.float32, device=device)
     probs, mask_map, token_count_per_expert, indices, row_id_map = torch_make_indices(
-        logits, topk=topk, bias=0.0)
+        logits, topk=topk, bias=0.0
+    )
     token_count_per_expert_list = token_count_per_expert.tolist()
-    x = torch.randn((sum(token_count_per_expert_list), N), dtype=torch.bfloat16,
-                    device=device)
+    x = torch.randn(
+        (sum(token_count_per_expert_list), N), dtype=torch.bfloat16, device=device
+    )
 
-    x_q, x_scale = triton_batch_smooth_quant(x, smooth_scales,
-                                                     token_count_per_expert,
-                                                     reverse=False,
-                                                     round_scale=round_scale)
+    x_q, x_scale = triton_batch_smooth_quant(
+        x, smooth_scales, token_count_per_expert, reverse=False, round_scale=round_scale
+    )
 
     x_split = torch.split(x, token_count_per_expert_list)
-    x_q_ref, x_scale_ref = torch_split_smooth_quant(x_split,
-                                                                smooth_scales)
+    x_q_ref, x_scale_ref = torch_split_smooth_quant(x_split, smooth_scales)
     x_q_ref = torch.cat(x_q_ref, 0)
     x_scale_ref = torch.cat(x_scale_ref, 0)
     rtol = 2 if round_scale else 0.125
-    output_check(x_q_ref, x_q, 'triton_batch_smooth_quant.data', rtol=rtol)
-    output_check(x_scale_ref.float(), x_scale.float(),
-                 'triton_batch_smooth_quant.scale')
+    output_check(x_q_ref, x_q, "triton_batch_smooth_quant.data", rtol=rtol)
+    output_check(
+        x_scale_ref.float(), x_scale.float(), "triton_batch_smooth_quant.scale"
+    )
 
-    if bench:
-        ref_bytes = sum(token_count_per_expert_list) * N * 3
-        ref_time = benchmark_func(triton_split_smooth_quant, x_split,
-                                  smooth_scales,
-                                  ref_bytes=ref_bytes)
-        benchmark_func(triton_batch_smooth_quant, x, smooth_scales,
-                       token_count_per_expert, reverse=False,
-                       round_scale=round_scale, ref_bytes=ref_bytes,
-                       ref_time=ref_time)
-        benchmark_func(triton_batch_smooth_quant, x, smooth_scales,
-                       token_count_per_expert, reverse=False,
-                       round_scale=round_scale,
-                       ref_bytes=ref_bytes, ref_time=ref_time)
+    ref_bytes = sum(token_count_per_expert_list) * N * 3
+    ref_time = benchmark(
+        triton_split_smooth_quant, x_split, smooth_scales, ref_bytes=ref_bytes
+    )
+    benchmark(
+        triton_batch_smooth_quant,
+        x,
+        smooth_scales,
+        token_count_per_expert,
+        reverse=False,
+        round_scale=round_scale,
+        ref_bytes=ref_bytes,
+        ref_time=ref_time,
+    )
+    benchmark(
+        triton_batch_smooth_quant,
+        x,
+        smooth_scales,
+        token_count_per_expert,
+        reverse=False,
+        round_scale=round_scale,
+        ref_bytes=ref_bytes,
+        ref_time=ref_time,
+    )
 
 
-def test_batch_transpose_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
-                                   round_scale=False, bench=False):
-    device = 'cuda:0'
+@pytest.mark.parametrize(
+    "M,N,n_experts,topk,round_scale",
+    [
+        (4096, 4096, 32, 8, False),
+    ],
+)
+def test_batch_transpose_smooth_quant(M, N, n_experts, topk, round_scale, benchmark):
+    device = "cuda:0"
 
     logits = torch.randn((M, n_experts), dtype=torch.float32, device=device)
     probs, mask_map, token_count_per_expert, indices, row_id_map = torch_make_indices(
-        logits, topk=topk, bias=0.0)
+        logits, topk=topk, bias=0.0
+    )
     token_count_per_expert_list = token_count_per_expert.tolist()
-    x = torch.randn((sum(token_count_per_expert_list), N), dtype=torch.bfloat16,
-                    device=device)
-    smooth_scales = 1 + torch.rand((sum(token_count_per_expert_list), ), device=device,
-                                        dtype=torch.float32)
+    x = torch.randn(
+        (sum(token_count_per_expert_list), N), dtype=torch.bfloat16, device=device
+    )
+    smooth_scales = 1 + torch.rand(
+        (sum(token_count_per_expert_list),), device=device, dtype=torch.float32
+    )
 
-    x_q, x_scale = triton_batch_transpose_smooth_quant(x, smooth_scales,
-                                                     token_count_per_expert,
-                                                     token_count_per_expert_list,
-                                                     reverse=True,
-                                                     round_scale=round_scale,
-                                                     pad=True)
+    x_q, x_scale = triton_batch_transpose_smooth_quant(
+        x,
+        smooth_scales,
+        token_count_per_expert,
+        token_count_per_expert_list,
+        reverse=True,
+        round_scale=round_scale,
+        pad=True,
+    )
 
     x_split = torch.split(x, token_count_per_expert_list)
     smooth_scale_split = torch.split(smooth_scales, token_count_per_expert_list)
-    x_q_ref, x_scale_ref  = torch_split_transpose_smooth_quant(x_split,
-                                                                smooth_scale_split,
-                                                                round_scale=round_scale,
-                                                                reverse=True)
+    x_q_ref, x_scale_ref = torch_split_transpose_smooth_quant(
+        x_split, smooth_scale_split, round_scale=round_scale, reverse=True
+    )
     rtol = 2 if round_scale else 0.125
-    output_check(x_q_ref, x_q, 'batch_transpose_smooth_quant.data', rtol=rtol)
-    output_check(x_scale_ref.float(), x_scale.float(),
-                 'batch_transpose_smooth_quant.scale')
+    output_check(x_q_ref, x_q, "batch_transpose_smooth_quant.data", rtol=rtol)
+    output_check(
+        x_scale_ref.float(), x_scale.float(), "batch_transpose_smooth_quant.scale"
+    )
 
-    if bench:
-        ref_bytes = sum(token_count_per_expert_list) * N * 3
-        benchmark_func(triton_batch_transpose_smooth_quant, x, smooth_scales,
-                                                     token_count_per_expert,
-                                                     token_count_per_expert_list,
-                                                     reverse=True,
-                                                     round_scale=round_scale,
-                                                     pad=True,
-                                                     ref_bytes=ref_bytes)
+    ref_bytes = sum(token_count_per_expert_list) * N * 3
+    benchmark(
+        triton_batch_transpose_smooth_quant,
+        x,
+        smooth_scales,
+        token_count_per_expert,
+        token_count_per_expert_list,
+        reverse=True,
+        round_scale=round_scale,
+        pad=True,
+        ref_bytes=ref_bytes,
+    )
 
 
-def test_smooth_quant_linear(M=8192, N=1024, K=2048):
+@pytest.mark.parametrize(
+    "M,N,K",
+    [
+        (8192, 1024, 2048),
+    ],
+)
+def test_smooth_quant_linear(M, N, K, benchmark):
     dtype = torch.bfloat16
-    device = 'cuda:0'
+    device = "cuda:0"
     linear = SmoothQuantLinear(K, N, bias=False, dtype=dtype, device=device)
     x = (10 * torch.randn((M, K), dtype=dtype, device=device)).requires_grad_()
     w = 0.1 * torch.randn((N, K), dtype=dtype, device=device)
@@ -385,55 +506,12 @@ def test_smooth_quant_linear(M=8192, N=1024, K=2048):
 
     y_ref = x @ w.t()
     y = linear(x)
-    output_check(y_ref, y, name='y', atol=-1)
+    output_check(y_ref, y, name="y", atol=-1)
 
     dx_ref = dy @ w
     dw_ref = dy.t() @ x
     y.backward(dy)
     dw = linear.weight.grad
     dx = x.grad
-    output_check(dx_ref, dx, name='dx', atol=-1)
-    output_check(dw_ref, dw, name='dw', atol=-1)
-
-
-if __name__ == '__main__':
-    test_triton_smooth_quant(M=16384, N=2048, bench=False)
-    test_triton_smooth_quant(M=8192, N=4096, bench=False)
-    test_triton_smooth_quant(M=4096, N=8192, bench=False)
-    test_triton_smooth_quant(M=8192, N=3072, bench=False)
-    test_triton_smooth_quant(M=8192, N=6144, bench=False)
-    test_triton_smooth_quant(M=16384, N=512, bench=False)
-    test_triton_smooth_quant(M=3457, N=512, bench=False)
-
-    test_triton_subrow_smooth_quant(M=4096, N=5120, offset=5120,
-                                    size=2048)
-    test_triton_subrow_smooth_quant(M=4096, N=5120, offset=4096,
-                                    size=5120)
-    test_triton_subrow_smooth_quant(M=4096, N=5120, offset=5120,
-                                    size=5120 * 10 - 1024)
-
-    test_triton_transpose_smooth_quant(M=16384, N=2048, bench=False)
-    test_triton_transpose_smooth_quant(M=8192, N=4096, bench=False)
-    test_triton_transpose_smooth_quant(M=4096, N=8192, bench=False)
-    test_triton_transpose_smooth_quant(M=4096, N=3072, bench=False)
-
-    test_triton_transpose_rescale_smooth_quant(M=4096, N=4096,
-                                               round_scale=True,
-                                               bench=False)
-    test_triton_transpose_rescale_smooth_quant(M=3895, N=4096,
-                                               round_scale=True,
-                                               bench=False)
-    test_triton_transpose_rescale_smooth_quant(M=4096, N=3072,
-                                               round_scale=True,
-                                               bench=False)
-    test_triton_transpose_rescale_smooth_quant(M=395, N=2048,
-                                               round_scale=True,
-                                               bench=False)
-
-    test_batch_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
-                            round_scale=False, bench=False)
-
-    test_batch_transpose_smooth_quant(M=4096, N=4096, n_experts=32, topk=8,
-                                   round_scale=False, bench=False)
-
-    test_smooth_quant_linear(M=8192, N=1024, K=2048)
+    output_check(dx_ref, dx, name="dx", atol=-1)
+    output_check(dw_ref, dw, name="dw", atol=-1)

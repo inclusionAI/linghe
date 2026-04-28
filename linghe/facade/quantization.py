@@ -65,7 +65,7 @@ class SmoothQuantize(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         if hasattr(grad_output, '_quantizer') or ctx.grad_quantizer is None:
-            return grad_output,
+            return grad_output, None, None, None
         shape = grad_output.shape  # rank-3 tensor
         grad_output = grad_output.view(-1, shape[-1])
         # import pydevd

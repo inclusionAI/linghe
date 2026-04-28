@@ -855,7 +855,7 @@ class _SmoothFusedUnpermute(torch.autograd.Function):
         permuted_grad_data_t, permuted_grad_scales_t = triton_batch_transpose_smooth_fused_permute_with_indices(
             grad_output._rowwise_data,
             grad_output._rowwise_scale_inv,
-            grad_smooth_scale,
+            org_smooth_scale,
             transpose_smooth_scales,
             row_id_indices,
             token_count_per_expert,
