@@ -45,7 +45,8 @@ def benchmark_func(
                 ProfilerActivity.CPU,
                 ProfilerActivity.CUDA,
                 ProfilerActivity.XPU,
-            ]
+            ],
+            with_stack=True,
         ) as prof:
             for i in range(n_profile):
                 fn(*args, **kwargs)

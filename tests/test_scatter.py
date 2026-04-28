@@ -3,12 +3,13 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import pytest
 import torch
 
-from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.tools.util import torch_make_indices
 from linghe.utils.scatter import triton_scatter_add, triton_unpermute_with_mask_map
+
 
 # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
@@ -24,7 +25,15 @@ def torch_scatter_add(x, outputs, indices, weights):
     return outputs.to(dtype)
 
 
-def test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=False):
+@pytest.mark.parametrize(
+    "M,N,bias",
+    [
+        (4098, 4096, 0.0),
+        (2467, 4096, -0.1),
+        (2467, 1536, -0.1),
+    ],
+)
+def test_scatter(M, N, bias, benchmark, n_experts=32, topk=2):
     dtype = torch.bfloat16
     device = "cuda:0"
 
@@ -49,22 +58,13 @@ def test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=False):
     output_check(sums_ref, sums_unpermute, "unpermute_data")
     output_check(probs, output_prob, "unpermute_prob")
 
-    if bench:
-        n_repeat = 100
-        ref_time = benchmark_func(
-            triton_scatter_add, x, outputs, indices, n_repeat=n_repeat
-        )
-        benchmark_func(
-            triton_unpermute_with_mask_map,
-            x,
-            row_id_map,
-            probs,
-            n_repeat=n_repeat,
-            ref_time=ref_time,
-        )
-
-
-if __name__ == "__main__":
-    test_scatter(M=4098, N=4096, n_experts=32, topk=2, bias=0.0, bench=False)
-    test_scatter(M=2467, N=4096, n_experts=32, topk=2, bias=-0.1, bench=False)
-    test_scatter(M=2467, N=1536, n_experts=32, topk=2, bias=-0.1, bench=False)
+    n_repeat = 100
+    ref_time = benchmark(triton_scatter_add, x, outputs, indices, n_repeat=n_repeat)
+    benchmark(
+        triton_unpermute_with_mask_map,
+        x,
+        row_id_map,
+        probs,
+        n_repeat=n_repeat,
+        ref_time=ref_time,
+    )

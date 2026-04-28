@@ -3,6 +3,7 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import pytest
 import torch
 
 from linghe.quant.channel import (
@@ -10,12 +11,22 @@ from linghe.quant.channel import (
     triton_row_quant,
     triton_tokenwise_row_quant,
 )
-from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.tools.util import torch_row_quant
 
 
-def test_row_quant(M=4096, N=4096, round_scale=True, bench=False):
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (4096, 4096),
+        (4090, 4096),
+        (4096, 8192),
+        (3456, 2048),
+        (1, 2048),
+    ],
+)
+@pytest.mark.parametrize("round_scale", [False, True])
+def test_row_quant(M, N, round_scale, benchmark):
     device = "cuda:0"
     dtype = torch.bfloat16
     x = torch.randn((M, N), dtype=dtype, device=device) ** 3
@@ -30,30 +41,19 @@ def test_row_quant(M=4096, N=4096, round_scale=True, bench=False):
     output_check(x_q_ref, x_q, name="data")
     output_check(x_scale_ref, x_scale, name="scale")
 
-    if bench:
-        ref_time = benchmark_func(torch_row_quant, x, n_repeat=100, ref_bytes=M * N * 3)
-        benchmark_func(
-            triton_row_quant, x, n_repeat=100, ref_bytes=M * N * 3, ref_time=ref_time
-        )
-        benchmark_func(
-            triton_deprecated_tokenwise_row_quant,
-            x,
-            n_repeat=100,
-            ref_bytes=M * N * 3,
-            ref_time=ref_time,
-        )
-        benchmark_func(
-            triton_tokenwise_row_quant,
-            x,
-            n_repeat=100,
-            ref_bytes=M * N * 3,
-            ref_time=ref_time,
-        )
-
-
-if __name__ == "__main__":
-    test_row_quant(M=4096, N=4096, round_scale=False)
-    test_row_quant(M=4090, N=4096, round_scale=True)
-    test_row_quant(M=4096, N=8192, round_scale=True)
-    test_row_quant(M=3456, N=2048, round_scale=True)
-    test_row_quant(M=1, N=2048, round_scale=True)
+    ref_time = benchmark(torch_row_quant, x, n_repeat=100, ref_bytes=M * N * 3)
+    benchmark(triton_row_quant, x, n_repeat=100, ref_bytes=M * N * 3, ref_time=ref_time)
+    benchmark(
+        triton_deprecated_tokenwise_row_quant,
+        x,
+        n_repeat=100,
+        ref_bytes=M * N * 3,
+        ref_time=ref_time,
+    )
+    benchmark(
+        triton_tokenwise_row_quant,
+        x,
+        n_repeat=100,
+        ref_bytes=M * N * 3,
+        ref_time=ref_time,
+    )

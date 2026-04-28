@@ -25,7 +25,7 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
         parallel = tp_group is not None and tp_group.size() > 1
         if parallel:
             loss, sum_exp, max_logit = triton_parallel_softmax_cross_entropy_forward(
-                logits, labels, tp_group, ignore_index=ignore_index
+                logits_view, labels, tp_group, ignore_index=ignore_index
             )
         else:
             loss, sum_exp, max_logit = triton_softmax_cross_entropy_forward(
@@ -35,6 +35,7 @@ class SoftmaxCrossEntropyFunction(torch.autograd.Function):
         ctx.ignore_index = ignore_index
         ctx.inplace = inplace
         ctx.shape = shape
+        ctx.tp_group = tp_group
         ctx.parallel = parallel
         if len(shape) == 3:
             loss = loss.view(shape[0], shape[1])
@@ -97,23 +98,28 @@ def softmax_cross_entropy(
     )
 
 
-class GradScalingFunction(torch.autograd.Function):
+class GradientScalingFunction(torch.autograd.Function):
     """"""
 
     @staticmethod
-    def forward(ctx, x, coef=0.2):
+    def forward(ctx, x, coef=1.0):
         ctx.coef = coef
         return x
 
     @staticmethod
     def backward(ctx, grad_output):
-        shape = grad_output.shape
-        assert len(shape) == 2
-        bs, length = grad_output.shape
-        array = length - torch.arange(0, length, device=grad_output.device)
-        scale = 1 / torch.pow(array.float(), ctx.coef)
-        grad = grad_output * scale
+        grad = grad_output * ctx.coef
         return grad, None
+
+
+def gradient_scaling(x: torch.Tensor, coef: float = 1.0):
+    """
+    scale gradient
+    Args:
+        x: input tensor
+        coef: scale coefficient
+    """
+    return GradientScalingFunction.apply(x, coef)
 
 
 class MoeZLossFunction(torch.autograd.Function):

@@ -5,9 +5,9 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 
 import random
 
+import pytest
 import torch
 
-from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.mul import triton_dot, triton_batch_scale, triton_inplace_scale
 
@@ -25,7 +25,13 @@ def torch_batch_scale(xs, scale):
     return [x * scale for x in xs]
 
 
-def test_dot(M=4096, N=4096, bench=False):
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (4096, 4096),
+    ],
+)
+def test_dot(M, N, benchmark):
     dtype = torch.bfloat16
     device = "cuda:0"
 
@@ -45,14 +51,17 @@ def test_dot(M=4096, N=4096, bench=False):
         x.float() * (q.to(torch.float32) * quant_scale[:, None] * smooth_scale[None, :])
     ).sum(dim=1)
 
-    if bench:
-        ref_time = benchmark_func(torch_fp16_dot, x, y, n_repeat=n_repeat)
-        ref_time = benchmark_func(
-            triton_dot, x, q, n_repeat=n_repeat, ref_time=ref_time
-        )
+    ref_time = benchmark(torch_fp16_dot, x, y, n_repeat=n_repeat)
+    benchmark(triton_dot, x, q, n_repeat=n_repeat, ref_time=ref_time)
 
 
-def test_inplace_scale(M=2**20, bench=False):
+@pytest.mark.parametrize(
+    "M",
+    [
+        2**28 + 1,
+    ],
+)
+def test_inplace_scale(M, benchmark):
     x = torch.randn((M,), device="cuda:0", dtype=torch.float32)
     scale = 7.86
     sum_ref = torch_inplace_scale(x, scale)
@@ -61,14 +70,18 @@ def test_inplace_scale(M=2**20, bench=False):
 
     ref_bytes = M * 8
 
-    if bench:
-        ref_time = benchmark_func(torch_inplace_scale, x, scale, ref_bytes=ref_bytes)
-        benchmark_func(
-            triton_inplace_scale, x, scale, ref_bytes=ref_bytes, ref_time=ref_time
-        )
+    ref_time = benchmark(torch_inplace_scale, x, scale, ref_bytes=ref_bytes)
+    benchmark(triton_inplace_scale, x, scale, ref_bytes=ref_bytes, ref_time=ref_time)
 
 
-def test_batch_scale(M=4096, N=2048, k=128, scale=1.0, bench=False):
+@pytest.mark.parametrize(
+    "M,N,k,scale",
+    [
+        (2048, 1024, 128, 2.0),
+        (2048, 1024, 128, 0.0),
+    ],
+)
+def test_batch_scale(M, N, k, scale, benchmark):
     dtype = torch.float32
     xs = [
         torch.randn(
@@ -79,8 +92,6 @@ def test_batch_scale(M=4096, N=2048, k=128, scale=1.0, bench=False):
         )
         for i in range(k)
     ]
-    # xs.append(torch.randn(2**32//N, N,
-    #                       dtype=dtype, device='cuda:0'))
     xs1 = [x.clone().detach() for x in xs]
     xs2 = [x.clone().detach() for x in xs]
     if scale == 0.0:
@@ -99,15 +110,5 @@ def test_batch_scale(M=4096, N=2048, k=128, scale=1.0, bench=False):
 
     ref_bytes = sum([x.numel() for x in xs]) * 8
 
-    if bench:
-        ref_time = benchmark_func(torch_batch_scale, xs, scale, ref_bytes=ref_bytes)
-        benchmark_func(
-            triton_batch_scale, xs, scale, ref_bytes=ref_bytes, ref_time=ref_time
-        )
-
-
-if __name__ == "__main__":
-    test_dot(M=4096, N=4096, bench=False)
-    test_inplace_scale(M=2**28 + 1, bench=False)
-    test_batch_scale(M=2048, N=1024, k=128, scale=2.0, bench=False)
-    test_batch_scale(M=2048, N=1024, k=128, scale=0.0, bench=False)
+    ref_time = benchmark(torch_batch_scale, xs, scale, ref_bytes=ref_bytes)
+    benchmark(triton_batch_scale, xs, scale, ref_bytes=ref_bytes, ref_time=ref_time)

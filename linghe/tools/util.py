@@ -6,6 +6,8 @@ Copyright (c) Ant Financial Service Group and its affiliates.
 import math
 
 import torch
+import triton
+import triton.language as tl
 
 
 def round_up(x, b=16):
@@ -66,6 +68,12 @@ def torch_group_quant(x, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     return xq, scale
 
 
+def torch_group_dequant(x_q, x_s, B=128):
+    m, n = x_s.shape
+    x_dq = x_q.float() * x_s.repeat_interleave(128, 1)
+    return x_dq
+
+
 def torch_blockwise_quant(x, round_scale=True, padding=False):
     m, N = x.shape
 
@@ -80,6 +88,13 @@ def torch_blockwise_quant(x, round_scale=True, padding=False):
     yt_q, yt_scale = torch_group_quant(x.t(), round_scale=round_scale)
 
     return y_q, y_scale.t().contiguous(), yt_q, yt_scale.t().contiguous()
+
+
+def torch_blockwise_dequant(w_q, w_s, B=128):
+    w_s = w_s.repeat_interleave(B, 1)
+    w_s = w_s.repeat_interleave(B, 0)
+    x_dq = w_q.float() * w_s
+    return x_dq
 
 
 def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
@@ -98,9 +113,15 @@ def torch_block_quant(w, B=128, dtype=torch.float8_e4m3fn, round_scale=False):
     return wq, scale
 
 
-def torch_mxfp8_quant(x):
+def torch_mxfp8_quant(x, padding=False, zero=False):
+    m_ori, N = x.shape
+    if padding:
+        padding_size = (m_ori + 31) // 32 * 32 - m_ori
+        if padding_size > 0:
+            x = torch.nn.functional.pad(x, (0, 0, 0, padding_size))
+
     x = x.float()
-    m, N = x.shape
+    m, N = x.shape  # current m is multiple of 32
     assert N % 128 == 0
     if m % 128 != 0:
         M = (m + 127) // 128 * 128
@@ -111,7 +132,9 @@ def torch_mxfp8_quant(x):
     xm = xs.abs().amax(2)
     scale = torch.maximum(xm / 448, 1e-30 * torch.ones_like(xm))
     scale = torch.exp2(torch.ceil(torch.log2(scale)))
-    x_q = (xs / scale[:, :, None]).to(torch.float8_e4m3fn).view(M, N)[:m]
+    x_q = (xs / scale[:, :, None]).to(torch.float8_e4m3fn).view(M, N)[:m]  # 取得前m行
+    if zero:
+        scale[m_ori:, :] = 0
     x_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
 
     xs = x.view(M // 32, 32, N)
@@ -119,14 +142,43 @@ def torch_mxfp8_quant(x):
     scale = torch.maximum(xm / 448, 1e-30 * torch.ones_like(xm))
     scale = torch.exp2(torch.ceil(torch.log2(scale)))
     xt_q = (xs / scale[:, None, :]).to(torch.float8_e4m3fn).view(M, N)[:m]
+    if zero:
+        scale[(m_ori + 31) // 32 :, :] = 0
     xt_scale = scale.to(torch.float8_e8m0fnu).view(torch.uint8)
 
     return x_q, x_scale, xt_q, xt_scale
 
 
+def torch_batch_mxfp8_quant(x, token_count_per_expert_list):
+    M, DIM = x.shape
+    q_refs = []
+    s_refs = []
+    qt_refs = []
+    st_refs = []
+    s = 0
+    for i, c in enumerate(token_count_per_expert_list):
+        c = token_count_per_expert_list[i]
+        if c == 0:
+            continue
+        y = x[s : s + c]
+        y = y.float()
+
+        y_q, y_scale, yt_q, yt_scale = torch_mxfp8_quant(y)
+        q_refs.append(y_q)
+        s_refs.append(y_scale)
+        qt_refs.append(yt_q)
+        st_refs.append(yt_scale)
+        s += c
+    q_ref = torch.cat(q_refs, 0)
+    s_ref = torch.cat(s_refs, 0)
+    qt_ref = torch.cat(qt_refs, 0)
+    st_ref = torch.cat(st_refs, 0)
+    return q_ref, s_ref, qt_ref, st_ref
+
+
 def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
     x = x.float()
-    x_maxs = x.abs().amax(0)
+    # x_maxs = x.abs().amax(0)
     if reverse:
         x_smooth = x * smooth_scale
     else:
@@ -138,7 +190,7 @@ def torch_smooth_quant(x, smooth_scale, reverse=False, round_scale=False):
     if round_scale:
         scale = torch.exp2(torch.ceil(torch.log2(scale)))
     x_q = (x_smooth / scale[:, None]).to(torch.float8_e4m3fn)
-    return x_q, scale, x_maxs
+    return x_q, scale
 
 
 def torch_batch_smooth_quant(
@@ -514,3 +566,65 @@ def torch_fp32_scaler_scaled_mm(x, weight, x_scale, weight_scale):
         use_fast_accum=True,
     )
     return output
+
+
+def torch_make_chunk_sort_map(num_global_tokens_per_local_expert: torch.Tensor):
+    device = num_global_tokens_per_local_expert.device
+    num_ranks, num_local_experts = num_global_tokens_per_local_expert.shape
+
+    flat_sizes = num_global_tokens_per_local_expert.flatten()
+    src_chunk_starts = torch.cumsum(flat_sizes, dim=0) - flat_sizes
+    total_tokens = flat_sizes.sum().item()
+
+    tokens_per_expert = num_global_tokens_per_local_expert.sum(dim=0)
+    padded_tokens_per_expert = (tokens_per_expert + 31) // 32 * 32
+    expert_dst_starts = (
+        torch.cumsum(padded_tokens_per_expert, dim=0) - padded_tokens_per_expert
+    )
+    total_padded_size = padded_tokens_per_expert.sum().item()
+
+    row_id_map = torch.zeros((total_padded_size,), dtype=torch.int32, device=device)
+    row_id_map_inverse = torch.empty((total_tokens,), dtype=torch.int32, device=device)
+
+    for e_idx in range(num_local_experts):
+        current_dst_offset = expert_dst_starts[e_idx].item()
+
+        for r_idx in range(num_ranks):
+            count = num_global_tokens_per_local_expert[r_idx, e_idx].item()
+            if count == 0:
+                continue
+
+            src_idx_in_flat = r_idx * num_local_experts + e_idx
+            src_start = src_chunk_starts[src_idx_in_flat].item()
+
+            src_range = torch.arange(
+                src_start, src_start + count, device=device, dtype=torch.int32
+            )
+            dst_range = torch.arange(
+                current_dst_offset,
+                current_dst_offset + count,
+                device=device,
+                dtype=torch.int32,
+            )
+
+            row_id_map[dst_range] = src_range
+            row_id_map_inverse[src_range] = dst_range
+
+            current_dst_offset += count
+
+    return row_id_map, row_id_map_inverse
+
+
+@triton.jit
+def print_kernel(x_ptr):
+    pid = tl.program_id(axis=0)
+    x = tl.load(x_ptr + tl.arange(0, 16)).to(tl.float32)
+    if pid == 0:
+        tl.device_print("x", x)
+
+
+# the kernel is used to debug cuda graph tensor
+def triton_print(x):
+    grid = lambda META: (1,)
+    print_kernel[grid](x, num_stages=1, num_warps=1)
+    return x

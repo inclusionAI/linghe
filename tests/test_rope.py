@@ -3,10 +3,10 @@
 Copyright (c) Ant Financial Service Group and its affiliates.
 """
 
+import pytest
 import torch
 
 from linghe.facade.rope import qk_norm_half_rope
-from linghe.tools.benchmark import benchmark_func
 from linghe.tools.check import output_check
 from linghe.utils.rope import (
     triton_half_rope_forward,
@@ -299,9 +299,14 @@ def torch_varlen_qk_norm_and_half_rope(
     return qoss, koss, voss
 
 
-def test_half_rope(
-    B=2, L=4096, H=32, h=8, D=128, rope_theta=10000.0, transposed=True, bench=False
-):
+@pytest.mark.parametrize(
+    "B,L,H,h,D,rope_theta,transposed",
+    [
+        (2, 4096, 32, 8, 128, 10000.0, True),
+        (2, 4096, 32, 8, 128, 10000.0, False),
+    ],
+)
+def test_half_rope(B, L, H, h, D, rope_theta, transposed, benchmark):
     dtype = torch.float32
     device = "cuda:0"
     q = torch.randn(L, B, H, D, dtype=dtype, device=device)
@@ -330,29 +335,32 @@ def test_half_rope(
     output_check(dq_ref, dq, name="dq")
     output_check(dk_ref, dk, name="dk", rtol=0.05, atol=0.1)
 
-    if bench:
-        benchmark_func(
-            triton_half_rope_forward,
-            q,
-            k,
-            freqs,
-            ref_bytes=L * B * (H + h) * D * 4,
-            n_profile=0,
-        )
+    benchmark(
+        triton_half_rope_forward,
+        q,
+        k,
+        freqs,
+        ref_bytes=L * B * (H + h) * D * 4,
+        n_profile=0,
+    )
 
 
+@pytest.mark.parametrize(
+    "B,L,H,h,D,rope_theta,eps,interleaved,transposed,silu",
+    [
+        (2, 4096, 16, 16, 128, 10000.0, 1e-6, True, True, True),
+        (2, 4096, 16, 16, 128, 10000.0, 1e-6, True, True, False),
+        (4, 4096, 16, 4, 128, 10000.0, 1e-6, True, False, True),
+        (4, 4096, 16, 4, 128, 10000.0, 1e-6, True, False, False),
+        (4, 4096, 32, 4, 128, 10000.0, 1e-6, False, True, True),
+        (4, 4096, 24, 6, 128, 10000.0, 1e-6, True, True, False),
+        (4, 4096, 32, 32, 128, 10000.0, 1e-6, False, False, True),
+        (1, 4096, 32, 32, 128, 10000.0, 1e-6, False, False, False),
+        (256, 4, 32, 32, 128, 10000.0, 1e-6, False, False, False),
+    ],
+)
 def test_qk_norm_and_half_rope(
-    B=2,
-    L=4096,
-    H=32,
-    h=8,
-    D=128,
-    rope_theta=10000.0,
-    eps=1e-6,
-    interleaved=True,
-    transposed=True,
-    silu=False,
-    bench=False,
+    B, L, H, h, D, rope_theta, eps, interleaved, transposed, silu, benchmark
 ):
     dtype = torch.bfloat16
     device = "cuda:0"
@@ -442,53 +450,55 @@ def test_qk_norm_and_half_rope(
         output_check(dqw_ref, dqw, name="dqw")
         output_check(dkw_ref, dkw, name="dkw")
 
-    if bench:
-        benchmark_func(
-            triton_qk_norm_and_half_rope_forward,
-            qkv,
-            qw,
-            kw,
-            freqs,
-            H=H,
-            h=h,
-            eps=1e-6,
-            transposed=transposed,
-            interleaved=interleaved,
-            silu=silu,
-            ref_bytes=L * B * (H + 2 * h) * D * 4,
-            n_profile=0,
-        )
-        benchmark_func(
-            triton_qk_norm_and_half_rope_backward,
-            q_grad,
-            k_grad,
-            v_grad,
-            qkv,
-            qw,
-            kw,
-            freqs,
-            eps=1e-6,
-            transposed=transposed,
-            interleaved=interleaved,
-            silu=silu,
-            ref_bytes=L * B * (H + 2 * h) * D * 6,
-            n_profile=0,
-        )
+    benchmark(
+        triton_qk_norm_and_half_rope_forward,
+        qkv,
+        qw,
+        kw,
+        freqs,
+        H=H,
+        h=h,
+        eps=1e-6,
+        transposed=transposed,
+        interleaved=interleaved,
+        silu=silu,
+        ref_bytes=L * B * (H + 2 * h) * D * 4,
+        n_profile=0,
+    )
+    benchmark(
+        triton_qk_norm_and_half_rope_backward,
+        q_grad,
+        k_grad,
+        v_grad,
+        qkv,
+        qw,
+        kw,
+        freqs,
+        eps=1e-6,
+        transposed=transposed,
+        interleaved=interleaved,
+        silu=silu,
+        ref_bytes=L * B * (H + 2 * h) * D * 6,
+        n_profile=0,
+    )
 
 
+@pytest.mark.parametrize(
+    "lengths,H,h,dim,rope_theta,silu,interleaved,cp_size,cp_rank",
+    [
+        ([2048], 24, 6, 128, 10000.0, False, True, 1, 0),
+        ([1024, 4096, 4096, 568], 32, 4, 128, 10000.0, False, True, 1, 0),
+        ([2048, 4096, 4096], 32, 4, 128, 10000.0, False, True, 1, 0),
+        ([2048, 3072, 4096], 32, 4, 128, 10000.0, False, True, 4, 0),
+        ([2048, 4096, 4096], 32, 4, 128, 10000.0, True, False, 4, 0),
+        ([16] * 512, 32, 4, 128, 10000.0, False, False, 4, 0),
+    ],
+)
 def test_varlen_qk_norm_and_half_rope(
-    lengths=[2048, 2048],
-    H=32,
-    h=4,
-    dim=128,
-    rope_theta=10000.0,
-    silu=False,
-    interleaved=True,
-    bench=False,
-    cp_size=1,
-    cp_rank=0,
+    lengths, H, h, dim, rope_theta, silu, interleaved, cp_size, cp_rank, benchmark
 ):
-    dtype = torch.bfloat16
+    # weight grad of torch impl has great error with large seq nums
+    dtype = torch.bfloat16 if len(lengths) < 8 else torch.float32
     device = "cuda:0"
     N = sum(lengths) // cp_size
     qkv = torch.randn(N, (H + 2 * h) * dim, dtype=dtype, device=device)
@@ -567,51 +577,57 @@ def test_varlen_qk_norm_and_half_rope(
         cp_rank=cp_rank,
     )
     output_check(dqkv_ref, dqkv, name="dqkv", atol=0.1, rtol=0.02)
-    output_check(dqw_ref, dqw.to(dtype), name="dqw", atol=5.0, rtol=0.02)
-    output_check(dkw_ref, dkw.to(dtype), name="dkw", atol=5.0, rtol=0.02)
+    output_check(dqw_ref, dqw.to(dtype), name="dqw", atol=2.0 * len(lengths), rtol=0.02)
+    output_check(dkw_ref, dkw.to(dtype), name="dkw", atol=2.0 * len(lengths), rtol=0.02)
 
-    if bench:
-        lbh = sum(lengths) // cp_size * H
-        benchmark_func(
-            triton_varlen_qk_norm_and_half_rope_forward,
-            qkv,
-            qw,
-            kw,
-            freqs,
-            cu_seqlens_q,
-            cu_seqlens_kv,
-            interleaved=interleaved,
-            H=H,
-            h=h,
-            silu=silu,
-            mscale=mscale,
-            cp_size=cp_size,
-            cp_rank=cp_rank,
-            ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
-            n_profile=0,
-        )
-        benchmark_func(
-            triton_varlen_qk_norm_and_half_rope_backward,
-            q_grad,
-            k_grad,
-            v_grad,
-            qkv,
-            qw,
-            kw,
-            freqs,
-            cu_seqlens_q,
-            cu_seqlens_kv,
-            mscale=mscale,
-            interleaved=interleaved,
-            silu=silu,
-            cp_size=cp_size,
-            cp_rank=cp_rank,
-            ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
-            n_profile=0,
-        )
+    lbh = sum(lengths) // cp_size * H
+    benchmark(
+        triton_varlen_qk_norm_and_half_rope_forward,
+        qkv,
+        qw,
+        kw,
+        freqs,
+        cu_seqlens_q,
+        cu_seqlens_kv,
+        interleaved=interleaved,
+        H=H,
+        h=h,
+        silu=silu,
+        mscale=mscale,
+        cp_size=cp_size,
+        cp_rank=cp_rank,
+        ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
+        n_profile=0,
+    )
+    benchmark(
+        triton_varlen_qk_norm_and_half_rope_backward,
+        q_grad,
+        k_grad,
+        v_grad,
+        qkv,
+        qw,
+        kw,
+        freqs,
+        cu_seqlens_q,
+        cu_seqlens_kv,
+        mscale=mscale,
+        interleaved=interleaved,
+        silu=silu,
+        cp_size=cp_size,
+        cp_rank=cp_rank,
+        ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
+        n_profile=0,
+    )
 
 
-def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0, transpose=False, bench=False):
+@pytest.mark.parametrize(
+    "B,L,H,rope_theta,transpose",
+    [
+        (4, 4096, 16, 10000.0, False),
+        (4, 4096, 16, 10000.0, True),
+    ],
+)
+def test_mla_rope(B, L, H, rope_theta, transpose, benchmark):
     dtype = torch.bfloat16
     device = "cuda:0"
     q = torch.randn(L, B, H, 192, dtype=dtype, device=device, requires_grad=True)
@@ -665,32 +681,42 @@ def test_mla_rope(B=2, L=4096, H=32, rope_theta=10000.0, transpose=False, bench=
     output_check(dkv_ref, dkv, name="dkv")
     output_check(dp_ref, dp, name="dp")
 
-    if bench:
-        lbh = L * B * H
-        benchmark_func(
-            triton_mla_rope_forward,
-            q,
-            kv,
-            k_pos_emb,
-            freqs,
-            ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
-            n_profile=0,
-        )
-        benchmark_func(
-            triton_mla_rope_backward,
-            q_grad,
-            k_grad,
-            v_grad,
-            freqs,
-            ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
-            n_profile=0,
-        )
+    lbh = L * B * H
+    benchmark(
+        triton_mla_rope_forward,
+        q,
+        kv,
+        k_pos_emb,
+        freqs,
+        ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
+        n_profile=0,
+    )
+    benchmark(
+        triton_mla_rope_backward,
+        q_grad,
+        k_grad,
+        v_grad,
+        freqs,
+        ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
+        n_profile=0,
+    )
 
 
-def test_varlen_mla_rope(
-    lengths=[2048, 2048], H=32, rope_theta=10000.0, bench=False, cp_size=1, cp_rank=0
-):
-    dtype = torch.bfloat16
+@pytest.mark.parametrize(
+    "lengths,H,rope_theta,cp_size,cp_rank",
+    [
+        ([8192], 64, 10000.0, 1, 0),
+        ([4096, 4096], 16, 10000.0, 1, 0),
+        ([4096 * 4, 2048 * 4, 2048 * 4], 32, 10000.0, 4, 0),
+        ([4096 * 4, 2048 * 4, 2048 * 4], 32, 10000.0, 4, 1),
+        ([4096 * 4, 2048 * 4, 2048 * 4], 32, 10000.0, 4, 2),
+        ([4096 * 4, 2048 * 4, 2048 * 4], 32, 10000.0, 4, 3),
+        ([16] * 236, 32, 10000.0, 4, 1),
+    ],
+)
+def test_varlen_mla_rope(lengths, H, rope_theta, cp_size, cp_rank, benchmark):
+    # weight grad of torch impl has great error with large seq nums
+    dtype = torch.bfloat16 if len(lengths) < 8 else torch.float32
     device = "cuda:0"
     qc = torch.randn(
         sum(lengths) // cp_size, H, 192, dtype=dtype, device=device
@@ -776,245 +802,34 @@ def test_varlen_mla_rope(
     output_check(dkv_ref, dkv, name="dkv", atol=0.1, rtol=0.02)
     output_check(dp_ref, dp, name="dp", atol=0.2, rtol=0.02)
 
-    if bench:
-        lbh = sum(lengths) // cp_size * H
-        benchmark_func(
-            triton_mla_rope_forward,
-            qc,
-            kvc,
-            k_pos_embc,
-            freqs,
-            mscale=mscale,
-            cu_seqlens_q=cu_seqlens_q,
-            cu_seqlens_kv=cu_seqlens_kv,
-            cp_size=cp_size,
-            cp_rank=cp_rank,
-            transpose=False,
-            ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
-            n_profile=0,
-        )
-        benchmark_func(
-            triton_mla_rope_backward,
-            q_grad,
-            k_grad,
-            v_grad,
-            freqs,
-            mscale=mscale,
-            cu_seqlens_q=cu_seqlens_q,
-            cu_seqlens_kv=cu_seqlens_kv,
-            cp_size=cp_size,
-            cp_rank=cp_rank,
-            transposed=False,
-            ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
-            n_profile=0,
-        )
-
-
-if __name__ == "__main__":
-    test_half_rope(
-        B=2, L=4096, H=32, h=8, D=128, rope_theta=10000.0, transposed=True, bench=False
+    lbh = sum(lengths) // cp_size * H
+    benchmark(
+        triton_mla_rope_forward,
+        qc,
+        kvc,
+        k_pos_embc,
+        freqs,
+        mscale=mscale,
+        cu_seqlens_q=cu_seqlens_q,
+        cu_seqlens_kv=cu_seqlens_kv,
+        cp_size=cp_size,
+        cp_rank=cp_rank,
+        transpose=False,
+        ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
+        n_profile=0,
     )
-    test_half_rope(
-        B=2, L=4096, H=32, h=8, D=128, rope_theta=10000.0, transposed=False, bench=False
-    )
-    test_qk_norm_and_half_rope(
-        B=2,
-        L=4096,
-        H=16,
-        h=16,
-        D=128,
-        rope_theta=10000.0,
-        interleaved=True,
-        transposed=True,
-        silu=True,
-        bench=False,
-    )
-    test_qk_norm_and_half_rope(
-        B=2,
-        L=4096,
-        H=16,
-        h=16,
-        D=128,
-        rope_theta=10000.0,
-        interleaved=True,
-        transposed=True,
-        silu=False,
-        bench=False,
-    )
-    test_qk_norm_and_half_rope(
-        B=4,
-        L=4096,
-        H=16,
-        h=4,
-        D=128,
-        rope_theta=10000.0,
-        interleaved=True,
+    benchmark(
+        triton_mla_rope_backward,
+        q_grad,
+        k_grad,
+        v_grad,
+        freqs,
+        mscale=mscale,
+        cu_seqlens_q=cu_seqlens_q,
+        cu_seqlens_kv=cu_seqlens_kv,
+        cp_size=cp_size,
+        cp_rank=cp_rank,
         transposed=False,
-        silu=True,
-        bench=False,
-    )
-    test_qk_norm_and_half_rope(
-        B=4,
-        L=4096,
-        H=16,
-        h=4,
-        D=128,
-        rope_theta=10000.0,
-        interleaved=True,
-        transposed=False,
-        silu=False,
-        bench=False,
-    )
-    test_qk_norm_and_half_rope(
-        B=4,
-        L=4096,
-        H=32,
-        h=4,
-        D=128,
-        rope_theta=10000.0,
-        interleaved=False,
-        transposed=True,
-        silu=True,
-        bench=False,
-    )
-    test_qk_norm_and_half_rope(
-        B=4,
-        L=4096,
-        H=24,
-        h=6,
-        D=128,
-        rope_theta=10000.0,
-        interleaved=True,
-        transposed=True,
-        silu=False,
-        bench=False,
-    )
-    test_qk_norm_and_half_rope(
-        B=4,
-        L=4096,
-        H=32,
-        h=32,
-        D=128,
-        rope_theta=10000.0,
-        interleaved=False,
-        transposed=False,
-        silu=True,
-        bench=False,
-    )
-    test_qk_norm_and_half_rope(
-        B=1,
-        L=4096,
-        H=32,
-        h=32,
-        D=128,
-        rope_theta=10000.0,
-        interleaved=False,
-        transposed=False,
-        silu=False,
-        bench=False,
-    )
-    test_varlen_qk_norm_and_half_rope(
-        lengths=[2048],
-        H=24,
-        h=6,
-        dim=128,
-        rope_theta=10000.0,
-        silu=False,
-        interleaved=True,
-        cp_size=1,
-        cp_rank=0,
-        bench=False,
-    )
-    test_varlen_qk_norm_and_half_rope(
-        lengths=[1024, 4096, 4096, 568],
-        H=32,
-        h=4,
-        dim=128,
-        rope_theta=10000.0,
-        silu=False,
-        interleaved=True,
-        cp_size=1,
-        cp_rank=0,
-        bench=False,
-    )
-    test_varlen_qk_norm_and_half_rope(
-        lengths=[2048, 4096, 4096],
-        H=32,
-        h=4,
-        dim=128,
-        rope_theta=10000.0,
-        silu=False,
-        interleaved=True,
-        cp_size=1,
-        cp_rank=0,
-        bench=False,
-    )
-    test_varlen_qk_norm_and_half_rope(
-        lengths=[2048, 3072, 4096],
-        H=32,
-        h=4,
-        dim=128,
-        rope_theta=10000.0,
-        silu=False,
-        interleaved=True,
-        cp_size=4,
-        cp_rank=0,
-        bench=False,
-    )
-    test_varlen_qk_norm_and_half_rope(
-        lengths=[2048, 4096, 4096],
-        H=32,
-        h=4,
-        dim=128,
-        rope_theta=10000.0,
-        silu=True,
-        interleaved=False,
-        cp_size=4,
-        cp_rank=0,
-        bench=False,
-    )
-    test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0, transpose=False, bench=False)
-    test_mla_rope(B=4, L=4096, H=16, rope_theta=10000.0, transpose=True, bench=False)
-    test_varlen_mla_rope(
-        lengths=[8192], H=64, rope_theta=10000.0, cp_size=1, cp_rank=0, bench=False
-    )
-    test_varlen_mla_rope(
-        lengths=[4096, 4096],
-        H=16,
-        rope_theta=10000.0,
-        cp_size=1,
-        cp_rank=0,
-        bench=False,
-    )
-    test_varlen_mla_rope(
-        lengths=[4096 * 4, 2048 * 4, 2048 * 4],
-        H=32,
-        rope_theta=10000.0,
-        cp_size=4,
-        cp_rank=0,
-        bench=False,
-    )
-    test_varlen_mla_rope(
-        lengths=[4096 * 4, 2048 * 4, 2048 * 4],
-        H=32,
-        rope_theta=10000.0,
-        cp_size=4,
-        cp_rank=1,
-        bench=False,
-    )
-    test_varlen_mla_rope(
-        lengths=[4096 * 4, 2048 * 4, 2048 * 4],
-        H=32,
-        rope_theta=10000.0,
-        cp_size=4,
-        cp_rank=2,
-        bench=False,
-    )
-    test_varlen_mla_rope(
-        lengths=[4096 * 4, 2048 * 4, 2048 * 4],
-        H=32,
-        rope_theta=10000.0,
-        cp_size=4,
-        cp_rank=3,
-        bench=False,
+        ref_bytes=lbh * (64 * 2 + 256 * 2 + 64 * 2 + 192 * 2 + 128 * 2),
+        n_profile=0,
     )
